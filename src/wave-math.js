@@ -130,28 +130,90 @@ function waveCore(F_m, d_path_ft, d_local_ft, U_mps = 13.4112, t_eff_s = 28800, 
   };
 }
 
+// ---- stage 2: direction blending (no snapping) ----
+// bearing_grid in [0,360) -> the two nearest of the 16 table bearings and the
+// interpolation weight toward the upper one.
+function blendDir(bearingGridDeg) {
+  const b = bearingGridDeg / 22.5;
+  const f = Math.floor(b);
+  const i0 = ((f % 16) + 16) % 16;
+  const i1 = (i0 + 1) % 16;
+  return { i0, i1, w: b - f };
+}
+
+// Blend F_eff and path depth at one coarse (98x95) cell for a grid bearing.
+function blendFetch(tables, coarseIndex, bearingGridDeg) {
+  const { fetchEff, pathEff } = tables;
+  const { i0, i1, w } = blendDir(bearingGridDeg);
+  const nc = FETCH_ROWS * FETCH_COLS;
+  const a = i0 * nc + coarseIndex;
+  const b = i1 * nc + coarseIndex;
+  const fa = fetchEff[a], fb = fetchEff[b];
+  const Fa = fa === LAND_U16 ? 0 : fa * 10;
+  const Fb = fb === LAND_U16 ? 0 : fb * 10;
+  const Da = fa === LAND_U16 ? 0 : pathEff[a];
+  const Db = fb === LAND_U16 ? 0 : pathEff[b];
+  return { F_m: Fa + w * (Fb - Fa), d_path_ft: Da + w * (Db - Da) };
+}
+
 // ---- per-hour field over all 83,220 bathy cells ----
 // memoized: wave params depend only on the 9,310 coarse fetch cells; depth (Ks)
 // varies per bathy cell, so only the depth term is recomputed 83,220 times.
-function computeField(tables, windMph, windDirDeg, out) {
+// opts.blend: blend the two nearest bearings (default false = stage-1 snap).
+// opts.t_eff_s: duration input in seconds (default 28800 = 8 h).
+// opts.gamma: grid convergence for blending, degrees (default 0).
+// opts.outAfterKs / opts.outTs: optional per-bathy-cell outputs (post-Ks Hs ft,
+// period s) used by the stage-2 display for Hmax and H/L.
+function computeField(tables, windMph, windDirDeg, out, opts = {}) {
   const { depth, fetchEff, pathEff } = tables;
+  const blend = !!opts.blend;
+  const t_eff_s = opts.t_eff_s != null ? opts.t_eff_s : 28800;
+  const gamma = opts.gamma || 0;
+  const outAfterKs = opts.outAfterKs;
+  const outTs = opts.outTs;
   const U_mps = windMph * 0.44704;
   const U_A = 0.71 * Math.pow(U_mps, 1.23);
   const dstar = G * FT / (U_A * U_A);
-  const Fdurd = U_A * 28800;
-  const dir = ((Math.round(windDirDeg / 22.5) % 16) + 16) % 16;
-  const off = dir * FETCH_ROWS * FETCH_COLS;
+  const Fdurd = U_A * t_eff_s;
+
+  let dirA, dirB, wB;
+  if (blend) {
+    const bg = ((windDirDeg - gamma) % 360 + 360) % 360;
+    const d = blendDir(bg);
+    dirA = d.i0;
+    dirB = d.i1;
+    wB = d.w;
+  } else {
+    dirA = ((Math.round(windDirDeg / 22.5) % 16) + 16) % 16;
+    dirB = dirA;
+    wB = 0;
+  }
+  const offA = dirA * FETCH_ROWS * FETCH_COLS;
+  const offB = dirB * FETCH_ROWS * FETCH_COLS;
 
   const nc = FETCH_ROWS * FETCH_COLS;
   const cellHs_ft = new Float64Array(nc);
   const cellTi = new Int32Array(nc);
   const cellTf = new Float64Array(nc);
   const cellDpCg = new Float64Array(nc);
+  const cellT_s = outTs ? new Float64Array(nc) : null;
   for (let c = 0; c < nc; c++) {
-    const fu = fetchEff[off + c];
-    if (fu === LAND_U16) continue; // cellHs_ft stays 0
-    const F_m = fu * 10;
-    const d_path_ft = pathEff[off + c];
+    let F_m, d_path_ft;
+    if (blend) {
+      const fa = fetchEff[offA + c], fb = fetchEff[offB + c];
+      const Fa = fa === LAND_U16 ? 0 : fa * 10;
+      const Fb = fb === LAND_U16 ? 0 : fb * 10;
+      const Da = fa === LAND_U16 ? 0 : pathEff[offA + c];
+      const Db = fb === LAND_U16 ? 0 : pathEff[offB + c];
+      F_m = Fa + wB * (Fb - Fa);
+      d_path_ft = Da + wB * (Db - Da);
+    } else {
+      const fu = fetchEff[offA + c];
+      if (fu === LAND_U16) continue; // cellHs_ft stays 0
+      F_m = fu * 10;
+      d_path_ft = pathEff[offA + c];
+    }
+    if (F_m <= 0 || d_path_ft <= 0) continue;
     const F_used_m = F_m < Fdurd ? F_m : Fdurd;
     const Fstar = G * F_used_m / (U_A * U_A);
     const hstar = dstar * d_path_ft;
@@ -159,6 +221,7 @@ function computeField(tables, windMph, windDirDeg, out) {
     const P2 = tanhLUT(0.833 * Math.pow(hstar, 0.375));
     cellHs_ft[c] = (0.283 * (U_A * U_A / G) * P1 * tanhLUT(0.00565 * Math.sqrt(Fstar) / P1)) / FT;
     const T_s = 7.54 * (U_A / G) * P2 * tanhLUT(0.0379 * Math.cbrt(Fstar) / P2);
+    if (cellT_s) cellT_s[c] = T_s;
     let t = (T_s - T_LO) * T_INV;
     t = t < 0 ? 0 : t > T_N - 1 ? T_N - 1 : t;
     const ti = Math.min(T_N - 2, Math.floor(t));
@@ -192,11 +255,22 @@ function computeField(tables, windMph, windDirDeg, out) {
     const base = rowRc[row] * FETCH_COLS;
     for (let col = 0; col < BATHY_COLS; col++, i++) {
       const du = depth[i];
-      if (du === LAND_U16) { target[i] = 0; continue; }
+      const d_local_ft = du * 0.25;
+      if (du === LAND_U16) {
+        target[i] = 0;
+        if (outAfterKs) outAfterKs[i] = 0;
+        if (outTs) outTs[i] = 0;
+        continue;
+      }
       const c = base + colCc[col];
       const Hs_ft = cellHs_ft[c];
-      if (Hs_ft === 0) { target[i] = 0; continue; }
-      let hh = (du * 0.25 * FT - H_LO) * H_INV;
+      if (Hs_ft === 0) {
+        target[i] = 0;
+        if (outAfterKs) outAfterKs[i] = 0;
+        if (outTs) outTs[i] = 0;
+        continue;
+      }
+      let hh = (d_local_ft * FT - H_LO) * H_INV;
       hh = hh < 0 ? 0 : hh > H_N - 1 ? H_N - 1 : hh;
       const hi = Math.min(H_N - 2, Math.floor(hh));
       const hf = hh - hi;
@@ -208,7 +282,10 @@ function computeField(tables, windMph, windDirDeg, out) {
       const b = CG_LUT[i10] * (1 - hf) + CG_LUT[i10 + 1] * hf;
       const cgl = a * (1 - tf) + b * tf;
       const Ks = Math.min(1.6, Math.max(0.7, Math.sqrt(cellDpCg[c] / cgl)));
-      target[i] = Math.min(Hs_ft * Ks, 0.6 * du * 0.25);
+      const hs_after_ks = Hs_ft * Ks;
+      target[i] = Math.min(hs_after_ks, 0.6 * d_local_ft);
+      if (outAfterKs) outAfterKs[i] = hs_after_ks;
+      if (outTs) outTs[i] = cellT_s ? cellT_s[c] : 0;
     }
   }
   return target;
@@ -216,5 +293,5 @@ function computeField(tables, windMph, windDirDeg, out) {
 
 module.exports = {
   G, FT, tanhLUT, tanhExact, dispersionExact, dispersionFast, spm, waveCore,
-  computeField, fetchIndex,
+  computeField, blendDir, blendFetch, fetchIndex,
 };
