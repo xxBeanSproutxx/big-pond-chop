@@ -98,10 +98,13 @@ check('computeFrame roller at lake-max uses the same definition', () => {
 });
 
 console.log('\n== [4] stage-3 basemap + page stats ==');
-check('CARTO Positron tile config is pinned', () => {
-  assert.ok(TILE_URL.includes('basemaps.cartocdn.com'), TILE_URL);
-  assert.ok(TILE_URL.includes('light_all'), TILE_URL);
-  assert.ok(/&copy; OpenStreetMap contributors &copy; CARTO/.test(TILE_ATTRIBUTION));
+check('basemap is muted + keyless (no watermarked provider)', () => {
+  // CARTO's keyless tiles now stamp "API KEY REQUIRED", so the muted look comes from
+  // desaturating standard OSM tiles instead. Pin the intent: keyless host + the CSS filter.
+  assert.ok(TILE_URL.includes('tile.openstreetmap.org'), TILE_URL);
+  assert.ok(!/cartocdn\.com/.test(TILE_URL), 'watermarked provider must not be used');
+  const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
+  assert.ok(/\.leaflet-tile-pane\s*\{[^}]*filter:[^}]*grayscale/.test(html), 'tile pane must be desaturated');
   assert.strictEqual(TILE_MAX_ZOOM, 19);
   assert.strictEqual(OVERLAY_OPACITY, 0.72);
   assert.strictEqual(PLAY_INTERVAL_MS, 333);
