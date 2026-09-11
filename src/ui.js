@@ -1,0 +1,138 @@
+'use strict';
+// Stage 3: pure UI helpers — headline formatting, Hs palette, spot naming.
+// No DOM, no tables: node-testable and browser-loadable via the tiny loader.
+
+// ---- Hs palette (ft): deep blue -> cyan -> amber -> orange-red -> crimson -> magenta ----
+const HS_STOPS = [
+  [0.0, 0x1e, 0x40, 0xaf], // deep blue
+  [1.0, 0x06, 0xb6, 0xd4], // vibrant cyan
+  [2.0, 0xf5, 0x9e, 0x0b], // amber
+  [3.5, 0xea, 0x58, 0x0c], // orange-red
+  [4.5, 0xdc, 0x26, 0x26], // crimson
+  [5.5, 0xbe, 0x18, 0x5d], // magenta
+];
+const HS_BREAKS = [0, 1, 2, 3.5, 4.5, 6];
+const OVERLAY_OPACITY = 0.72;
+
+// RGBA for an Hs value in ft. Land / flat water -> fully transparent; water -> opaque,
+// opacity is applied once by the Leaflet overlay.
+function colorForHs(hsFt) {
+  if (!(hsFt > 0) || !Number.isFinite(hsFt)) return [0, 0, 0, 0];
+  const t = Math.min(hsFt, HS_STOPS[HS_STOPS.length - 1][0]);
+  let i = 0;
+  while (i < HS_STOPS.length - 2 && t > HS_STOPS[i + 1][0]) i++;
+  const a = HS_STOPS[i], b = HS_STOPS[i + 1];
+  const f = (t - a[0]) / (b[0] - a[0]);
+  return [
+    Math.round(a[1] + f * (b[1] - a[1])),
+    Math.round(a[2] + f * (b[2] - a[2])),
+    Math.round(a[3] + f * (b[3] - a[3])),
+    255,
+  ];
+}
+
+// CSS rgb() for a stop value, used by the legend strip.
+function rgbForHs(hsFt) {
+  const c = colorForHs(hsFt);
+  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+}
+
+// ---- stats ----
+function percentile(values, p) {
+  const v = [];
+  for (let i = 0; i < values.length; i++) {
+    if (values[i] > 0 && Number.isFinite(values[i])) v.push(values[i]);
+  }
+  if (!v.length) return 0;
+  v.sort((x, y) => x - y);
+  const idx = (v.length - 1) * p;
+  const lo = Math.floor(idx), hi = Math.ceil(idx);
+  return v[lo] + (v[hi] - v[lo]) * (idx - lo);
+}
+function p10(values) { return percentile(values, 0.1); }
+
+// ---- geography ----
+const SECTORS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+const MI_M = 1609.344;
+const FEATURE_RADIUS_M = 4000;
+const SHORE_RADIUS_M = 400;
+
+function haversineM(lat1, lon1, lat2, lon2) {
+  const R = 6371008.8;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+// 8-way compass bearing from point 1 to point 2, degrees clockwise from north.
+function bearing8(lat1, lon1, lat2, lon2) {
+  const midLat = (lat1 + lat2) / 2 * Math.PI / 180;
+  const dx = (lon2 - lon1) * Math.cos(midLat);
+  const dy = lat2 - lat1;
+  let deg = Math.atan2(dx, dy) * 180 / Math.PI;
+  deg = ((deg % 360) + 360) % 360;
+  return SECTORS[Math.round(deg / 45) % 8];
+}
+
+function centroidOfCorners(corners) {
+  let lat = 0, lon = 0, n = 0;
+  for (const k of Object.keys(corners || {})) { lat += corners[k][1]; lon += corners[k][0]; n++; }
+  return n ? { lat: lat / n, lon: lon / n } : { lat: 0, lon: 0 };
+}
+
+// 8-way sector of a point relative to the lake centroid.
+function sectorFor(lat, lon, centroid) {
+  return bearing8(centroid.lat, centroid.lon, lat, lon);
+}
+
+// Nearest named feature within 4 km, else open water with its sector descriptor.
+// sector = { name, shore }.
+function nameSpot(lat, lon, features, sector) {
+  let best = null, bestM = Infinity;
+  for (const f of features || []) {
+    const m = haversineM(lat, lon, f.lat, f.lon);
+    if (m < bestM) { bestM = m; best = f; }
+  }
+  if (best && bestM <= FEATURE_RADIUS_M) {
+    return {
+      kind: 'feature', name: best.name, distanceMi: bestM / MI_M,
+      bearing: bearing8(lat, lon, best.lat, best.lon), sector,
+    };
+  }
+  return { kind: 'open', sector };
+}
+
+function describePin(spot) {
+  if (spot.kind === 'feature') {
+    return `${spot.distanceMi.toFixed(1)} mi ${spot.bearing} of ${spot.name}`;
+  }
+  const s = spot.sector || {};
+  return `Open water - ${s.name} ${s.shore ? 'shore' : 'basin'}`;
+}
+
+function sectorPhrase(sector) {
+  const s = sector || {};
+  return `${s.name} ${s.shore ? 'shore' : 'basin'}`;
+}
+
+// Two-line honest verdict. Never a bare single Hs number.
+function formatHeadline(frame) {
+  const spot = nameSpot(frame.peakLat, frame.peakLon, frame.features, frame.sector);
+  const place = spot.kind === 'feature'
+    ? `${spot.name} area (${sectorPhrase(frame.sector)})`
+    : sectorPhrase(frame.sector);
+  return {
+    range: `Waves: ${frame.p10Ft.toFixed(1)} - ${frame.maxHsFt.toFixed(1)} ft`,
+    peak: `Peak roller ${frame.rollerFt.toFixed(1)} ft at ${place}`,
+  };
+}
+
+module.exports = {
+  HS_STOPS, HS_BREAKS, OVERLAY_OPACITY,
+  colorForHs, rgbForHs, percentile, p10,
+  SECTORS, haversineM, bearing8, centroidOfCorners, sectorFor,
+  nameSpot, describePin, formatHeadline,
+  FEATURE_RADIUS_M, SHORE_RADIUS_M,
+};

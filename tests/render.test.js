@@ -6,7 +6,11 @@ const fs = require('fs');
 const path = require('path');
 const { decodeTables, BATHY_ROWS, BATHY_COLS } = require('../src/tables');
 const { waveCore, blendFetch, FT } = require('../src/wave-math');
-const { gridToLonlat, lonlatToGrid, gatherRaster, hmaxFt, computeFrame } = require('../src/render');
+const {
+  gridToLonlat, lonlatToGrid, gatherRaster, hmaxFt, computeFrame,
+  TILE_URL, TILE_ATTRIBUTION, TILE_MAX_ZOOM, OVERLAY_OPACITY, PLAY_INTERVAL_MS,
+} = require('../src/render');
+const ui = require('../src/ui');
 
 const ROOT = path.join(__dirname, '..');
 const warp = JSON.parse(fs.readFileSync(path.join(ROOT, 'public', 'warp.v1.json'), 'utf8'));
@@ -91,6 +95,28 @@ check('computeFrame roller at lake-max uses the same definition', () => {
   const d = tables.depth[f.maxIdx] * 0.25;
   assert.ok(Math.abs(f.rollerFt - hmaxFt(f.afterKs[f.maxIdx], d)) < 1e-12);
   console.log(`       lake-max Hs ${f.maxHs.toFixed(3)} ft, Hmax ${f.rollerFt.toFixed(3)} ft, H/L ${f.hlMax.toFixed(4)}`);
+});
+
+console.log('\n== [4] stage-3 basemap + page stats ==');
+check('CARTO Positron tile config is pinned', () => {
+  assert.ok(TILE_URL.includes('basemaps.cartocdn.com'), TILE_URL);
+  assert.ok(TILE_URL.includes('light_all'), TILE_URL);
+  assert.ok(/&copy; OpenStreetMap contributors &copy; CARTO/.test(TILE_ATTRIBUTION));
+  assert.strictEqual(TILE_MAX_ZOOM, 19);
+  assert.strictEqual(OVERLAY_OPACITY, 0.72);
+  assert.strictEqual(PLAY_INTERVAL_MS, 333);
+  console.log(`       ${TILE_URL} @ opacity ${OVERLAY_OPACITY}`);
+});
+check('frame carries a water-only p10 at or below the lake max', () => {
+  const entry = { speedMph: 30, dirTrueDeg: 315, tEffH: 8 };
+  const f = computeFrame(tables, entry, { gamma: -0.474 });
+  const p10 = ui.p10(f.capped);
+  assert.ok(p10 >= 0 && p10 <= f.maxHs, `p10 ${p10} maxHs ${f.maxHs}`);
+  const peak = gridToLonlat(warp, f.maxIdx % BATHY_COLS, Math.floor(f.maxIdx / BATHY_COLS));
+  const g = lonlatToGrid(warp, peak.lon, peak.lat);
+  assert.ok(Math.hypot(g.col - (f.maxIdx % BATHY_COLS), g.row - Math.floor(f.maxIdx / BATHY_COLS)) < 1);
+  console.log(`       p10 ${p10.toFixed(3)} ft, max ${f.maxHs.toFixed(3)} ft, ` +
+    `peak ${peak.lat.toFixed(4)}, ${peak.lon.toFixed(4)}`);
 });
 
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);
