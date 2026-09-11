@@ -1,6 +1,7 @@
 'use strict';
-// Stage 2 display: affine warp, canvas paint, Leaflet overlay, map readout.
-// Pure geometry/gather helpers are node-testable; mount() drives the DOM.
+// Stage 4A display: affine warp, canvas paint, lazy frame cache + LRU,
+// water-masked smoothing, zoom-aware gather, Leaflet overlay, map readout.
+// Pure geometry/gather/cache helpers are node-testable; mount() drives the DOM.
 
 const { BATHY_ROWS, BATHY_COLS, BATHY_CELLS, LAND_U16 } = require('./tables');
 const waveMath = require('./wave-math');
@@ -14,6 +15,8 @@ const TILE_ATTRIBUTION = '&copy; OpenStreetMap contributors';
 const TILE_MAX_ZOOM = 19;
 const OVERLAY_OPACITY = ui.OVERLAY_OPACITY;
 const PLAY_INTERVAL_MS = 333;
+const FRAME_MINUTES = 15;
+const FRAME_CACHE_MAX = 8;
 
 // ---- affine warp ----
 function gridToLonlat(warp, col, row) {
@@ -39,6 +42,12 @@ function pickDisplayDims(bounds, targetW) {
   const wM = (bounds.east - bounds.west) * Math.cos(midLat) * 111320;
   const hM = (bounds.north - bounds.south) * 110574;
   return { W, H: Math.max(2, Math.round(W * hM / wM)) };
+}
+
+// Raster width for a container: client px * dpr, clamped to [lo, hi].
+function targetWidth(clientWidth, dpr, lo = 512, hi = 1536) {
+  const px = Math.round((Number(clientWidth) || 0) * (Number(dpr) || 1));
+  return Math.max(lo, Math.min(hi, px));
 }
 
 function bilinearSample(field, cols, rows, colF, rowF) {
@@ -75,7 +84,7 @@ function hmaxFt(hsAfterKsFt, dLocalFt) {
   return Math.min(1.67 * hsAfterKsFt, 0.78 * dLocalFt);
 }
 
-// One hour frame: capped Hs field + post-Ks/depth/period for readout + lake-max stats.
+// One hour/step frame: capped Hs field + post-Ks/depth/period for readout + lake-max stats.
 function computeFrame(tables, entry, opts = {}) {
   const gamma = opts.gamma || 0;
   const capped = opts.out || new Float64Array(BATHY_CELLS);
@@ -105,6 +114,128 @@ function paintRaster(ctx, raster, W, H) {
   ctx.putImageData(img, 0, 0);
 }
 
+// ---- display smoothing (display-only; stats stay on the raw field) ----
+const landFields = new WeakMap();
+const landFracCache = new Map();
+
+// Land fraction per display pixel: bilinear gather of a binary land field.
+function landMaskRaster(warp, tables, W, H) {
+  let field = landFields.get(tables);
+  if (!field) {
+    field = new Float32Array(tables.depth.length);
+    for (let i = 0; i < field.length; i++) field[i] = tables.depth[i] === LAND_U16 ? 1 : 0;
+    landFields.set(tables, field);
+  }
+  const key = `${W}x${H}`;
+  let frac = landFracCache.get(key);
+  if (!frac) { frac = gatherRaster(field, warp, W, H); landFracCache.set(key, frac); }
+  return frac;
+}
+
+// Separable masked blur. Land sources (landFrac = 1) get zero weight, so the
+// shoreline fringe is removed; weights are normalized per pixel. Pure-land
+// pixels are forced to exactly 0. Inputs are never mutated.
+function smoothRaster(raster, landFrac, W, H, radius = 2) {
+  const r = Math.max(1, radius | 0);
+  const n = 2 * r;
+  const kern = new Float64Array(n + 1);
+  kern[0] = 1;
+  for (let i = 1; i <= n; i++) kern[i] = (kern[i - 1] * (n - i + 1)) / i;
+  const tmp = new Float32Array(W * H);
+  const out = new Float32Array(W * H);
+  for (let i = 0; i < H; i++) {
+    const row = i * W;
+    for (let j = 0; j < W; j++) {
+      let sw = 0, sv = 0;
+      if (j >= r && j < W - r) {
+        const j0 = row + j - r;
+        for (let k = 0; k <= n; k++) {
+          const w = kern[k] * (1 - landFrac[j0 + k]);
+          sw += w; sv += w * raster[j0 + k];
+        }
+      } else {
+        for (let k = -r; k <= r; k++) {
+          let jj = j + k;
+          if (jj < 0) jj = 0; else if (jj >= W) jj = W - 1;
+          const w = kern[k + r] * (1 - landFrac[row + jj]);
+          sw += w; sv += w * raster[row + jj];
+        }
+      }
+      tmp[row + j] = sw > 0 ? sv / sw : 0;
+    }
+  }
+  for (let i = 0; i < H; i++) {
+    const row = i * W;
+    const inner = i >= r && i < H - r;
+    for (let j = 0; j < W; j++) {
+      let sw = 0, sv = 0;
+      if (inner) {
+        for (let k = -r; k <= r; k++) {
+          const v = row + k * W + j;
+          const w = kern[k + r] * (1 - landFrac[v]);
+          sw += w; sv += w * tmp[v];
+        }
+      } else {
+        for (let k = -r; k <= r; k++) {
+          let ii = i + k;
+          if (ii < 0) ii = 0; else if (ii >= H) ii = H - 1;
+          const v = ii * W + j;
+          const w = kern[k + r] * (1 - landFrac[v]);
+          sw += w; sv += w * tmp[v];
+        }
+      }
+      const v = row + j;
+      out[v] = landFrac[v] >= 1 ? 0 : (sw > 0 ? sv / sw : 0);
+    }
+  }
+  return out;
+}
+
+// ---- lazy frame cache (LRU) ----
+function cacheKey(idx, pinIdx, W, H) {
+  return `${idx}|${pinIdx}|${W}x${H}`;
+}
+
+// Rough memory of one cached frame: the encoded data URL is the payload.
+function frameBytes(entry) {
+  if (!entry) return 0;
+  return (entry.url ? entry.url.length * 2 : 0) + 64;
+}
+
+function createFrameCache(opts = {}) {
+  const max = opts.max || FRAME_CACHE_MAX;
+  const sizeOf = opts.sizeOf || frameBytes;
+  const map = new Map();
+  let bytes = 0, peakBytes = 0;
+  return {
+    get(key) {
+      if (!map.has(key)) return undefined;
+      const v = map.get(key);
+      map.delete(key); map.set(key, v); // touch -> most recently used
+      return v;
+    },
+    has(key) { return map.has(key); },
+    set(key, entry) {
+      if (map.has(key)) { bytes -= sizeOf(map.get(key)); map.delete(key); }
+      map.set(key, entry);
+      bytes += sizeOf(entry);
+      while (map.size > max) {
+        const oldest = map.keys().next().value;
+        bytes -= sizeOf(map.get(oldest));
+        map.delete(oldest);
+      }
+      if (bytes > peakBytes) peakBytes = bytes;
+      return entry;
+    },
+    clear() { map.clear(); bytes = 0; },
+    keys() { return [...map.keys()]; },
+    get size() { return map.size; },
+    get bytes() { return bytes; },
+    get peakBytes() { return peakBytes; },
+    get max() { return max; },
+  };
+}
+
 // ---- browser app ----
 async function mount(deps) {
   const { tables: T, wind } = deps;
@@ -121,6 +252,7 @@ async function mount(deps) {
   const playBtn = document.getElementById('play');
   const playLabel = document.getElementById('play-label');
   const card = document.getElementById('card');
+  const mapEl = document.getElementById('map');
   const q = new URLSearchParams(location.search);
   const point = wind.pointFromQuery(location.search);
 
@@ -138,9 +270,7 @@ async function mount(deps) {
   if (reducedMotion) body.classList.add('reduced-motion');
 
   const bounds = displayBounds(warp);
-  const { W: dw, H: dh } = pickDisplayDims(bounds, 384);
-  canvas.width = dw;
-  canvas.height = dh;
+  const dpr = () => window.devicePixelRatio || 1;
 
   const legendBar = document.getElementById('legend-bar');
   if (legendBar) {
@@ -174,22 +304,6 @@ async function mount(deps) {
     ts: new Float64Array(BATHY_CELLS),
   };
 
-  function buildFrames(day) {
-    const built = [];
-    for (const entry of day) {
-      const f = computeFrame(tables, entry, { gamma, ...scratch });
-      const raster = gatherRaster(f.capped, warp, dw, dh);
-      const p10Ft = ui.p10(f.capped);
-      const peak = gridToLonlat(warp, f.maxIdx % BATHY_COLS, Math.floor(f.maxIdx / BATHY_COLS));
-      built.push({
-        entry, raster, maxHs: f.maxHs, maxIdx: f.maxIdx, rollerFt: f.rollerFt, hlMax: f.hlMax,
-        p10Ft, peak,
-        afterKs: Float32Array.from(f.afterKs), ts: Float32Array.from(f.ts),
-      });
-    }
-    return built;
-  }
-
   const map = L.map('map', {
     zoomControl: true,
     zoomSnap: 0.1,      // fractional zoom levels
@@ -210,14 +324,62 @@ async function mount(deps) {
   fitLake();
   // The flex layout can settle after the first paint; refit once the container is real.
   requestAnimationFrame(() => map.invalidateSize());
-  window.addEventListener('load', () => { fitLake(); map.invalidateSize(); }, { once: true });
+  window.addEventListener('load', () => { fitLake(); map.invalidateSize(); scheduleRegather(); }, { once: true });
 
+  // Zoom-aware raster width: the lake's projected on-screen width grows with zoom,
+  // and the viewport can grow on resize. Clamp via targetWidth.
+  function overlayScreenWidth() {
+    const z = map.getZoom();
+    const nw = map.project(L.latLng(bounds.north, bounds.west), z);
+    const se = map.project(L.latLng(bounds.south, bounds.east), z);
+    const w = Math.abs(se.x - nw.x);
+    return Number.isFinite(w) && w > 0 ? w : (mapEl.clientWidth || 384);
+  }
+  function desiredDims() {
+    const css = Math.max(mapEl.clientWidth || 384, overlayScreenWidth());
+    return pickDisplayDims(bounds, targetWidth(css, dpr()));
+  }
+  const d0 = desiredDims();
+  canvas.width = d0.W;
+  canvas.height = d0.H;
+
+  const frameCache = createFrameCache({ max: FRAME_CACHE_MAX });
   let frames = [];
+  let stepMin = 15;
   let cur = 0;
   let pinned = null;
   let pin = null;
   let playing = false;
   let timer = null;
+  let builtMs = 0;
+
+  function frameFor(idx) {
+    if (!frames.length) return null;
+    const W = canvas.width, H = canvas.height;
+    const pinIdx = pinned ? pinned.i : -1;
+    const key = cacheKey(idx, pinIdx, W, H);
+    const hit = frameCache.get(key);
+    if (hit) return hit;
+    const t0 = performance.now();
+    const f = computeFrame(tables, frames[idx], { gamma, ...scratch });
+    const raster = gatherRaster(f.capped, warp, W, H);
+    const landFrac = landMaskRaster(warp, tables, W, H);
+    const smooth = smoothRaster(raster, landFrac, W, H);
+    paintRaster(cctx, smooth, W, H);
+    const url = canvas.toDataURL();
+    const p10Ft = ui.p10(f.capped);
+    const peak = gridToLonlat(warp, f.maxIdx % BATHY_COLS, Math.floor(f.maxIdx / BATHY_COLS));
+    const stats = {
+      maxHs: f.maxHs, maxIdx: f.maxIdx, rollerFt: f.rollerFt, hlMax: f.hlMax,
+      p10Ft, peakLat: peak.lat, peakLon: peak.lon, entry: frames[idx],
+    };
+    const pinVals = pinned ? { hsKs: f.afterKs[pinned.i], ts: f.ts[pinned.i] } : null;
+    const ms = performance.now() - t0;
+    builtMs += ms;
+    body.dataset.precomputeMs = builtMs.toFixed(1);
+    body.dataset.frameMs = ms.toFixed(1);
+    return frameCache.set(key, { url, stats, pinVals });
+  }
 
   function setCardField(name, value) {
     const el = card.querySelector(`[data-field="${name}"] .v`);
@@ -226,9 +388,10 @@ async function mount(deps) {
 
   function updatePinned() {
     if (!pinned || !frames.length) return;
-    const f = frames[cur];
+    const built = frameFor(cur);
+    if (!built || !built.pinVals) return;
     const d = tables.depth[pinned.i] * 0.25;
-    const hsKs = f.afterKs[pinned.i], ts = f.ts[pinned.i];
+    const hsKs = built.pinVals.hsKs, ts = built.pinVals.ts;
     const hs = Math.min(hsKs, 0.6 * d);
     const hm = hmaxFt(hsKs, d);
     const L_m = waveMath.dispersionFast(ts, d * waveMath.FT).L_m;
@@ -251,6 +414,7 @@ async function mount(deps) {
     const i = r * BATHY_COLS + c;
     if (tables.depth[i] === LAND_U16) return false;
     pinned = { latlng, i };
+    frameCache.clear(); // cache key includes pinIdx
     if (pin) pin.setLatLng(latlng);
     else pin = L.circleMarker(latlng, {
       radius: 6, color: '#ffffff', weight: 2, fillColor: '#FF00AA', fillOpacity: 1,
@@ -263,35 +427,51 @@ async function mount(deps) {
   function dismissPin() {
     if (pin) { map.removeLayer(pin); pin = null; }
     pinned = null;
+    frameCache.clear();
     card.hidden = true;
   }
 
   function showFrame(idx) {
     if (!frames.length) return;
     cur = Math.max(0, Math.min(frames.length - 1, idx));
-    const f = frames[cur];
-    const e = f.entry;
-    paintRaster(cctx, f.raster, dw, dh);
-    overlay.setUrl(canvas.toDataURL());
+    const built = frameFor(cur);
+    if (!built) return;
+    const s = built.stats, e = s.entry;
+    overlay.setUrl(built.url);
     body.dataset.hour = e.time;
-    body.dataset.hsFt = f.maxHs.toFixed(3);
-    body.dataset.hmaxFt = f.rollerFt.toFixed(3);
-    body.dataset.p10Ft = f.p10Ft.toFixed(3);
+    body.dataset.stepMin = String(stepMin);
+    body.dataset.hsFt = s.maxHs.toFixed(3);
+    body.dataset.hmaxFt = s.rollerFt.toFixed(3);
+    body.dataset.p10Ft = s.p10Ft.toFixed(3);
     body.dataset.windMph = e.speedMph.toFixed(1);
     body.dataset.bearingGrid = e.bearingGrid.toFixed(3);
     body.dataset.teffH = e.tEffH.toFixed(2);
     scrub.value = String(cur);
     label.textContent = e.time.replace('T', ' ');
     windEl.textContent = `${e.speedMph.toFixed(0)} mph gust ${e.gustMph.toFixed(0)} · ${e.dirTrueDeg.toFixed(0)}°`;
-    frameEl.textContent = `H/L ${f.hlMax.toFixed(3)}`;
+    frameEl.textContent = `H/L ${s.hlMax.toFixed(3)}`;
     const headline = ui.formatHeadline({
-      p10Ft: f.p10Ft, maxHsFt: f.maxHs, rollerFt: f.rollerFt,
-      peakLat: f.peak.lat, peakLon: f.peak.lon,
-      features, sector: sectorInfo(f.peak.lat, f.peak.lon),
+      p10Ft: s.p10Ft, maxHsFt: s.maxHs, rollerFt: s.rollerFt,
+      peakLat: s.peakLat, peakLon: s.peakLon,
+      features, sector: sectorInfo(s.peakLat, s.peakLon),
     });
     verdictRange.textContent = headline.range;
     verdictPeak.textContent = headline.peak;
     if (pinned) updatePinned();
+  }
+
+  // rAF-coalesced: many input/tick events collapse into one render of the LATEST index.
+  let pendingIdx = null;
+  let rafId = 0;
+  function requestFrame(idx) {
+    pendingIdx = idx;
+    if (rafId) return;
+    rafId = requestAnimationFrame(() => {
+      rafId = 0;
+      const i = pendingIdx;
+      pendingIdx = null;
+      if (i != null) showFrame(i);
+    });
   }
 
   function setPlaying(on) {
@@ -302,7 +482,7 @@ async function mount(deps) {
     if (playing) {
       timer = setInterval(() => {
         if (!frames.length) return;
-        showFrame((cur + 1) % frames.length);
+        requestFrame((cur + 1) % frames.length);
       }, PLAY_INTERVAL_MS);
     } else if (timer) {
       clearInterval(timer);
@@ -311,14 +491,31 @@ async function mount(deps) {
   }
   function pause() { if (playing) setPlaying(false); }
 
+  // Re-gather at the zoom-aware width, debounced; the old image stays visible until ready.
+  let regatherTimer = null;
+  function regather() {
+    const d = desiredDims();
+    if (d.W === canvas.width && d.H === canvas.height) return;
+    canvas.width = d.W;
+    canvas.height = d.H;
+    frameCache.clear();
+    if (frames.length) showFrame(cur);
+  }
+  function scheduleRegather() {
+    if (regatherTimer) clearTimeout(regatherTimer);
+    regatherTimer = setTimeout(regather, 150);
+  }
+
   map.on('click', (ev) => { placePin(ev.latlng); });
   scrub.addEventListener('input', () => {
     pause();
-    showFrame(parseInt(scrub.value, 10));
+    requestFrame(parseInt(scrub.value, 10));
   });
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
   playBtn.addEventListener('click', () => setPlaying(!playing));
   document.getElementById('card-close').addEventListener('click', dismissPin);
+  map.on('zoomend', scheduleRegather);
+  window.addEventListener('resize', scheduleRegather);
   // test hook: same handler the map click uses
   window.__bpcTap = (lat, lon) => placePin(L.latLng(lat, lon));
 
@@ -326,18 +523,25 @@ async function mount(deps) {
     note.style.display = 'none';
     try {
       const data = await wind.ingest({ point, gamma });
-      const t0 = performance.now();
-      frames = buildFrames(data.day);
-      const totalMs = performance.now() - t0;
-      const frameMs = frames.length ? totalMs / frames.length : 0;
-      body.dataset.precomputeMs = totalMs.toFixed(1);
-      body.dataset.frameMs = frameMs.toFixed(1);
-      console.info(`day precompute ${totalMs.toFixed(0)} ms / ${frames.length} frames ` +
-        `(${frameMs.toFixed(1)} ms per frame)`);
+      frames = data.day;
+      stepMin = data.stepMin || 15;
+      builtMs = 0;
+      frameCache.clear();
+      const d = desiredDims();
+      if (d.W !== canvas.width || d.H !== canvas.height) { canvas.width = d.W; canvas.height = d.H; }
+      console.info(`lazy frames: ${frames.length} @ ${stepMin} min`);
       scrub.min = '0';
       scrub.max = String(Math.max(0, frames.length - 1));
-      const start = q.has('hour') ? parseInt(q.get('hour'), 10) : data.currentIndex;
-      showFrame(Number.isFinite(start) ? start : 0);
+      let start;
+      if (q.has('hour')) {
+        const hh = String(parseInt(q.get('hour'), 10)).padStart(2, '0');
+        start = frames.findIndex((e) => e.time.slice(11, 13) === hh);
+      } else if (q.has('frame')) {
+        start = parseInt(q.get('frame'), 10);
+      } else {
+        start = data.currentIndex;
+      }
+      showFrame(Number.isFinite(start) && start >= 0 ? start : 0);
     } catch (err) {
       console.error(err);
       note.textContent = 'wind unavailable — refresh';
@@ -351,6 +555,8 @@ async function mount(deps) {
 
 module.exports = {
   SCALE_FT, TILE_URL, TILE_ATTRIBUTION, TILE_MAX_ZOOM, OVERLAY_OPACITY, PLAY_INTERVAL_MS,
-  gridToLonlat, lonlatToGrid, displayBounds, pickDisplayDims,
-  bilinearSample, gatherRaster, hmaxFt, computeFrame, paintRaster, mount,
+  FRAME_MINUTES, FRAME_CACHE_MAX,
+  gridToLonlat, lonlatToGrid, displayBounds, pickDisplayDims, targetWidth,
+  bilinearSample, gatherRaster, hmaxFt, computeFrame, paintRaster,
+  landMaskRaster, smoothRaster, cacheKey, frameBytes, createFrameCache, mount,
 };

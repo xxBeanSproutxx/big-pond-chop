@@ -9,6 +9,8 @@ const { waveCore, blendFetch, FT } = require('../src/wave-math');
 const {
   gridToLonlat, lonlatToGrid, gatherRaster, hmaxFt, computeFrame,
   TILE_URL, TILE_ATTRIBUTION, TILE_MAX_ZOOM, OVERLAY_OPACITY, PLAY_INTERVAL_MS,
+  FRAME_MINUTES, targetWidth, landMaskRaster, smoothRaster,
+  cacheKey, frameBytes, createFrameCache,
 } = require('../src/render');
 const ui = require('../src/ui');
 
@@ -120,6 +122,80 @@ check('frame carries a water-only p10 at or below the lake max', () => {
   assert.ok(Math.hypot(g.col - (f.maxIdx % BATHY_COLS), g.row - Math.floor(f.maxIdx / BATHY_COLS)) < 1);
   console.log(`       p10 ${p10.toFixed(3)} ft, max ${f.maxHs.toFixed(3)} ft, ` +
     `peak ${peak.lat.toFixed(4)}, ${peak.lon.toFixed(4)}`);
+});
+
+console.log('\n== [5] stage-4a: zoom-aware width ==');
+check('targetWidth clamps to [lo, hi]', () => {
+  assert.strictEqual(targetWidth(0, 1), 512);
+  assert.strictEqual(targetWidth(300, 1), 512);
+  assert.strictEqual(targetWidth(1000, 1), 1000);
+  assert.strictEqual(targetWidth(800, 2), 1536);
+  assert.strictEqual(targetWidth(2000, 1), 1536);
+  assert.strictEqual(targetWidth(600, 1), 600);
+  assert.strictEqual(FRAME_MINUTES, 15);
+  console.log(`       300->${targetWidth(300, 1)} 1000->${targetWidth(1000, 1)} 1600->${targetWidth(800, 2)}`);
+});
+
+console.log('\n== [6] stage-4a: land mask + masked smoothing ==');
+check('landMaskRaster returns a land fraction in [0,1]', () => {
+  const lf = landMaskRaster(warp, tables, 64, 66);
+  assert.strictEqual(lf.length, 64 * 66);
+  let min = 1, max = 0;
+  for (let i = 0; i < lf.length; i++) { min = Math.min(min, lf[i]); max = Math.max(max, lf[i]); }
+  assert.ok(min >= 0 && max <= 1, `range ${min}..${max}`);
+  console.log(`       64x66 land fraction min ${min.toFixed(3)} max ${max.toFixed(3)}`);
+});
+check('smoothRaster invariants: max not raised, pure land 0, inputs unmutated', () => {
+  const W = 5, H = 5;
+  const raster = new Float32Array(W * H);
+  for (let i = 0; i < raster.length; i++) raster[i] = (i % 4) + 1; // 1..4
+  const landFrac = new Float32Array(W * H);
+  landFrac[12] = 1; // pure land at (row 2, col 2)
+  landFrac[11] = 0.5; // partial shoreline
+  const before = Float32Array.from(raster);
+  const out = smoothRaster(raster, landFrac, W, H, 2);
+  assert.notStrictEqual(out, raster, 'must be a new array');
+  assert.deepStrictEqual(Array.from(raster), Array.from(before), 'input mutated');
+  let maxIn = 0, maxOut = 0;
+  for (let i = 0; i < raster.length; i++) maxIn = Math.max(maxIn, raster[i]);
+  for (let i = 0; i < out.length; i++) maxOut = Math.max(maxOut, out[i]);
+  assert.ok(maxOut <= maxIn + 1e-6, `max raised ${maxOut} > ${maxIn}`);
+  assert.strictEqual(out[12], 0, 'pure land must be exactly 0');
+  console.log(`       max ${maxIn} -> ${maxOut}, land pixel ${out[12]}`);
+});
+check('smoothRaster normalized: flat water stays flat', () => {
+  const W = 4, H = 4;
+  const raster = new Float32Array(W * H).fill(2.5);
+  const landFrac = new Float32Array(W * H);
+  const out = smoothRaster(raster, landFrac, W, H, 2);
+  for (let i = 0; i < out.length; i++) assert.ok(Math.abs(out[i] - 2.5) < 1e-6, `out[${i}]=${out[i]}`);
+});
+
+console.log('\n== [7] stage-4a: LRU frame cache ==');
+check('cache key includes idx, pinIdx and dims', () => {
+  assert.strictEqual(cacheKey(3, -1, 780, 796), '3|-1|780x796');
+  assert.notStrictEqual(cacheKey(3, -1, 780, 796), cacheKey(3, 7, 780, 796));
+  assert.notStrictEqual(cacheKey(3, -1, 780, 796), cacheKey(3, -1, 384, 392));
+});
+check('LRU evicts least-recently-used and touches on get', () => {
+  const cache = createFrameCache({ max: 3, sizeOf: (e) => e.size });
+  cache.set('a', { size: 1 }); cache.set('b', { size: 1 }); cache.set('c', { size: 1 });
+  cache.get('a');                       // a becomes most recent
+  cache.set('d', { size: 1 });          // evicts b
+  assert.deepStrictEqual(cache.keys(), ['c', 'a', 'd']);
+  assert.strictEqual(cache.size, 3);
+  assert.strictEqual(cache.has('b'), false);
+  assert.strictEqual(cache.bytes, 3);
+  console.log(`       keys ${cache.keys().join(', ')}, bytes ${cache.bytes}, peak ${cache.peakBytes}`);
+});
+check('clear resets size/bytes and frameBytes gauges url', () => {
+  assert.strictEqual(frameBytes({ url: 'data:image/png;base64,AAAA' }), 26 * 2 + 64);
+  const cache = createFrameCache({ max: 2 });
+  cache.set('x', { url: '12345' });
+  assert.strictEqual(cache.size, 1);
+  cache.clear();
+  assert.strictEqual(cache.size, 0);
+  assert.strictEqual(cache.bytes, 0);
 });
 
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);
