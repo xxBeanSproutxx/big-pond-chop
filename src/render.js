@@ -4,8 +4,16 @@
 
 const { BATHY_ROWS, BATHY_COLS, BATHY_CELLS, LAND_U16 } = require('./tables');
 const waveMath = require('./wave-math');
+const ui = require('./ui');
 
 const SCALE_FT = 6.0;
+const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+// CARTO's keyless basemaps now stamp "API KEY REQUIRED" on the tiles, so the muted
+// look is achieved by desaturating standard OSM tiles (see .leaflet-tile-pane in index.html).
+const TILE_ATTRIBUTION = '&copy; OpenStreetMap contributors';
+const TILE_MAX_ZOOM = 19;
+const OVERLAY_OPACITY = ui.OVERLAY_OPACITY;
+const PLAY_INTERVAL_MS = 333;
 
 // ---- affine warp ----
 function gridToLonlat(warp, col, row) {
@@ -87,33 +95,11 @@ function computeFrame(tables, entry, opts = {}) {
 }
 
 // ---- colour scale (land / flat water transparent) ----
-const STOPS = [
-  [0.0, 43, 108, 176], [0.5, 43, 131, 196], [1.0, 55, 160, 196],
-  [1.5, 64, 179, 137], [2.0, 123, 192, 67], [2.5, 212, 197, 58],
-  [3.0, 232, 163, 61], [4.0, 224, 98, 47], [5.0, 192, 44, 44], [6.0, 122, 16, 16],
-];
-function colorFor(hsFt, maxFt) {
-  if (!(hsFt > 0)) return [0, 0, 0, 0];
-  const scale = maxFt || SCALE_FT;
-  const t = hsFt > scale ? scale : hsFt;
-  let i = 0;
-  while (i < STOPS.length - 2 && t > STOPS[i + 1][0]) i++;
-  const a = STOPS[i], b = STOPS[i + 1];
-  const f = (t - a[0]) / (b[0] - a[0]);
-  const alpha = Math.round(90 + 150 * Math.min(1, t / scale));
-  return [
-    Math.round(a[1] + f * (b[1] - a[1])),
-    Math.round(a[2] + f * (b[2] - a[2])),
-    Math.round(a[3] + f * (b[3] - a[3])),
-    alpha,
-  ];
-}
-
-function paintRaster(ctx, raster, W, H, maxFt) {
+function paintRaster(ctx, raster, W, H) {
   const img = ctx.createImageData(W, H);
   const px = img.data;
   for (let k = 0, p = 0; k < raster.length; k++, p += 4) {
-    const c = colorFor(raster[k], maxFt);
+    const c = ui.colorForHs(raster[k]);
     px[p] = c[0]; px[p + 1] = c[1]; px[p + 2] = c[2]; px[p + 3] = c[3];
   }
   ctx.putImageData(img, 0, 0);
@@ -130,22 +116,57 @@ async function mount(deps) {
   const label = document.getElementById('hour-label');
   const windEl = document.getElementById('wind-info');
   const frameEl = document.getElementById('frame-info');
-  const readoutEl = document.getElementById('readout');
+  const verdictRange = document.getElementById('verdict-range');
+  const verdictPeak = document.getElementById('verdict-peak');
+  const playBtn = document.getElementById('play');
+  const playLabel = document.getElementById('play-label');
+  const card = document.getElementById('card');
   const q = new URLSearchParams(location.search);
   const point = wind.pointFromQuery(location.search);
 
-  const [meta, bins, warp] = await Promise.all([
+  const [meta, bins, warp, spots] = await Promise.all([
     fetch('public/meta.v1.json').then((r) => r.json()),
     fetch('public/tables.v1.bin').then((r) => r.arrayBuffer()),
     fetch('public/warp.v1.json').then((r) => r.json()),
+    fetch('public/spots.v1.json').then((r) => r.json()),
   ]);
   const tables = T.decodeTables(bins);
   const gamma = meta.gamma_deg;
+  const features = spots.features || [];
+  const centroid = ui.centroidOfCorners(meta.wgs84_corners || warp.corners);
+  const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  if (reducedMotion) body.classList.add('reduced-motion');
 
   const bounds = displayBounds(warp);
   const { W: dw, H: dh } = pickDisplayDims(bounds, 384);
   canvas.width = dw;
   canvas.height = dh;
+
+  const legendBar = document.getElementById('legend-bar');
+  if (legendBar) {
+    const stops = ui.HS_STOPS.map(([v, r, g, b]) => `rgb(${r}, ${g}, ${b}) ${(v / 6 * 100).toFixed(1)}%`);
+    legendBar.style.background = `linear-gradient(90deg, ${stops.join(', ')})`;
+  }
+
+  function isShoreCell(lat, lon) {
+    const g = lonlatToGrid(warp, lon, lat);
+    const r0 = Math.round(g.row), c0 = Math.round(g.col);
+    const d = Math.ceil(ui.SHORE_RADIUS_M / 100);
+    for (let r = r0 - d; r <= r0 + d; r++) {
+      if (r < 0 || r >= BATHY_ROWS) continue;
+      for (let c = c0 - d; c <= c0 + d; c++) {
+        if (c < 0 || c >= BATHY_COLS) continue;
+        if (tables.depth[r * BATHY_COLS + c] !== LAND_U16) continue;
+        const ll = gridToLonlat(warp, c, r);
+        if (ui.haversineM(lat, lon, ll.lat, ll.lon) <= ui.SHORE_RADIUS_M) return true;
+      }
+    }
+    return false;
+  }
+
+  function sectorInfo(lat, lon) {
+    return { name: ui.sectorFor(lat, lon, centroid), shore: isShoreCell(lat, lon) };
+  }
 
   const scratch = {
     out: new Float64Array(BATHY_CELLS),
@@ -154,76 +175,153 @@ async function mount(deps) {
   };
 
   function buildFrames(day) {
-    const frames = [];
+    const built = [];
     for (const entry of day) {
       const f = computeFrame(tables, entry, { gamma, ...scratch });
       const raster = gatherRaster(f.capped, warp, dw, dh);
-      frames.push({
+      const p10Ft = ui.p10(f.capped);
+      const peak = gridToLonlat(warp, f.maxIdx % BATHY_COLS, Math.floor(f.maxIdx / BATHY_COLS));
+      built.push({
         entry, raster, maxHs: f.maxHs, maxIdx: f.maxIdx, rollerFt: f.rollerFt, hlMax: f.hlMax,
+        p10Ft, peak,
         afterKs: Float32Array.from(f.afterKs), ts: Float32Array.from(f.ts),
       });
     }
-    return frames;
+    return built;
   }
 
   const map = L.map('map', { zoomControl: true }).setView(
     [(bounds.north + bounds.south) / 2, (bounds.east + bounds.west) / 2], 11);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    { maxZoom: 18, attribution: '&copy; OpenStreetMap' }).addTo(map);
+  L.tileLayer(TILE_URL, {
+    maxZoom: TILE_MAX_ZOOM, attribution: TILE_ATTRIBUTION, detectRetina: true,
+  }).addTo(map);
   const llBounds = [[bounds.south, bounds.west], [bounds.north, bounds.east]];
-  let overlay = L.imageOverlay('data:image/gif;base64,R0lGODlhAQABAAAAACw=',
-    llBounds, { opacity: 0.8 }).addTo(map);
+  const overlay = L.imageOverlay('data:image/gif;base64,R0lGODlhAQABAAAAACw=',
+    llBounds, { opacity: OVERLAY_OPACITY }).addTo(map);
   map.fitBounds(llBounds);
 
   let frames = [];
   let cur = 0;
+  let pinned = null;
+  let pin = null;
+  let playing = false;
+  let timer = null;
+
+  function setCardField(name, value) {
+    const el = card.querySelector(`[data-field="${name}"] .v`);
+    if (el) el.textContent = value;
+  }
+
+  function updatePinned() {
+    if (!pinned || !frames.length) return;
+    const f = frames[cur];
+    const d = tables.depth[pinned.i] * 0.25;
+    const hsKs = f.afterKs[pinned.i], ts = f.ts[pinned.i];
+    const hs = Math.min(hsKs, 0.6 * d);
+    const hm = hmaxFt(hsKs, d);
+    const L_m = waveMath.dispersionFast(ts, d * waveMath.FT).L_m;
+    const spot = ui.nameSpot(pinned.latlng.lat, pinned.latlng.lng, features,
+      sectorInfo(pinned.latlng.lat, pinned.latlng.lng));
+    setCardField('spot', ui.describePin(spot));
+    setCardField('coords', `${pinned.latlng.lat.toFixed(4)}, ${pinned.latlng.lng.toFixed(4)}`);
+    setCardField('depth', `${d.toFixed(1)} ft`);
+    setCardField('hs', `${hs.toFixed(1)} ft`);
+    setCardField('hmax', `${hm.toFixed(1)} ft`);
+    setCardField('hl', (hsKs * waveMath.FT / L_m).toFixed(3));
+    card.dataset.spot = spot.name || spot.kind;
+  }
+
+  function placePin(latlng) {
+    pause();
+    const g = lonlatToGrid(warp, latlng.lng, latlng.lat);
+    const c = Math.round(g.col), r = Math.round(g.row);
+    if (c < 0 || r < 0 || c >= BATHY_COLS || r >= BATHY_ROWS) return false;
+    const i = r * BATHY_COLS + c;
+    if (tables.depth[i] === LAND_U16) return false;
+    pinned = { latlng, i };
+    if (pin) pin.setLatLng(latlng);
+    else pin = L.circleMarker(latlng, {
+      radius: 6, color: '#ffffff', weight: 2, fillColor: '#FF00AA', fillOpacity: 1,
+    }).addTo(map);
+    card.hidden = false;
+    updatePinned();
+    return true;
+  }
+
+  function dismissPin() {
+    if (pin) { map.removeLayer(pin); pin = null; }
+    pinned = null;
+    card.hidden = true;
+  }
 
   function showFrame(idx) {
     if (!frames.length) return;
     cur = Math.max(0, Math.min(frames.length - 1, idx));
     const f = frames[cur];
     const e = f.entry;
-    paintRaster(cctx, f.raster, dw, dh, SCALE_FT);
+    paintRaster(cctx, f.raster, dw, dh);
     overlay.setUrl(canvas.toDataURL());
     body.dataset.hour = e.time;
     body.dataset.hsFt = f.maxHs.toFixed(3);
     body.dataset.hmaxFt = f.rollerFt.toFixed(3);
+    body.dataset.p10Ft = f.p10Ft.toFixed(3);
     body.dataset.windMph = e.speedMph.toFixed(1);
     body.dataset.bearingGrid = e.bearingGrid.toFixed(3);
     body.dataset.teffH = e.tEffH.toFixed(2);
     scrub.value = String(cur);
     label.textContent = e.time.replace('T', ' ');
-    windEl.textContent = `${e.speedMph.toFixed(0)} mph, gust ${e.gustMph.toFixed(0)}, ${e.dirTrueDeg.toFixed(0)}°`;
-    frameEl.textContent = `Hs ${f.maxHs.toFixed(2)} ft · Hmax ${f.rollerFt.toFixed(2)} ft · H/L ${f.hlMax.toFixed(3)}`;
+    windEl.textContent = `${e.speedMph.toFixed(0)} mph gust ${e.gustMph.toFixed(0)} · ${e.dirTrueDeg.toFixed(0)}°`;
+    frameEl.textContent = `H/L ${f.hlMax.toFixed(3)}`;
+    const headline = ui.formatHeadline({
+      p10Ft: f.p10Ft, maxHsFt: f.maxHs, rollerFt: f.rollerFt,
+      peakLat: f.peak.lat, peakLon: f.peak.lon,
+      features, sector: sectorInfo(f.peak.lat, f.peak.lon),
+    });
+    verdictRange.textContent = headline.range;
+    verdictPeak.textContent = headline.peak;
+    if (pinned) updatePinned();
   }
 
-  map.on('click', (ev) => {
-    const g = lonlatToGrid(warp, ev.latlng.lng, ev.latlng.lat);
-    const c = Math.round(g.col), r = Math.round(g.row);
-    if (c < 0 || r < 0 || c >= BATHY_COLS || r >= BATHY_ROWS) {
-      readoutEl.textContent = 'off the lake';
-      return;
+  function setPlaying(on) {
+    playing = !!on;
+    playBtn.setAttribute('aria-pressed', playing ? 'true' : 'false');
+    playBtn.dataset.state = playing ? 'pause' : 'play';
+    playLabel.textContent = playing ? 'Pause' : 'Play';
+    if (playing) {
+      timer = setInterval(() => {
+        if (!frames.length) return;
+        showFrame((cur + 1) % frames.length);
+      }, PLAY_INTERVAL_MS);
+    } else if (timer) {
+      clearInterval(timer);
+      timer = null;
     }
-    const i = r * BATHY_COLS + c;
-    const du = tables.depth[i];
-    if (du === LAND_U16) { readoutEl.textContent = 'land'; return; }
-    const f = frames[cur];
-    const d = du * 0.25;
-    const hsKs = f.afterKs[i], ts = f.ts[i];
-    const hs = Math.min(hsKs, 0.6 * d);
-    const hm = hmaxFt(hsKs, d);
-    const L_m = (waveMath.dispersionFast(ts, d * waveMath.FT)).L_m;
-    readoutEl.textContent = `Hs ${hs.toFixed(2)} ft · Hmax ${hm.toFixed(2)} ft · ` +
-      `H/L ${(hsKs * waveMath.FT / L_m).toFixed(3)} · depth ${d.toFixed(1)} ft`;
-  });
+  }
+  function pause() { if (playing) setPlaying(false); }
 
-  scrub.addEventListener('input', () => showFrame(parseInt(scrub.value, 10)));
+  map.on('click', (ev) => { placePin(ev.latlng); });
+  scrub.addEventListener('input', () => {
+    pause();
+    showFrame(parseInt(scrub.value, 10));
+  });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+  playBtn.addEventListener('click', () => setPlaying(!playing));
+  document.getElementById('card-close').addEventListener('click', dismissPin);
+  // test hook: same handler the map click uses
+  window.__bpcTap = (lat, lon) => placePin(L.latLng(lat, lon));
 
   async function refresh() {
     note.style.display = 'none';
     try {
       const data = await wind.ingest({ point, gamma });
+      const t0 = performance.now();
       frames = buildFrames(data.day);
+      const totalMs = performance.now() - t0;
+      const frameMs = frames.length ? totalMs / frames.length : 0;
+      body.dataset.precomputeMs = totalMs.toFixed(1);
+      body.dataset.frameMs = frameMs.toFixed(1);
+      console.info(`day precompute ${totalMs.toFixed(0)} ms / ${frames.length} frames ` +
+        `(${frameMs.toFixed(1)} ms per frame)`);
       scrub.min = '0';
       scrub.max = String(Math.max(0, frames.length - 1));
       const start = q.has('hour') ? parseInt(q.get('hour'), 10) : data.currentIndex;
@@ -240,6 +338,7 @@ async function mount(deps) {
 }
 
 module.exports = {
-  SCALE_FT, gridToLonlat, lonlatToGrid, displayBounds, pickDisplayDims,
-  bilinearSample, gatherRaster, hmaxFt, computeFrame, colorFor, paintRaster, mount,
+  SCALE_FT, TILE_URL, TILE_ATTRIBUTION, TILE_MAX_ZOOM, OVERLAY_OPACITY, PLAY_INTERVAL_MS,
+  gridToLonlat, lonlatToGrid, displayBounds, pickDisplayDims,
+  bilinearSample, gatherRaster, hmaxFt, computeFrame, paintRaster, mount,
 };
