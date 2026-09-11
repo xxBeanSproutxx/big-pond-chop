@@ -78,14 +78,14 @@ check('a point near Spirit Island names the feature', () => {
   assert.ok(/^\d+\.\d mi [NSEW]{1,2} of Spirit Island$/.test(line), `got "${line}"`);
   console.log(`       ${line}`);
 });
-check('a mid-basin point falls back to Open water - <sector> basin', () => {
+check('a mid-basin point falls back to Open water - <sector> Basin', () => {
   const spot = ui.nameSpot(centroid.lat, centroid.lon, features, { name: 'SW', shore: false });
   assert.strictEqual(spot.kind, 'open');
-  assert.strictEqual(ui.describePin(spot), 'Open water - SW basin');
+  assert.strictEqual(ui.describePin(spot), 'Open water - SW Basin');
 });
-check('a near-shore open-water point says shore', () => {
+check('a near-shore open-water point says Shore', () => {
   const spot = ui.nameSpot(centroid.lat, centroid.lon, features, { name: 'NW', shore: true });
-  assert.strictEqual(ui.describePin(spot), 'Open water - NW shore');
+  assert.strictEqual(ui.describePin(spot), 'Open water - NW Shore');
 });
 check('beyond 4 km is open water even if a feature is nearest', () => {
   const spot = ui.nameSpot(centroid.lat, centroid.lon, features, { name: 'SW', shore: false });
@@ -103,10 +103,10 @@ check('line 1 is a lake-wide range, one decimal', () => {
   assert.strictEqual(h.range, 'Waves: 0.8 - 3.4 ft');
   console.log(`       ${h.range}`);
 });
-check('line 2 pairs the peak roller with a location label', () => {
+check('line 2 pairs the peak roller with a short location label', () => {
   const h = ui.formatHeadline(frame);
-  assert.ok(h.peak.startsWith('Peak roller 3.9 ft at '), h.peak);
-  assert.ok(h.peak.includes('Spirit Island area (S basin)'), h.peak);
+  assert.ok(h.peak.startsWith('Peak: 3.9 ft · '), h.peak);
+  assert.ok(h.peak.endsWith('Spirit Island'), h.peak);
   console.log(`       ${h.peak}`);
 });
 check('never a bare single number (range + peak words present)', () => {
@@ -116,8 +116,12 @@ check('never a bare single number (range + peak words present)', () => {
   const open = ui.formatHeadline({
     ...frame, peakLat: centroid.lat, peakLon: centroid.lon, sector: { name: 'SW', shore: false },
   });
-  assert.strictEqual(open.peak, 'Peak roller 3.9 ft at SW basin');
-  console.log(`       ${open.peak}`);
+  assert.strictEqual(open.peak, 'Peak: 3.9 ft · SW Basin');
+  const shore = ui.formatHeadline({
+    ...frame, peakLat: centroid.lat, peakLon: centroid.lon, sector: { name: 'NE', shore: true },
+  });
+  assert.strictEqual(shore.peak, 'Peak: 3.9 ft · NE Shore');
+  console.log(`       ${open.peak} / ${shore.peak}`);
 });
 
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);

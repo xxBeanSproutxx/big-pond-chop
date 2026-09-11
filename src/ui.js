@@ -108,8 +108,7 @@ function describePin(spot) {
   if (spot.kind === 'feature') {
     return `${spot.distanceMi.toFixed(1)} mi ${spot.bearing} of ${spot.name}`;
   }
-  const s = spot.sector || {};
-  return `Open water - ${s.name} ${s.shore ? 'shore' : 'basin'}`;
+  return `Open water - ${sectorName(spot.sector)}`;
 }
 
 function sectorPhrase(sector) {
@@ -117,15 +116,24 @@ function sectorPhrase(sector) {
   return `${s.name} ${s.shore ? 'shore' : 'basin'}`;
 }
 
+// Capitalised sector label for headers and cards: "N Basin" / "SW Shore".
+function sectorName(sector) {
+  const s = sector || {};
+  return `${s.name} ${s.shore ? 'Shore' : 'Basin'}`;
+}
+
+// Short place label for the header: the named feature if the peak is close to one,
+// else the sector. "Peak: 4.0 ft · N Basin" / "Peak: 4.0 ft · Cove Bay".
+function shortPlace(spot, sector) {
+  return spot && spot.kind === 'feature' ? spot.name : sectorName(sector);
+}
+
 // Two-line honest verdict. Never a bare single Hs number.
 function formatHeadline(frame) {
   const spot = nameSpot(frame.peakLat, frame.peakLon, frame.features, frame.sector);
-  const place = spot.kind === 'feature'
-    ? `${spot.name} area (${sectorPhrase(frame.sector)})`
-    : sectorPhrase(frame.sector);
   return {
     range: `Waves: ${frame.p10Ft.toFixed(1)} - ${frame.maxHsFt.toFixed(1)} ft`,
-    peak: `Peak roller ${frame.rollerFt.toFixed(1)} ft at ${place}`,
+    peak: `Peak: ${frame.rollerFt.toFixed(1)} ft · ${shortPlace(spot, frame.sector)}`,
   };
 }
 
@@ -133,6 +141,6 @@ module.exports = {
   HS_STOPS, HS_BREAKS, OVERLAY_OPACITY,
   colorForHs, rgbForHs, percentile, p10,
   SECTORS, haversineM, bearing8, centroidOfCorners, sectorFor,
-  nameSpot, describePin, formatHeadline,
+  nameSpot, describePin, sectorPhrase, sectorName, shortPlace, formatHeadline,
   FEATURE_RADIUS_M, SHORE_RADIUS_M,
 };
