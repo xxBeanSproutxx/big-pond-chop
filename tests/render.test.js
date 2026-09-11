@@ -11,6 +11,7 @@ const {
   TILE_URL, TILE_ATTRIBUTION, TILE_MAX_ZOOM, OVERLAY_OPACITY, PLAY_INTERVAL_MS,
   FRAME_MINUTES, targetWidth, landMaskRaster, smoothRaster,
   cacheKey, frameBytes, createFrameCache,
+  playWidth, PLAY_MAX_WIDTH, revokeUrl, shouldPaintResult, offscreenSupported,
 } = require('../src/render');
 const ui = require('../src/ui');
 
@@ -196,6 +197,51 @@ check('clear resets size/bytes and frameBytes gauges url', () => {
   cache.clear();
   assert.strictEqual(cache.size, 0);
   assert.strictEqual(cache.bytes, 0);
+});
+
+console.log('\n== [8] stage-4a2: playback width + async encode ==');
+check('playWidth uses 1x display width, capped at 780', () => {
+  assert.strictEqual(PLAY_MAX_WIDTH, 780);
+  assert.strictEqual(playWidth(390), 390);
+  assert.strictEqual(playWidth(779.6), 780);
+  assert.strictEqual(playWidth(780), 780);
+  assert.strictEqual(playWidth(1000), 780);
+  assert.strictEqual(playWidth(0), 2);
+  assert.ok(playWidth(390) < targetWidth(390, 2), 'play class must be cheaper than the full class');
+  console.log(`       390->${playWidth(390)} 1000->${playWidth(1000)} ` +
+    `(full @dpr2 390->${targetWidth(390, 2)})`);
+});
+check('cache eviction calls the hook once per entry; revokeUrl skips data URLs', () => {
+  const evicted = [];
+  const cache = createFrameCache({
+    max: 2, sizeOf: () => 1, onEvict: (k, e) => evicted.push([k, e.url]),
+  });
+  cache.set('a', { url: 'blob:http://x/1' });
+  cache.set('b', { url: 'data:image/png;base64,AA' });
+  cache.set('c', { url: 'blob:http://x/2' }); // evicts a
+  assert.deepStrictEqual(evicted, [['a', 'blob:http://x/1']]);
+  cache.clear();                              // evicts b then c
+  assert.deepStrictEqual(evicted.map((e) => e[0]), ['a', 'b', 'c']);
+
+  const revoked = [];
+  const orig = URL.revokeObjectURL;
+  URL.revokeObjectURL = (u) => revoked.push(u);
+  try {
+    revokeUrl('blob:http://x/1');
+    revokeUrl('data:image/png;base64,AA');
+    revokeUrl(null);
+    revokeUrl(undefined);
+    assert.deepStrictEqual(revoked, ['blob:http://x/1']);
+  } finally { URL.revokeObjectURL = orig; }
+});
+check('stale async result cached but not painted (decision helper)', () => {
+  const shown = { idx: 5, pinIdx: -1, W: 780, H: 796 };
+  assert.strictEqual(shouldPaintResult(shown, { idx: 5, pinIdx: -1, W: 780, H: 796 }), true);
+  assert.strictEqual(shouldPaintResult(shown, { idx: 6, pinIdx: -1, W: 780, H: 796 }), false);
+  assert.strictEqual(shouldPaintResult(shown, { idx: 5, pinIdx: 3, W: 780, H: 796 }), false);
+  assert.strictEqual(shouldPaintResult(shown, { idx: 5, pinIdx: -1, W: 1536, H: 1568 }), false);
+  assert.strictEqual(shouldPaintResult(shown, null), false);
+  console.log('       idx/pin/dims mismatch all suppress the async paint');
 });
 
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);

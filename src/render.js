@@ -50,6 +50,36 @@ function targetWidth(clientWidth, dpr, lo = 512, hi = 1536) {
   return Math.max(lo, Math.min(hi, px));
 }
 
+// Playback raster width: 1x display (CSS) px, capped so the 3 fps loop stays cheap.
+const PLAY_MAX_WIDTH = 780;
+function playWidth(clientWidth, cap = PLAY_MAX_WIDTH) {
+  const px = Math.round(Number(clientWidth) || 0);
+  return Math.min(cap, Math.max(2, px));
+}
+
+// Async blob encode exists only where OffscreenCanvas + convertToBlob are present.
+function offscreenSupported() {
+  return typeof OffscreenCanvas === 'function' &&
+    typeof OffscreenCanvas.prototype.convertToBlob === 'function' &&
+    typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function';
+}
+
+// Revoke only blob: object URLs; the data-URL fallback has no handle and must not be revoked.
+function revokeUrl(url) {
+  if (typeof url === 'string' && url.slice(0, 5) === 'blob:' &&
+      typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// Stale-result guard: an async encode may paint the overlay only if it still describes the
+// frame currently shown (same index, pin and raster dims). Pure so it is node-testable.
+function shouldPaintResult(result, current) {
+  return !!result && !!current &&
+    result.idx === current.idx && result.pinIdx === current.pinIdx &&
+    result.W === current.W && result.H === current.H;
+}
+
 function bilinearSample(field, cols, rows, colF, rowF) {
   const cx = colF < 0 ? 0 : colF > cols - 1 ? cols - 1 : colF;
   const ry = rowF < 0 ? 0 : rowF > rows - 1 ? rows - 1 : rowF;
@@ -112,6 +142,14 @@ function paintRaster(ctx, raster, W, H) {
     px[p] = c[0]; px[p + 1] = c[1]; px[p + 2] = c[2]; px[p + 3] = c[3];
   }
   ctx.putImageData(img, 0, 0);
+}
+
+// Async PNG encode: paint the same raster into an OffscreenCanvas, then let the browser
+// encode to a blob off the main thread. Resolves to an object URL.
+function encodeOffscreen(raster, W, H) {
+  const off = new OffscreenCanvas(W, H);
+  paintRaster(off.getContext('2d'), raster, W, H);
+  return off.convertToBlob({ type: 'image/png' }).then((blob) => URL.createObjectURL(blob));
 }
 
 // ---- display smoothing (display-only; stats stay on the raw field) ----
@@ -205,8 +243,15 @@ function frameBytes(entry) {
 function createFrameCache(opts = {}) {
   const max = opts.max || FRAME_CACHE_MAX;
   const sizeOf = opts.sizeOf || frameBytes;
+  const onEvict = opts.onEvict;
   const map = new Map();
   let bytes = 0, peakBytes = 0;
+  function drop(key) {
+    const v = map.get(key);
+    bytes -= sizeOf(v);
+    map.delete(key);
+    if (onEvict) onEvict(key, v); // lets the app revoke a blob: object URL
+  }
   return {
     get(key) {
       if (!map.has(key)) return undefined;
@@ -216,18 +261,14 @@ function createFrameCache(opts = {}) {
     },
     has(key) { return map.has(key); },
     set(key, entry) {
-      if (map.has(key)) { bytes -= sizeOf(map.get(key)); map.delete(key); }
+      if (map.has(key)) drop(key);
       map.set(key, entry);
       bytes += sizeOf(entry);
-      while (map.size > max) {
-        const oldest = map.keys().next().value;
-        bytes -= sizeOf(map.get(oldest));
-        map.delete(oldest);
-      }
+      while (map.size > max) drop(map.keys().next().value);
       if (bytes > peakBytes) peakBytes = bytes;
       return entry;
     },
-    clear() { map.clear(); bytes = 0; },
+    clear() { for (const k of [...map.keys()]) drop(k); bytes = 0; },
     keys() { return [...map.keys()]; },
     get size() { return map.size; },
     get bytes() { return bytes; },
@@ -437,9 +478,18 @@ async function mount(deps) {
   }
   function desiredDims() {
     const css = Math.max(mapEl.clientWidth || 384, overlayScreenWidth());
-    return pickDisplayDims(bounds, targetWidth(css, dpr()));
+    const w = playing ? playWidth(css) : targetWidth(css, dpr());
+    return pickDisplayDims(bounds, w);
   }
-  const frameCache = createFrameCache({ max: FRAME_CACHE_MAX });
+  const frameCache = createFrameCache({
+    max: FRAME_CACHE_MAX,
+    onEvict: (key, entry) => { if (entry) revokeUrl(entry.url); },
+  });
+
+  // Snapshot of the frame the overlay is currently showing; the async encode compares against it.
+  function currentMeta() {
+    return { idx: cur, pinIdx: pinned ? pinned.i : -1, W: canvas.width, H: canvas.height };
+  }
 
   function frameFor(idx) {
     if (!frames.length) return null;
@@ -453,8 +503,6 @@ async function mount(deps) {
     const raster = gatherRaster(f.capped, warp, W, H);
     const landFrac = landMaskRaster(warp, tables, W, H);
     const smooth = smoothRaster(raster, landFrac, W, H);
-    paintRaster(cctx, smooth, W, H);
-    const url = canvas.toDataURL();
     const p10Ft = ui.p10(f.capped);
     const peak = gridToLonlat(warp, f.maxIdx % BATHY_COLS, Math.floor(f.maxIdx / BATHY_COLS));
     const stats = {
@@ -462,11 +510,30 @@ async function mount(deps) {
       p10Ft, peakLat: peak.lat, peakLon: peak.lon, entry: frames[idx],
     };
     const pinVals = pinned ? { hsKs: f.afterKs[pinned.i], ts: f.ts[pinned.i] } : null;
+    const entry = { url: null, stats, pinVals };
+    frameCache.set(key, entry);
+    const meta = { idx, pinIdx, W, H };
+    let pending = null;
+    if (offscreenSupported()) {
+      pending = encodeOffscreen(smooth, W, H); // raster paint is sync; PNG encode is not
+    } else {
+      paintRaster(cctx, smooth, W, H); // fallback: old synchronous path
+      entry.url = canvas.toDataURL();
+    }
     const ms = performance.now() - t0;
     builtMs += ms;
     body.dataset.precomputeMs = builtMs.toFixed(1);
     body.dataset.frameMs = ms.toFixed(1);
-    return frameCache.set(key, { url, stats, pinVals });
+    if (pending) {
+      const e0 = performance.now();
+      pending.then((url) => {
+        body.dataset.encodeMs = (performance.now() - e0).toFixed(1);
+        if (!frameCache.has(key)) { revokeUrl(url); return; } // evicted while encoding
+        entry.url = url;
+        if (shouldPaintResult(meta, currentMeta())) overlay.setUrl(url); // skip a stale result
+      }).catch((err) => { console.error(err); });
+    }
+    return entry;
   }
 
   function setCardField(name, value) {
@@ -525,7 +592,7 @@ async function mount(deps) {
     const built = frameFor(cur);
     if (!built) return;
     const s = built.stats, e = s.entry;
-    overlay.setUrl(built.url);
+    if (built.url) overlay.setUrl(built.url); // null while the async encode is in flight
     if (!bootHidden) { bootHidden = true; hideBoot(); }
     body.dataset.hour = e.time;
     body.dataset.stepMin = String(stepMin);
@@ -562,6 +629,15 @@ async function mount(deps) {
     verdictRange.textContent = headline.range;
     verdictPeak.textContent = headline.peak;
     if (pinned) updatePinned();
+    if (playing && frames.length > 1) prefetch((cur + 1) % frames.length);
+  }
+
+  // Warm the next play frame during idle time so the 3 fps loop never waits on a cold build.
+  function prefetch(idx) {
+    if (!playing || !frames.length) return;
+    const run = () => { if (playing) frameFor(idx); };
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 200 });
+    else setTimeout(run, 0);
   }
 
   // rAF-coalesced: many input/tick events collapse into one render of the LATEST index.
@@ -579,11 +655,13 @@ async function mount(deps) {
   }
 
   function setPlaying(on) {
+    const was = playing;
     playing = !!on;
     playBtn.setAttribute('aria-pressed', playing ? 'true' : 'false');
     playBtn.dataset.state = playing ? 'pause' : 'play';
     playLabel.textContent = playing ? 'Pause' : 'Play';
     if (playing) {
+      regather(); // switch to the play-width class before the first tick
       timer = setInterval(() => {
         if (!frames.length) return;
         requestFrame((cur + 1) % frames.length);
@@ -592,17 +670,19 @@ async function mount(deps) {
       clearInterval(timer);
       timer = null;
     }
+    // Back to the full zoom-aware width, debounced so a quick play/pause does not thrash.
+    if (was && !playing) scheduleRegather();
   }
   function pause() { if (playing) setPlaying(false); }
 
   // Re-gather at the zoom-aware width, debounced; the old image stays visible until ready.
+  // The cache key carries the dims, so full and play classes coexist without a clear.
   let regatherTimer = null;
   function regather() {
     const d = desiredDims();
     if (d.W === canvas.width && d.H === canvas.height) return;
     canvas.width = d.W;
     canvas.height = d.H;
-    frameCache.clear();
     if (frames.length) showFrame(cur);
   }
   function scheduleRegather() {
@@ -692,8 +772,9 @@ async function mount(deps) {
 
 module.exports = {
   SCALE_FT, TILE_URL, TILE_ATTRIBUTION, TILE_MAX_ZOOM, OVERLAY_OPACITY, PLAY_INTERVAL_MS,
-  FRAME_MINUTES, FRAME_CACHE_MAX,
-  gridToLonlat, lonlatToGrid, displayBounds, pickDisplayDims, targetWidth,
+  FRAME_MINUTES, FRAME_CACHE_MAX, PLAY_MAX_WIDTH,
+  gridToLonlat, lonlatToGrid, displayBounds, pickDisplayDims, targetWidth, playWidth,
   bilinearSample, gatherRaster, hmaxFt, computeFrame, paintRaster,
   landMaskRaster, smoothRaster, cacheKey, frameBytes, createFrameCache, mount,
+  offscreenSupported, revokeUrl, shouldPaintResult, encodeOffscreen,
 };
