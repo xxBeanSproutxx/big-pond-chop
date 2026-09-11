@@ -190,15 +190,27 @@ async function mount(deps) {
     return built;
   }
 
-  const map = L.map('map', { zoomControl: true }).setView(
-    [(bounds.north + bounds.south) / 2, (bounds.east + bounds.west) / 2], 11);
+  const map = L.map('map', {
+    zoomControl: true,
+    zoomSnap: 0.1,      // fractional zoom levels
+    zoomDelta: 0.5,     // half-step on the +/- buttons
+    touchZoom: true,
+    zoomAnimation: true,
+    wheelPxPerZoomLevel: 90,
+  });
   L.tileLayer(TILE_URL, {
     maxZoom: TILE_MAX_ZOOM, attribution: TILE_ATTRIBUTION, detectRetina: true,
   }).addTo(map);
   const llBounds = [[bounds.south, bounds.west], [bounds.north, bounds.east]];
   const overlay = L.imageOverlay('data:image/gif;base64,R0lGODlhAQABAAAAACw=',
     llBounds, { opacity: OVERLAY_OPACITY }).addTo(map);
-  map.fitBounds(llBounds);
+  // Auto-fit the lake edge-to-edge: no static setView/zoom, padding keeps the
+  // east/west shorelines off the viewport edges on portrait phones.
+  const fitLake = () => map.fitBounds(llBounds, { padding: [12, 12], maxZoom: 12 });
+  fitLake();
+  // The flex layout can settle after the first paint; refit once the container is real.
+  requestAnimationFrame(() => map.invalidateSize());
+  window.addEventListener('load', () => { fitLake(); map.invalidateSize(); }, { once: true });
 
   let frames = [];
   let cur = 0;
