@@ -137,10 +137,89 @@ function formatHeadline(frame) {
   };
 }
 
+// ---- Stage 4B: wind split, compass, condition tier, local clock ----
+const CALM_MPH = 3;
+const CHICAGO_TZ = 'America/Chicago';
+const TIERS = {
+  red: 'Dangerous · Stay Home',
+  amber: 'Heavy Rollers',
+  yellow: 'Walleye Chop',
+  green: 'Fishable · Light Chop',
+};
+
+// Bearing in [0, 360).
+function normalizeDeg(deg) {
+  const d = Number(deg) % 360;
+  return d < 0 ? d + 360 : d;
+}
+
+// "Wind: 14 mph · Gusts 26 mph" (0 decimals). Any missing/short speed -> calm.
+function windLine(speedMph, gustMph) {
+  const s = Number(speedMph);
+  if (!Number.isFinite(s) || s < CALM_MPH) return 'Wind: calm';
+  const g = Number(gustMph);
+  return Number.isFinite(g)
+    ? `Wind: ${Math.round(s)} mph · Gusts ${Math.round(g)} mph`
+    : `Wind: ${Math.round(s)} mph`;
+}
+
+// Compass metadata. arrowDeg points INTO the wind (at the source). Calm (< 3 mph)
+// or a non-finite bearing -> { sector:'Calm', degText:'', arrowDeg:null }.
+function compass(bearingDeg, speedMph) {
+  if (speedMph != null) {
+    const s = Number(speedMph);
+    if (!Number.isFinite(s) || s < CALM_MPH) return { sector: 'Calm', degText: '', arrowDeg: null };
+  }
+  const b = Number(bearingDeg);
+  if (!Number.isFinite(b)) return { sector: 'Calm', degText: '', arrowDeg: null };
+  const deg = normalizeDeg(b);
+  return { sector: SECTORS[Math.round(deg / 45) % 8], degText: `${Math.round(deg)}°`, arrowDeg: deg };
+}
+
+// Condition tier, strict red -> amber -> yellow -> green (first match wins).
+// Missing/NaN inputs never trigger a condition.
+function comfortTier(stats) {
+  const s = stats || {};
+  const maxHs = Number(s.maxHsFt), roller = Number(s.rollerFt), hl = Number(s.hlMax);
+  const at = (v, t) => Number.isFinite(v) && v >= t;
+  let key = 'green';
+  if (at(maxHs, 5.0) || at(roller, 4.0) || at(hl, 0.055)) key = 'red';
+  else if (at(maxHs, 3.5) || at(roller, 2.5)) key = 'amber';
+  else if (at(maxHs, 2.0) || at(roller, 1.5)) key = 'yellow';
+  return { key, label: TIERS[key] };
+}
+
+// Offset (local wall-clock as UTC minus the true instant) at an instant, ms.
+function tzOffsetMs(utcMs) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: CHICAGO_TZ, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(new Date(utcMs));
+  const p = {};
+  for (const x of parts) p[x.type] = x.value;
+  const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second);
+  return asUTC - utcMs;
+}
+
+// "2026-09-11T17:15" -> "5:15 PM CDT". Input is America/Chicago wall-clock; the
+// local instant is resolved with a two-pass offset (DST-safe), never by slicing.
+function formatClockLocal(isoLocal) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(isoLocal == null ? '' : isoLocal));
+  if (!m) return '';
+  const naive = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  let epoch = naive - tzOffsetMs(naive);
+  epoch = naive - tzOffsetMs(epoch);
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: CHICAGO_TZ, hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short',
+  }).format(new Date(epoch));
+}
+
 module.exports = {
   HS_STOPS, HS_BREAKS, OVERLAY_OPACITY,
   colorForHs, rgbForHs, percentile, p10,
   SECTORS, haversineM, bearing8, centroidOfCorners, sectorFor,
   nameSpot, describePin, sectorPhrase, sectorName, shortPlace, formatHeadline,
   FEATURE_RADIUS_M, SHORE_RADIUS_M,
+  CALM_MPH, normalizeDeg, windLine, compass, comfortTier, formatClockLocal,
 };

@@ -240,37 +240,110 @@ function createFrameCache(opts = {}) {
 async function mount(deps) {
   const { tables: T, wind } = deps;
   const note = document.getElementById('note');
+  const noteMsg = document.getElementById('note-msg');
+  const noteRetry = document.getElementById('note-retry');
+  const bootEl = document.getElementById('boot');
+  const bootText = document.getElementById('boot-text');
+  const bootBar = document.getElementById('boot-bar');
   const body = document.body;
   const canvas = document.getElementById('field');
   const cctx = canvas.getContext('2d');
   const scrub = document.getElementById('scrub');
+  const nowTick = document.getElementById('now-tick');
   const label = document.getElementById('hour-label');
   const windEl = document.getElementById('wind-info');
   const frameEl = document.getElementById('frame-info');
   const verdictRange = document.getElementById('verdict-range');
   const verdictPeak = document.getElementById('verdict-peak');
+  const comfortChip = document.getElementById('comfort-chip');
+  const windBadge = document.getElementById('wind-badge');
+  const badgeText = document.getElementById('wind-badge-text');
+  const badgeArrow = document.getElementById('wind-badge-arrow');
   const playBtn = document.getElementById('play');
   const playLabel = document.getElementById('play-label');
   const card = document.getElementById('card');
   const mapEl = document.getElementById('map');
+  const readout = document.getElementById('readout');
+  // Panel chrome must not double as a map tap: without this, clicking the card's X (or the
+  // wind badge) also fires Leaflet's map click, which re-drops the pin and reopens the card.
+  ['click', 'mousedown', 'touchstart', 'dblclick'].forEach((t) => {
+    card.addEventListener(t, (e) => e.stopPropagation());
+    windBadge.addEventListener(t, (e) => e.stopPropagation());
+  });
   const q = new URLSearchParams(location.search);
   const point = wind.pointFromQuery(location.search);
+  const DEFAULT_HINT = 'tap the lake for a local readout';
 
-  const [meta, bins, warp, spots] = await Promise.all([
-    fetch('public/meta.v1.json').then((r) => r.json()),
-    fetch('public/tables.v1.bin').then((r) => r.arrayBuffer()),
-    fetch('public/warp.v1.json').then((r) => r.json()),
-    fetch('public/spots.v1.json').then((r) => r.json()),
-  ]);
-  const tables = T.decodeTables(bins);
-  const gamma = meta.gamma_deg;
-  const features = spots.features || [];
-  const centroid = ui.centroidOfCorners(meta.wgs84_corners || warp.corners);
   const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   if (reducedMotion) body.classList.add('reduced-motion');
-
-  const bounds = displayBounds(warp);
   const dpr = () => window.devicePixelRatio || 1;
+
+  let tables = null, warp = null, gamma = 0, features = [], centroid = null, bounds = null;
+
+  // ---- loading skeleton + retry toast ----
+  function boot(text, frac) {
+    bootText.textContent = text;
+    if (frac == null) bootEl.classList.add('indeterminate');
+    else { bootEl.classList.remove('indeterminate'); bootBar.style.width = `${Math.round(frac * 100)}%`; }
+    bootEl.classList.remove('hidden');
+  }
+  function hideBoot() { bootEl.classList.add('hidden'); }
+  function showNote(msg, retryFn) {
+    noteMsg.textContent = msg;
+    note.style.display = 'flex';
+    noteRetry.hidden = !retryFn;
+    noteRetry.onclick = retryFn || null;
+  }
+  function hideNote() { note.style.display = 'none'; noteRetry.onclick = null; }
+
+  function fetchJson(url) {
+    return fetch(url).then((r) => {
+      if (!r.ok) throw new Error(`${url} HTTP ${r.status}`);
+      return r.json();
+    });
+  }
+
+  // Streaming fetch driven by Content-Length; null fraction = indeterminate.
+  async function fetchProgress(url, onProgress) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
+    const total = Number(res.headers.get('Content-Length'));
+    if (!res.body || !Number.isFinite(total) || total <= 0) {
+      const buf = await res.arrayBuffer();
+      onProgress(null);
+      return buf;
+    }
+    const reader = res.body.getReader();
+    const chunks = [];
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      got += value.length;
+      onProgress(got / total);
+    }
+    const merged = new Uint8Array(got);
+    let off = 0;
+    for (const c of chunks) { merged.set(c, off); off += c.length; }
+    return merged.buffer;
+  }
+
+  // Decoded map data is loaded once; a wind retry never refetches these.
+  async function loadMapData() {
+    if (tables) return;
+    boot('Loading wave map…', null);
+    const meta = await fetchJson('public/meta.v1.json');
+    const bins = await fetchProgress('public/tables.v1.bin', (f) => boot('Loading wave map…', f));
+    const w = await fetchJson('public/warp.v1.json');
+    const spots = await fetchJson('public/spots.v1.json');
+    tables = T.decodeTables(bins);
+    warp = w;
+    gamma = meta.gamma_deg;
+    features = spots.features || [];
+    centroid = ui.centroidOfCorners(meta.wgs84_corners || w.corners);
+    bounds = displayBounds(warp);
+  }
 
   const legendBar = document.getElementById('legend-bar');
   if (legendBar) {
@@ -304,7 +377,23 @@ async function mount(deps) {
     ts: new Float64Array(BATHY_CELLS),
   };
 
-  const map = L.map('map', {
+  let map = null, overlay = null;
+  let frames = [];
+  let stepMin = 15;
+  let cur = 0;
+  let pinned = null;
+  let pin = null;
+  let playing = false;
+  let timer = null;
+  let builtMs = 0;
+  let bootHidden = false;
+  let readoutTimer = null;
+  let mapReady = false;
+
+  function setupMap() {
+    if (mapReady) return;
+    mapReady = true;
+  map = L.map('map', {
     zoomControl: true,
     zoomSnap: 0.1,      // fractional zoom levels
     zoomDelta: 0.5,     // half-step on the +/- buttons
@@ -316,7 +405,7 @@ async function mount(deps) {
     maxZoom: TILE_MAX_ZOOM, attribution: TILE_ATTRIBUTION, detectRetina: true,
   }).addTo(map);
   const llBounds = [[bounds.south, bounds.west], [bounds.north, bounds.east]];
-  const overlay = L.imageOverlay('data:image/gif;base64,R0lGODlhAQABAAAAACw=',
+  overlay = L.imageOverlay('data:image/gif;base64,R0lGODlhAQABAAAAACw=',
     llBounds, { opacity: OVERLAY_OPACITY }).addTo(map);
   // Auto-fit the lake edge-to-edge: no static setView/zoom, padding keeps the
   // east/west shorelines off the viewport edges on portrait phones.
@@ -325,6 +414,17 @@ async function mount(deps) {
   // The flex layout can settle after the first paint; refit once the container is real.
   requestAnimationFrame(() => map.invalidateSize());
   window.addEventListener('load', () => { fitLake(); map.invalidateSize(); scheduleRegather(); }, { once: true });
+  map.on('click', (ev) => {
+    if (!placePin(ev.latlng)) {
+      dismissPin();
+      flashReadout('land — no wave data here');
+    }
+  });
+  map.on('zoomend', scheduleRegather);
+  const d0 = desiredDims();
+  canvas.width = d0.W;
+  canvas.height = d0.H;
+  }
 
   // Zoom-aware raster width: the lake's projected on-screen width grows with zoom,
   // and the viewport can grow on resize. Clamp via targetWidth.
@@ -339,19 +439,7 @@ async function mount(deps) {
     const css = Math.max(mapEl.clientWidth || 384, overlayScreenWidth());
     return pickDisplayDims(bounds, targetWidth(css, dpr()));
   }
-  const d0 = desiredDims();
-  canvas.width = d0.W;
-  canvas.height = d0.H;
-
   const frameCache = createFrameCache({ max: FRAME_CACHE_MAX });
-  let frames = [];
-  let stepMin = 15;
-  let cur = 0;
-  let pinned = null;
-  let pin = null;
-  let playing = false;
-  let timer = null;
-  let builtMs = 0;
 
   function frameFor(idx) {
     if (!frames.length) return null;
@@ -438,6 +526,7 @@ async function mount(deps) {
     if (!built) return;
     const s = built.stats, e = s.entry;
     overlay.setUrl(built.url);
+    if (!bootHidden) { bootHidden = true; hideBoot(); }
     body.dataset.hour = e.time;
     body.dataset.stepMin = String(stepMin);
     body.dataset.hsFt = s.maxHs.toFixed(3);
@@ -447,9 +536,24 @@ async function mount(deps) {
     body.dataset.bearingGrid = e.bearingGrid.toFixed(3);
     body.dataset.teffH = e.tEffH.toFixed(2);
     scrub.value = String(cur);
-    label.textContent = e.time.replace('T', ' ');
-    windEl.textContent = `${e.speedMph.toFixed(0)} mph gust ${e.gustMph.toFixed(0)} · ${e.dirTrueDeg.toFixed(0)}°`;
+    label.textContent = ui.formatClockLocal(e.time);
+    windEl.textContent = ui.windLine(e.speedMph, e.gustMph);
     frameEl.textContent = `H/L ${s.hlMax.toFixed(3)}`;
+    const c = ui.compass(e.dirTrueDeg, e.speedMph);
+    if (c.arrowDeg == null) {
+      badgeArrow.style.display = 'none';
+      badgeText.textContent = 'Calm';
+      windBadge.setAttribute('aria-label', 'Wind calm');
+    } else {
+      badgeArrow.style.display = 'block';
+      badgeArrow.style.transform = `rotate(${c.arrowDeg}deg)`;
+      badgeText.textContent = `${c.sector} ${c.degText}`;
+      windBadge.setAttribute('aria-label',
+        `Wind from ${c.sector} at ${Math.round(c.arrowDeg)} degrees`);
+    }
+    const tier = ui.comfortTier({ maxHsFt: s.maxHs, rollerFt: s.rollerFt, hlMax: s.hlMax });
+    comfortChip.className = `tier-${tier.key}`;
+    comfortChip.textContent = tier.label;
     const headline = ui.formatHeadline({
       p10Ft: s.p10Ft, maxHsFt: s.maxHs, rollerFt: s.rollerFt,
       peakLat: s.peakLat, peakLon: s.peakLon,
@@ -506,7 +610,11 @@ async function mount(deps) {
     regatherTimer = setTimeout(regather, 150);
   }
 
-  map.on('click', (ev) => { placePin(ev.latlng); });
+  function flashReadout(msg) {
+    readout.textContent = msg;
+    if (readoutTimer) clearTimeout(readoutTimer);
+    readoutTimer = setTimeout(() => { readout.textContent = DEFAULT_HINT; }, 2000);
+  }
   scrub.addEventListener('input', () => {
     pause();
     requestFrame(parseInt(scrub.value, 10));
@@ -514,43 +622,72 @@ async function mount(deps) {
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
   playBtn.addEventListener('click', () => setPlaying(!playing));
   document.getElementById('card-close').addEventListener('click', dismissPin);
-  map.on('zoomend', scheduleRegather);
   window.addEventListener('resize', scheduleRegather);
   // test hook: same handler the map click uses
   window.__bpcTap = (lat, lon) => placePin(L.latLng(lat, lon));
 
-  async function refresh() {
-    note.style.display = 'none';
+  function applyWindData(data) {
+    frames = data.day;
+    stepMin = data.stepMin || 15;
+    builtMs = 0;
+    frameCache.clear();
+    const d = desiredDims();
+    if (d.W !== canvas.width || d.H !== canvas.height) { canvas.width = d.W; canvas.height = d.H; }
+    console.info(`lazy frames: ${frames.length} @ ${stepMin} min`);
+    scrub.min = '0';
+    scrub.max = String(Math.max(0, frames.length - 1));
+    // The now-tick marks the real "now"; an explicit ?hour=/?frame= override hides it.
+    if (!q.has('hour') && !q.has('frame') && frames.length) {
+      const nowIdx = Number.isFinite(data.currentIndex) ? data.currentIndex : 0;
+      const pct = frames.length > 1 ? (nowIdx / (frames.length - 1)) * 100 : 0;
+      nowTick.style.left = `${pct}%`;
+      nowTick.hidden = false;
+    } else {
+      nowTick.hidden = true;
+    }
+    let start;
+    if (q.has('hour')) {
+      const hh = String(parseInt(q.get('hour'), 10)).padStart(2, '0');
+      start = frames.findIndex((e) => e.time.slice(11, 13) === hh);
+    } else if (q.has('frame')) {
+      start = parseInt(q.get('frame'), 10);
+    } else {
+      start = data.currentIndex;
+    }
+    showFrame(Number.isFinite(start) && start >= 0 ? start : 0);
+  }
+
+  // Wind-only retry: map data is already decoded and never refetched.
+  async function refreshWind() {
+    hideNote();
+    boot('Loading wind…', null);
     try {
       const data = await wind.ingest({ point, gamma });
-      frames = data.day;
-      stepMin = data.stepMin || 15;
-      builtMs = 0;
-      frameCache.clear();
-      const d = desiredDims();
-      if (d.W !== canvas.width || d.H !== canvas.height) { canvas.width = d.W; canvas.height = d.H; }
-      console.info(`lazy frames: ${frames.length} @ ${stepMin} min`);
-      scrub.min = '0';
-      scrub.max = String(Math.max(0, frames.length - 1));
-      let start;
-      if (q.has('hour')) {
-        const hh = String(parseInt(q.get('hour'), 10)).padStart(2, '0');
-        start = frames.findIndex((e) => e.time.slice(11, 13) === hh);
-      } else if (q.has('frame')) {
-        start = parseInt(q.get('frame'), 10);
-      } else {
-        start = data.currentIndex;
-      }
-      showFrame(Number.isFinite(start) && start >= 0 ? start : 0);
+      applyWindData(data);
     } catch (err) {
       console.error(err);
-      note.textContent = 'wind unavailable — refresh';
-      note.style.display = 'block';
+      hideBoot();
+      showNote('wind unavailable — retry', refreshWind);
     }
   }
 
-  document.getElementById('refresh').addEventListener('click', refresh);
-  await refresh();
+  // Full boot: map data first (streamed), then wind. Each step retries itself.
+  async function bootMap() {
+    hideNote();
+    try {
+      await loadMapData();
+    } catch (err) {
+      console.error(err);
+      hideBoot();
+      showNote('map data failed — retry', bootMap);
+      return;
+    }
+    setupMap();
+    await refreshWind();
+  }
+
+  document.getElementById('refresh').addEventListener('click', refreshWind);
+  await bootMap();
 }
 
 module.exports = {
