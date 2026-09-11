@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>big-pond-chop — Mille Lacs wind waves</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { display: flex; flex-direction: column; background: #0d1b2a; color: #e8f0f7;
+         font: 14px/1.3 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  header { padding: 8px 12px; background: #10263a; display: flex; align-items: baseline;
+           gap: 10px; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  #frame-info { font-variant-numeric: tabular-nums; color: #ffd166; font-weight: 600; }
+  #wind-info { color: #9fc3dd; font-size: 12px; }
+  #refresh { margin-left: auto; background: #1d4e6f; color: #e8f0f7; border: 0;
+             border-radius: 6px; padding: 5px 10px; font-size: 12px; }
+  #map { flex: 1 1 auto; min-height: 0; background: #14283b; }
+  #legend { position: absolute; top: 10px; right: 10px; z-index: 500; background: rgba(13,27,42,.82);
+            border: 1px solid #2a4a66; border-radius: 6px; padding: 6px 8px; font-size: 10px; }
+  #legend .bar { width: 120px; height: 10px; border-radius: 3px; margin: 3px 0;
+    background: linear-gradient(90deg, rgba(43,108,176,.5), rgba(55,160,196,.85), rgba(64,179,137,.95),
+                rgba(123,192,67,.95), rgba(212,197,58,.95), rgba(232,163,61,.95), rgba(224,98,47,.95),
+                rgba(192,44,44,.95)); }
+  #legend .row { display: flex; justify-content: space-between; }
+  footer { padding: 8px 12px 12px; background: #10263a; }
+  #hour-label { font-size: 12px; color: #9fc3dd; font-variant-numeric: tabular-nums; }
+  #scrub { width: 100%; margin: 6px 0; }
+  #readout { font-size: 12px; color: #cfe3f2; min-height: 1.2em; font-variant-numeric: tabular-nums; }
+  #note { display: none; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+          z-index: 600; background: #5a1f1f; color: #ffd7d7; padding: 8px 14px; border-radius: 8px;
+          font-size: 13px; }
+  #field { display: none; }
+</style>
+</head>
+<body data-hour="" data-hs-ft="" data-hmax-ft="" data-wind-mph="" data-bearing-grid="" data-teff-h="">
+  <header>
+    <h1>Mille Lacs wind waves</h1>
+    <span id="frame-info">—</span>
+    <span id="wind-info"></span>
+    <button id="refresh" type="button">refresh</button>
+  </header>
+  <div id="map">
+    <div id="legend">
+      <div class="row"><span>Hs ft</span><span>0</span></div>
+      <div class="bar"></div>
+      <div class="row"><span>0</span><span>1.5</span><span>3</span><span>4.5</span><span>6</span></div>
+    </div>
+    <div id="note">wind unavailable — refresh</div>
+  </div>
+  <footer>
+    <div id="hour-label">loading…</div>
+    <input id="scrub" type="range" min="0" max="23" step="1" value="0">
+    <div id="readout">tap the lake for a local readout</div>
+  </footer>
+  <canvas id="field"></canvas>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+  (function () {
+    var cache = {};
+    function resolve(from, req) {
+      if (req.charAt(0) !== '.') return req + '.js';
+      var base = from.split('/'); base.pop();
+      var parts = req.split('/');
+      for (var k = 0; k < parts.length; k++) {
+        var p = parts[k];
+        if (p === '.' || p === '') continue;
+        if (p === '..') base.pop(); else base.push(p);
+      }
+      var out = base.join('/');
+      return out.slice(-3) === '.js' ? out : out + '.js';
+    }
+    async function load(path) {
+      if (cache[path]) return cache[path].exports;
+      var res = await fetch(path);
+      if (!res.ok) throw new Error('load ' + path + ': HTTP ' + res.status);
+      var src = await res.text();
+      var mod = { exports: {} };
+      cache[path] = mod;
+      var require = function (req) {
+        var p = resolve(path, req);
+        if (!cache[p]) throw new Error('missing module ' + p);
+        return cache[p].exports;
+      };
+      new Function('module', 'exports', 'require', src)(mod, mod.exports, require);
+      return mod.exports;
+    }
+    (async function () {
+      try {
+        var tables = await load('src/tables.js');
+        var wave = await load('src/wave-math.js');
+        var wind = await load('src/wind.js');
+        var render = await load('src/render.js');
+        await render.mount({ tables: tables, wave: wave, wind: wind, render: render });
+      } catch (err) {
+        console.error(err);
+        var n = document.getElementById('note');
+        n.textContent = 'wind unavailable — refresh';
+        n.style.display = 'block';
+      }
+    })();
+  })();
+  </script>
+</body>
+</html>
