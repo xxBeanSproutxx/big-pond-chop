@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "code-review-graph": {
+      "type": "local",
+      "command": [
+        "/home/reid/.venvs/crg/bin/code-review-graph",
+        "serve",
+        "--repo",
+        "/home/reid/projects/big-pond-chop"
+      ]
+    }
+  }
+}
