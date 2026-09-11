@@ -124,5 +124,101 @@ check('never a bare single number (range + peak words present)', () => {
   console.log(`       ${open.peak} / ${shore.peak}`);
 });
 
+console.log('\n== [6] stage-4b windLine ==');
+check('normal, calm, and missing gust', () => {
+  assert.strictEqual(ui.windLine(14, 26), 'Wind: 14 mph · Gusts 26 mph');
+  assert.strictEqual(ui.windLine(14.4, 25.6), 'Wind: 14 mph · Gusts 26 mph');
+  assert.strictEqual(ui.windLine(2.9, 26), 'Wind: calm');
+  assert.strictEqual(ui.windLine(0, 0), 'Wind: calm');
+  assert.strictEqual(ui.windLine(14), 'Wind: 14 mph');
+  assert.strictEqual(ui.windLine(14, NaN), 'Wind: 14 mph');
+  assert.strictEqual(ui.windLine(14, undefined), 'Wind: 14 mph');
+  assert.strictEqual(ui.windLine(3, 5), 'Wind: 3 mph · Gusts 5 mph');
+});
+check('never emits NaN / undefined / Infinity', () => {
+  for (const [s, g] of [[NaN, 10], [Infinity, 10], [10, Infinity], [undefined, undefined], [10, null]]) {
+    const out = ui.windLine(s, g);
+    assert.ok(!/NaN|undefined|Infinity/.test(out), `bad output "${out}"`);
+  }
+});
+
+console.log('\n== [7] stage-4b compass ==');
+check('sector + degText at the 8 principal bearings', () => {
+  assert.deepStrictEqual(ui.compass(0, 10), { sector: 'N', degText: '0°', arrowDeg: 0 });
+  assert.deepStrictEqual(ui.compass(45, 10), { sector: 'NE', degText: '45°', arrowDeg: 45 });
+  assert.deepStrictEqual(ui.compass(90, 10), { sector: 'E', degText: '90°', arrowDeg: 90 });
+  assert.deepStrictEqual(ui.compass(180, 10), { sector: 'S', degText: '180°', arrowDeg: 180 });
+  assert.deepStrictEqual(ui.compass(315, 10), { sector: 'NW', degText: '315°', arrowDeg: 315 });
+  assert.deepStrictEqual(ui.compass(359, 10), { sector: 'N', degText: '359°', arrowDeg: 359 });
+});
+check('wrap-around normalizes, arrowDeg === normalizeDeg(bearing)', () => {
+  assert.deepStrictEqual(ui.compass(360, 10), { sector: 'N', degText: '0°', arrowDeg: 0 });
+  assert.deepStrictEqual(ui.compass(720, 10), { sector: 'N', degText: '0°', arrowDeg: 0 });
+  assert.deepStrictEqual(ui.compass(-45, 10), { sector: 'NW', degText: '315°', arrowDeg: 315 });
+  for (const b of [0, 45, 90, 180, 315, 359, 360, 722, -90]) {
+    assert.strictEqual(ui.compass(b, 10).arrowDeg, ui.normalizeDeg(b));
+  }
+});
+check('calm (< 3 mph) -> Calm with null arrow', () => {
+  eq(ui.compass(315, 2), { sector: 'Calm', degText: '', arrowDeg: null });
+  eq(ui.compass(315, 0), { sector: 'Calm', degText: '', arrowDeg: null });
+  eq(ui.compass(NaN, 10), { sector: 'Calm', degText: '', arrowDeg: null });
+});
+
+console.log('\n== [8] stage-4b comfortTier ==');
+check('locked boundaries (first match wins)', () => {
+  assert.strictEqual(ui.comfortTier({ maxHsFt: 1, rollerFt: 4.0, hlMax: 0.01 }).key, 'red');
+  assert.strictEqual(ui.comfortTier({ maxHsFt: 3.4, rollerFt: 3.9, hlMax: 0.01 }).key, 'amber');
+  assert.strictEqual(ui.comfortTier({ maxHsFt: 3.5, rollerFt: 1, hlMax: 0.01 }).key, 'amber');
+  assert.strictEqual(ui.comfortTier({ maxHsFt: 2.0, rollerFt: 0.5, hlMax: 0.01 }).key, 'yellow');
+  assert.strictEqual(ui.comfortTier({ maxHsFt: 0.5, rollerFt: 1.5, hlMax: 0.01 }).key, 'yellow');
+  assert.strictEqual(ui.comfortTier({ maxHsFt: 1.99, rollerFt: 1.49, hlMax: 0.01 }).key, 'green');
+});
+check('H/L 0.055 alone is red even with tiny waves', () => {
+  const t = ui.comfortTier({ maxHsFt: 0.2, rollerFt: 0.2, hlMax: 0.055 });
+  assert.strictEqual(t.key, 'red');
+  assert.strictEqual(t.label, 'Dangerous · Stay Home');
+  assert.strictEqual(ui.comfortTier({ maxHsFt: 5.0, rollerFt: 0, hlMax: 0 }).key, 'red');
+});
+check('labels are exact', () => {
+  assert.strictEqual(ui.comfortTier({ maxHsFt: 6, rollerFt: 6, hlMax: 0.1 }).label, 'Dangerous · Stay Home');
+  assert.strictEqual(ui.comfortTier({ maxHsFt: 4, rollerFt: 0, hlMax: 0 }).label, 'Heavy Rollers');
+  assert.strictEqual(ui.comfortTier({ maxHsFt: 2.5, rollerFt: 0, hlMax: 0 }).label, 'Walleye Chop');
+  assert.strictEqual(ui.comfortTier({ maxHsFt: 0.5, rollerFt: 0.5, hlMax: 0 }).label, 'Fishable · Light Chop');
+});
+check('missing / NaN inputs never throw or return undefined', () => {
+  for (const s of [{}, null, undefined, { maxHsFt: NaN, rollerFt: NaN, hlMax: NaN }]) {
+    const t = ui.comfortTier(s);
+    assert.strictEqual(t.key, 'green');
+    assert.strictEqual(t.label, 'Fishable · Light Chop');
+  }
+});
+check('monotonic: raising max or roller never yields a less-severe tier', () => {
+  const rank = { green: 0, yellow: 1, amber: 2, red: 3 };
+  const tier = (m, r) => rank[ui.comfortTier({ maxHsFt: m, rollerFt: r, hlMax: 0 }).key];
+  for (let m = 0; m <= 6.01; m += 0.1) {
+    for (let r = 0; r < 5; r += 0.1) {
+      assert.ok(tier(m + 0.1, r) >= tier(m, r), `max ${m}->${m + 0.1} @ roller ${r}`);
+      assert.ok(tier(m, r + 0.1) >= tier(m, r), `roller ${r}->${r + 0.1} @ max ${m}`);
+    }
+  }
+});
+
+console.log('\n== [9] stage-4b formatClockLocal ==');
+check('12-hour wall clock in America/Chicago', () => {
+  assert.strictEqual(ui.formatClockLocal('2026-09-11T00:00'), '12:00 AM CDT');
+  assert.strictEqual(ui.formatClockLocal('2026-09-11T12:00'), '12:00 PM CDT');
+  assert.strictEqual(ui.formatClockLocal('2026-09-11T17:15'), '5:15 PM CDT');
+  assert.strictEqual(ui.formatClockLocal('2026-09-11T05:00'), '5:00 AM CDT');
+});
+check('winter is CST; the fall-back DST day does not throw', () => {
+  assert.strictEqual(ui.formatClockLocal('2026-01-15T17:15'), '5:15 PM CST');
+  const before = ui.formatClockLocal('2026-11-01T00:30');
+  const after = ui.formatClockLocal('2026-11-01T03:30');
+  assert.ok(/^\d{1,2}:\d{2} (AM|PM) C[SD]T$/.test(before), before);
+  assert.ok(/^\d{1,2}:\d{2} (AM|PM) C[SD]T$/.test(after), after);
+  console.log(`       ${before} / ${after}`);
+});
+
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);
