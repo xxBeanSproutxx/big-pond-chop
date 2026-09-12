@@ -186,12 +186,17 @@ function computeFrame(tables, entry, opts = {}) {
   return { capped, afterKs, ts, maxHs, maxIdx, rollerFt, hlMax: (afterKs[maxIdx] * waveMath.FT) / L_m };
 }
 
-// ---- colour scale (land / flat water transparent) ----
-function paintRaster(ctx, raster, W, H) {
+// ---- colour scale (land transparent, calm water opaque navy) ----
+// raster[k] > 0 is water with a height -> Hs ramp. Otherwise the pixel is either calm
+// water (paint CALM_RGBA) or land (stay transparent); landFrac tells them apart. The
+// land-fraction raster may be omitted (e.g. pure unit paint) -> non-positive is transparent.
+function paintRaster(ctx, raster, W, H, landFrac) {
   const img = ctx.createImageData(W, H);
   const px = img.data;
   for (let k = 0, p = 0; k < raster.length; k++, p += 4) {
-    const c = ui.colorForHs(raster[k]);
+    const c = raster[k] > 0
+      ? ui.colorForHs(raster[k])
+      : (landFrac && landFrac[k] < 0.5 ? ui.CALM_RGBA : [0, 0, 0, 0]);
     px[p] = c[0]; px[p + 1] = c[1]; px[p + 2] = c[2]; px[p + 3] = c[3];
   }
   ctx.putImageData(img, 0, 0);
@@ -199,9 +204,9 @@ function paintRaster(ctx, raster, W, H) {
 
 // Async PNG encode: paint the same raster into an OffscreenCanvas, then let the browser
 // encode to a blob off the main thread. Resolves to an object URL.
-function encodeOffscreen(raster, W, H) {
+function encodeOffscreen(raster, W, H, landFrac) {
   const off = new OffscreenCanvas(W, H);
-  paintRaster(off.getContext('2d'), raster, W, H);
+  paintRaster(off.getContext('2d'), raster, W, H, landFrac);
   return off.convertToBlob({ type: 'image/png' }).then((blob) => URL.createObjectURL(blob));
 }
 
@@ -351,6 +356,7 @@ async function mount(deps) {
   const trackLabel = document.getElementById('track-label');
   const timePill = document.getElementById('time-pill');
   const nowTick = document.getElementById('now-tick');
+  const windStripEl = document.getElementById('wind-strip');
   const horizonEl = document.getElementById('horizon');
   const h24Btn = document.getElementById('h-24h');
   const h7Btn = document.getElementById('h-7d');
@@ -478,7 +484,7 @@ async function mount(deps) {
     bounds = displayBounds(warp);
   }
 
-  const legendBar = document.getElementById('legend-bar');
+  const legendBar = document.getElementById('legend-card-bar');
   if (legendBar) {
     const stops = ui.HS_STOPS.map(([v, r, g, b]) => `rgb(${r}, ${g}, ${b}) ${(v / 6 * 100).toFixed(1)}%`);
     legendBar.style.background = `linear-gradient(90deg, ${stops.join(', ')})`;
@@ -664,9 +670,11 @@ async function mount(deps) {
     paintArmed = false;
   }
 
-  // Solid segmented day blocks at real width: alternating shades, midnight divider, a centred
-  // day header and the full 3 h sub-row. Blocks are date-string derived; each is sized from
+  // Solid segmented day blocks at real width: alternating shades, midnight divider, day
+  // headers and the full 3 h sub-row. Blocks are date-string derived; each is sized from
   // its own frame run, so uneven days still tile exactly.
+  // 5J: a wide block (24 h, 550 px) repeats the day label once per 6 h cell so the label
+  // never scrolls out of context; narrow blocks (7d, 190 px) keep one centred header.
   function renderTimeline() {
     trackDays.textContent = '';
     trackTicks.textContent = '';
@@ -676,6 +684,7 @@ async function mount(deps) {
     const pxf = pxPerFrame(horizon, viewportW);
     trackTape.style.width = `${n * pxf}px`;
     const parts = dayPartitions(frames);
+    const lastPart = parts.length - 1;
     for (let k = 0; k < parts.length; k++) {
       const start = parts[k].index;
       const end = k + 1 < parts.length ? parts[k + 1].index : n;
@@ -685,16 +694,44 @@ async function mount(deps) {
       block.className = 'day-block' + (k % 2 ? ' alt' : '');
       block.style.left = `${left}px`;
       block.style.width = `${w}px`;
-      const head = document.createElement('span');
-      head.className = 'day-head';
-      head.textContent = ui.dayLabel(parts[k].date, true);
-      block.appendChild(head);
+      const label = ui.dayLabel(parts[k].date, true);
+      if (w > 275) {
+        for (let h = 0; h < 24; h += 6) {
+          const head = document.createElement('span');
+          head.className = 'day-head';
+          head.style.left = `${((h + 3) / 24) * w}px`;
+          head.textContent = label;
+          block.appendChild(head);
+        }
+      } else {
+        const head = document.createElement('span');
+        head.className = 'day-head';
+        head.textContent = label;
+        block.appendChild(head);
+      }
       for (let h = 0; h < 24; h += 3) {
         const sub = document.createElement('span');
-        sub.className = 'day-sub';
-        sub.style.left = `${Math.max(6, Math.min(w - 6, (h / 24) * w))}px`;
+        sub.className = 'day-sub' + (h === 0 ? ' edge' : '');
+        if (h === 0) {
+          // Left-anchored so the first tick can never clip against the block edge.
+          sub.style.left = '3px';
+          sub.style.transform = 'none';
+        } else {
+          sub.style.left = `${Math.max(6, Math.min(w - 6, (h / 24) * w))}px`;
+        }
         sub.textContent = String((h % 12) || 12).padStart(2, '0');
         block.appendChild(sub);
+      }
+      // Midnight boundary tick, right-anchored, on the 24 h tape's final block only:
+      // 7d blocks are too narrow (~5 px to the next day's tick) and would double the label.
+      if (horizon === '24h' && k === lastPart) {
+        const edge = document.createElement('span');
+        edge.className = 'day-sub edge';
+        edge.style.right = '2px';
+        edge.style.left = 'auto';
+        edge.style.transform = 'none';
+        edge.textContent = '12';
+        block.appendChild(edge);
       }
       trackDays.appendChild(block);
     }
@@ -709,13 +746,17 @@ async function mount(deps) {
 
   // Single feedback helper, called by showFrame (play + programmatic) and by scrub.
   // The pill is permanent and fixed: only its text changes; the tape moves underneath.
+  // 5J: the deck wind strip is written here too, so it stays synchronized with the reticle.
   function updateScrubUi(idx) {
     if (!frames.length || !viewportW) return;
-    const text = ui.formatPillTime(frames[idx].time);
+    const e = frames[idx];
+    const text = ui.formatPillTime(e.time);
     if (timePill.textContent !== text) timePill.textContent = text;
+    const strip = ui.windStrip(e.speedMph, e.gustMph, e.dirTrueDeg);
+    if (windStripEl && windStripEl.textContent !== strip) windStripEl.textContent = strip;
     trackEl.setAttribute('aria-valuenow', String(idx));
     trackEl.setAttribute('aria-valuetext',
-      `${ui.formatClockLocal(frames[idx].time)}, ${ui.dayLabel(frames[idx].time, true)}`);
+      `${ui.formatClockLocal(e.time)}, ${ui.dayLabel(e.time, true)}`);
     writeTape(idx);
   }
 
@@ -811,9 +852,9 @@ async function mount(deps) {
     const meta = { idx, pinIdx, W, H };
     let pending = null;
     if (offscreenSupported()) {
-      pending = encodeOffscreen(smooth, W, H); // raster paint is sync; PNG encode is not
+      pending = encodeOffscreen(smooth, W, H, landFrac); // raster paint is sync; PNG encode is not
     } else {
-      paintRaster(cctx, smooth, W, H); // fallback: old synchronous path
+      paintRaster(cctx, smooth, W, H, landFrac); // fallback: old synchronous path
       entry.url = canvas.toDataURL();
     }
     const ms = performance.now() - t0;
@@ -921,7 +962,8 @@ async function mount(deps) {
         `Wind from ${c.sector} at ${Math.round(c.fromDeg)} degrees, ` +
         `blowing toward ${Math.round(c.arrowDeg)} degrees`);
     }
-    const tier = ui.comfortTier({ maxHsFt: s.maxHs, rollerFt: s.rollerFt, hlMax: s.hlMax });
+    const tier = ui.comfortTier({ maxHsFt: s.maxHs, rollerFt: s.rollerFt, hlMax: s.hlMax,
+      windMph: e.speedMph });
     comfortChip.className = `tier-${tier.key}`;
     comfortChip.textContent = tier.label;
     const headline = ui.formatHeadline({
