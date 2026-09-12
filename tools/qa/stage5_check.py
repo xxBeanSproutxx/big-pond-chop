@@ -781,7 +781,8 @@ def check_timeline_labels(page):
         return {"min": min(vals) if vals else float("inf"), "overlap": overlap, "n": len(vals)}
 
     def heat_rows():
-        """5O: per 7d block — the .day-heat ribbon geometry/colour and the row fonts."""
+        """5P: per 7d block — the .day-heat ribbon geometry/colour, the embedded .day-wind
+        containment + shadow, and the row fonts."""
         return page.evaluate(
             """() => {
                  var blocks = Array.from(document.getElementById('track-days').children);
@@ -802,9 +803,14 @@ def check_timeline_labels(page):
                    var h = hs[0];
                    var hr = h ? h.getBoundingClientRect() : null;
                    var cs = h ? getComputedStyle(h) : null;
+                   var winds = Array.from(b.querySelectorAll('.day-wind'));
+                   var inside = hr ? winds.every(function (w) {
+                     var wr = w.getBoundingClientRect();
+                     return wr.top >= hr.top - 1 && wr.bottom <= hr.bottom + 1;
+                   }) : false;
                    var head = b.querySelector('.day-head');
                    var sub = b.querySelector('.day-sub:not(.edge)');
-                   var wind = b.querySelector('.day-wind');
+                   var wind = winds[0];
                    var grad = cs ? cs.backgroundImage : '';
                    return {
                      n: hs.length,
@@ -821,6 +827,8 @@ def check_timeline_labels(page):
                      windSize: wind ? parseFloat(getComputedStyle(wind).fontSize) : 0,
                      windWeight: wind ? getComputedStyle(wind).fontWeight : '',
                      windColor: wind ? getComputedStyle(wind).color : '',
+                     shadow: wind ? getComputedStyle(wind).textShadow : '',
+                     inside: inside,
                      hx: hr ? hr.x : 0,
                      bx: br.x,
                    };
@@ -919,24 +927,26 @@ def check_timeline_labels(page):
     wind7_ok = (w7["counts"] == [8, 8, 8, 8, 8, 8, 8] and w7["texts_ok"] and
                 w7["paired"] and w7["worst"] <= 1.5 and w7["boundary"] == 0)
     g7 = summarize_gaps(ink_gaps())
-    # 5O: per-day heat ribbon (geometry, tier colours), row typography, and the ribbon
-    # moving in lockstep with its parent block when the tape scrolls.
+    # 5P: per-day heat ribbon (20 px, tier colours) with the wind numbers embedded inside
+    # it, row typography, and the ribbon moving in lockstep with its parent block.
     heats = heat_rows()
     heat_count_ok = all(b["n"] == 1 for b in heats)
-    heat_size_ok = all(abs(b["hh"] - 6) <= 0.5 and
+    heat_size_ok = all(abs(b["hh"] - 20) <= 1 and
                        abs(b["hw"] - (b["bw"] - 6)) <= 1 and b["radius"] >= 2 for b in heats)
+    heat_inside_ok = all(b["inside"] for b in heats)
     # One stop per hourly sample in every block, and >= 2 distinct tier colours across the
     # 7d horizon (a uniformly calm day is legitimately one colour, so a per-block >= 2 would
-    # fail on real calm stretches; see the 5o evidence line for per-block tier sets).
+    # fail on real calm stretches; see the 5p evidence line for per-block tier sets).
     heat_stops_ok = all(b["stops"] == 24 for b in heats)
     all_tiers = set()
     for b in heats:
         all_tiers.update(b["tiers"])
     heat_color_ok = heat_stops_ok and len(all_tiers) >= 2
+    shadow_ok = all(b["shadow"] and b["shadow"] != "none" for b in heats)
     fonts_ok = all(b["headSize"] == 12 and b["headWeight"] == "600" and
                    b["subSize"] == 11 and b["subColor"] == "rgb(148, 163, 184)" and
                    b["windSize"] == 12 and b["windWeight"] == "700" and
-                   b["windColor"] == "rgb(248, 250, 252)" for b in heats)
+                   b["windColor"] == "rgb(255, 255, 255)" for b in heats)
     page.focus("#track")
     page.keyboard.press("Home")
     page.wait_for_timeout(420)
@@ -949,7 +959,8 @@ def check_timeline_labels(page):
                  all(abs((after_x[i]["hx"] - before_x[i]["hx"]) -
                          (after_x[i]["bx"] - before_x[i]["bx"])) <= 1
                      for i in range(len(before_x))))
-    heat_ok = heat_count_ok and heat_size_ok and heat_color_ok and fonts_ok and scroll_ok
+    heat_ok = (heat_count_ok and heat_size_ok and heat_inside_ok and heat_color_ok and
+               shadow_ok and fonts_ok and scroll_ok)
 
     # 5N: no two consecutive text runs in either row may overlap, and the minimum gap at
     # both horizons must be >= 6 px (ink boxes, not the fixed 1.5 em span boxes).
@@ -979,11 +990,11 @@ def check_timeline_labels(page):
           % (w7["counts"], w7["worst"], w7["texts_ok"],
              w7["blocks"][0]["windTexts"] if w7["blocks"] else []))
     print("        5n gaps 24h=%.1fpx 7d=%.1fpx" % (g24["min"], g7["min"]))
-    print("        5o rows: count=%s size=%s stops=%s colours=%s fonts=%s scroll=%s | "
-          "ink-gap 24h=%.1fpx 7d=%.1fpx"
-          % (heat_count_ok, heat_size_ok, heat_stops_ok, heat_color_ok, fonts_ok, scroll_ok,
-             g24["min"], g7["min"]))
-    print("        5o tiers/block: %s (union=%d>=2)"
+    print("        5p ribbon: count=%s h=%s stops=%s colours=%s inside=%s shadow=%s fonts=%s "
+          "scroll=%s | ink-gap 24h=%.1fpx 7d=%.1fpx"
+          % (heat_count_ok, heat_size_ok, heat_stops_ok, heat_color_ok, heat_inside_ok,
+             shadow_ok, fonts_ok, scroll_ok, g24["min"], g7["min"]))
+    print("        5p tiers/block: %s (union=%d>=2)"
           % ([b["tiers"] for b in heats], len(all_tiers)))
     record(18, "timeline labels (5L)", ok,
            "indices=%s heads=%s one-head=%s pinned=%s no-repeat=%s sticky-window=%s "
@@ -992,7 +1003,7 @@ def check_timeline_labels(page):
            "7d counts=%s min-12-gap=%.1f>=20=%s | 5m wind 24h counts=%s worst=%.2fpx nums=%s "
            "boundary-no-wind=%s list=%s | 7d counts=%s worst=%.2fpx nums=%s list0=%s | "
            "5n gaps 24h=%.1f>=6=%s 7d=%.1f>=6=%s overlap=%s/%s | "
-           "5o rows heat-count=%s size=%s colours=%s fonts=%s scroll=%s"
+           "5p ribbon heat-count=%s h=%s inside=%s shadow=%s colours=%s fonts=%s scroll=%s"
            % (indices_ok, heads, one_head, head_pinned, no_repeat, sticky_window_ok,
               sticky_block_ok, head_x[0], head_x[95], sticky_shift, sticky_engages,
               left_edge_ok, boundary_ok, ticks_ok, labels_ok, inside_ok, seven["counts"],
@@ -1003,7 +1014,8 @@ def check_timeline_labels(page):
               w7["blocks"][0]["windTexts"] if w7["blocks"] else [],
               g24["min"], g24["min"] >= 6.0, g7["min"], g7["min"] >= 6.0,
               g24["overlap"], g7["overlap"],
-              heat_count_ok, heat_size_ok, heat_color_ok, fonts_ok, scroll_ok))
+              heat_count_ok, heat_size_ok, heat_inside_ok, shadow_ok, heat_color_ok, fonts_ok,
+              scroll_ok))
 
 
 def check_deck_geometry(page):
@@ -1059,12 +1071,12 @@ def check_deck_geometry(page):
     pill_centred = abs(pill_cx - tl_cx) <= 1  # 5G: pill is anchored to the window centre
     bgs = v["blockBg"]
     adjacent_ok = all(bgs[i] != bgs[i + 1] for i in range(len(bgs) - 1))
-    # 5M: the wind strip is gone and the freed row is tape space: #track/#timeline are 68 px.
-    tape_68 = abs(v["trackH"] - 68) <= 1 and abs(v["timelineH"] - 68) <= 1
-    ok = (v["deckH"] <= 72 and v["stripAbsent"] and tape_68 and all(v["absent"].values()) and
+    # 5P: the wind strip stays gone and the 3-tier deck is 62 px: #track/#timeline are 62 px.
+    tape_62 = abs(v["trackH"] - 62) <= 1 and abs(v["timelineH"] - 62) <= 1
+    ok = (v["deckH"] <= 72 and v["stripAbsent"] and tape_62 and all(v["absent"].values()) and
           v["pillVisible"] and not v["pillHidden"] and bool(v["pillText"].strip()) and
           pill_centred and play_inside and timeline_inside and v["blockCount"] >= 1 and adjacent_ok)
-    print("        5F/5M rects: deck h=%.1f wind-strip-absent=%s track h=%.1f timeline h=%.1f "
+    print("        5F/5P rects: deck h=%.1f wind-strip-absent=%s track h=%.1f timeline h=%.1f "
           "play=[%.1f,%.1f]x%.1fx%.1f timeline=[%.1f,%.1f]-[%.1f,%.1f] pill=[%.1f,%.1f] %.1fx%.1f "
           "text='%s' pill-cx=%.1f timeline-cx=%.1f blocks=%d bg=%s"
           % (v["deckH"], v["stripAbsent"], v["trackH"], v["timelineH"],

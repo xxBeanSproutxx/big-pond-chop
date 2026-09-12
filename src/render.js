@@ -745,22 +745,9 @@ async function mount(deps) {
         sub.textContent = String((h % 12) || 12).padStart(2, '0');
         block.appendChild(sub);
       }
-      // 5M: three-hourly wind labels, mirroring each three-hourly tick's anchor rule so the
-      // centres line up within 1.5 px. No label on the boundary 12 tick (no 24:00 frame).
-      for (const t of tickWinds(frames, start, end)) {
-        const wind = document.createElement('span');
-        wind.className = 'day-wind';
-        if (t.h === 0) {
-          wind.style.left = '3px';
-          wind.style.transform = 'none';
-        } else {
-          wind.style.left = `${Math.max(6, Math.min(w - 6, (t.h / 24) * w))}px`;
-        }
-        wind.textContent = String(t.mph);
-        block.appendChild(wind);
-      }
-      // 5O: one heat stop per hour (24 samples from the 15-min frames), feeding the
-      // per-block ribbon gradient. Same per-block loop as the ticks; no per-frame work.
+      // 5P: one heat stop per hour (24 samples from the 15-min frames), feeding the
+      // per-block ribbon gradient. Appended before the wind numbers so the ribbon paints
+      // behind them (no z-index games). Same per-block loop as the ticks; no per-frame work.
       const hourly = [];
       for (let h = 0; h < 24; h++) {
         const hh = String(h).padStart(2, '0') + ':00';
@@ -776,6 +763,21 @@ async function mount(deps) {
       heat.setAttribute('aria-hidden', 'true');
       heat.style.backgroundImage = ui.windHeatGradient(hourly);
       block.appendChild(heat);
+      // 5P: three-hourly wind labels embedded in the ribbon, mirroring each three-hourly
+      // tick's anchor rule so the centres line up within 1.5 px. No label on the boundary
+      // 12 tick (no 24:00 frame).
+      for (const t of tickWinds(frames, start, end)) {
+        const wind = document.createElement('span');
+        wind.className = 'day-wind';
+        if (t.h === 0) {
+          wind.style.left = '3px';
+          wind.style.transform = 'none';
+        } else {
+          wind.style.left = `${Math.max(6, Math.min(w - 6, (t.h / 24) * w))}px`;
+        }
+        wind.textContent = String(t.mph);
+        block.appendChild(wind);
+      }
       // Midnight boundary tick, right-anchored, on the 24 h tape's final block only:
       // 7d blocks are too narrow (~5 px to the next day's tick) and would double the label.
       if (horizon === '24h' && k === lastPart) {
