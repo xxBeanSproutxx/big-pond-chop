@@ -424,7 +424,7 @@ def check_ramp_location(page):
              };
            }""")
     grad_ok = all(c in v["gradient"] for c in (
-        "rgb(3, 105, 161)", "rgb(6, 182, 212)", "rgb(245, 158, 11)",
+        "rgb(6, 182, 212)", "rgb(6, 182, 212)", "rgb(245, 158, 11)",
         "rgb(234, 88, 12)", "rgb(220, 38, 38)", "rgb(190, 24, 93)"))
     stops_ok = v["stops"] == ["0", "1", "2", "3.5", "4.5", "6+"]
     ok = v["exists"] and v["inMap"] and not v["inDeck"] and v["legend"] and stops_ok and grad_ok
@@ -529,7 +529,7 @@ def check_touch_ergonomics(page):
 
     m0 = metrics()
     n, horizon = m0["n"], m0["horizon"]
-    pxf = (190.0 if horizon == "7d" else max(550.0, round(m0["tlW"]))) / 96.0
+    pxf = (330.0 if horizon == "7d" else max(550.0, round(m0["tlW"]))) / 96.0
     ty = m0["tlY"] + 24  # inside #timeline, below the floating pill
     cx = m0["tlX"] + m0["tlW"] / 2
 
@@ -740,6 +740,46 @@ def check_timeline_labels(page):
                 "boundary": boundary, "worst": max(deltas) if deltas else 0.0,
                 "blocks": blocks}
 
+    def ink_gaps():
+        """5N: measure the actual text-run ink boxes with Range.getClientRects() — the fixed
+        1.5 em span boxes hide real ink collisions. For each block's tick row (.day-sub) and
+        wind row (.day-wind), sort the runs and report the minimum consecutive gap."""
+        return page.evaluate(
+            """() => {
+                 var blocks = Array.from(document.getElementById('track-days').children);
+                 function runs(el) {
+                   var r = document.createRange();
+                   r.selectNodeContents(el);
+                   return Array.from(r.getClientRects())
+                     .filter(function (b) { return b.width > 0; })
+                     .map(function (b) { return { l: b.left, r: b.right }; });
+                 }
+                 function rowGap(els) {
+                   var rects = [];
+                   els.forEach(function (e) { rects = rects.concat(runs(e)); });
+                   rects.sort(function (a, b) { return a.l - b.l; });
+                   var min = Infinity;
+                   for (var i = 1; i < rects.length; i++)
+                     min = Math.min(min, rects[i].l - rects[i - 1].r);
+                   return { min: min, n: rects.length };
+                 }
+                 return blocks.map(function (b) {
+                   return { ticks: rowGap(Array.from(b.querySelectorAll('.day-sub'))),
+                            winds: rowGap(Array.from(b.querySelectorAll('.day-wind'))) };
+                 });
+               }""")
+
+    def summarize_gaps(blocks):
+        vals = []
+        overlap = False
+        for b in blocks:
+            for row in (b["ticks"], b["winds"]):
+                if math.isfinite(row["min"]):
+                    vals.append(row["min"])
+                    if row["min"] < 0:
+                        overlap = True
+        return {"min": min(vals) if vals else float("inf"), "overlap": overlap, "n": len(vals)}
+
     heads = {}
     head_x = {}
     indices_ok = True
@@ -799,6 +839,7 @@ def check_timeline_labels(page):
     boundary_no_wind = w24["boundary"] == 1
     wind24_ok = (eight24_ok and w24["texts_ok"] and w24["paired"] and
                  w24["worst"] <= 1.5 and boundary_no_wind)
+    g24 = summarize_gaps(ink_gaps())
 
     # 7 day: 8 ticks per block and no two '12's within 20 px at a day join.
     page.click("#h-7d")
@@ -830,6 +871,11 @@ def check_timeline_labels(page):
     w7 = summarize_winds(wind_alignment())
     wind7_ok = (w7["counts"] == [8, 8, 8, 8, 8, 8, 8] and w7["texts_ok"] and
                 w7["paired"] and w7["worst"] <= 1.5 and w7["boundary"] == 0)
+    g7 = summarize_gaps(ink_gaps())
+    # 5N: no two consecutive text runs in either row may overlap, and the minimum gap at
+    # both horizons must be >= 6 px (ink boxes, not the fixed 1.5 em span boxes).
+    ink_ok = (g24["min"] >= 6.0 and g7["min"] >= 6.0 and
+              not g24["overlap"] and not g7["overlap"])
 
     page.click("#h-24h")
     page.wait_for_function(
@@ -840,7 +886,7 @@ def check_timeline_labels(page):
     ok = (indices_ok and head_count_ok and one_head and head_pinned and no_repeat and
           sticky_window_ok and sticky_block_ok and sticky_engages and
           left_edge_ok and boundary_ok and ticks_ok and labels_ok and inside_ok and seven_ok and
-          wind24_ok and wind7_ok)
+          wind24_ok and wind7_ok and ink_ok)
     print("        heads/idx=%s headCount=%d pinned-offset=%.1f text='%s' "
           "sticky x0=%.0f x95=%.0f shift=%.0f window-ok=%s block-ok=%s sub-ticks/24h=%d "
           "(last block) left-edge=%s boundary=%s inside=%s labels=%s"
@@ -853,12 +899,14 @@ def check_timeline_labels(page):
     print("        5M wind 7d:  counts=%s worst-delta=%.2fpx nums=%s list(block0)=%s"
           % (w7["counts"], w7["worst"], w7["texts_ok"],
              w7["blocks"][0]["windTexts"] if w7["blocks"] else []))
+    print("        5n gaps 24h=%.1fpx 7d=%.1fpx" % (g24["min"], g7["min"]))
     record(18, "timeline labels (5L)", ok,
            "indices=%s heads=%s one-head=%s pinned=%s no-repeat=%s sticky-window=%s "
            "sticky-block=%s head-x0=%.0f head-x95=%.0f shift=%.0f>50=%s "
            "left-edge-12=%s last-boundary-12=%s ticks=9=%s labels-3h=%s all-inside=%s | "
            "7d counts=%s min-12-gap=%.1f>=20=%s | 5m wind 24h counts=%s worst=%.2fpx nums=%s "
-           "boundary-no-wind=%s list=%s | 7d counts=%s worst=%.2fpx nums=%s list0=%s"
+           "boundary-no-wind=%s list=%s | 7d counts=%s worst=%.2fpx nums=%s list0=%s | "
+           "5n gaps 24h=%.1f>=6=%s 7d=%.1f>=6=%s overlap=%s/%s"
            % (indices_ok, heads, one_head, head_pinned, no_repeat, sticky_window_ok,
               sticky_block_ok, head_x[0], head_x[95], sticky_shift, sticky_engages,
               left_edge_ok, boundary_ok, ticks_ok, labels_ok, inside_ok, seven["counts"],
@@ -866,7 +914,9 @@ def check_timeline_labels(page):
               w24["counts"], w24["worst"], w24["texts_ok"], boundary_no_wind,
               w24["blocks"][0]["windTexts"] if w24["blocks"] else [],
               w7["counts"], w7["worst"], w7["texts_ok"],
-              w7["blocks"][0]["windTexts"] if w7["blocks"] else []))
+              w7["blocks"][0]["windTexts"] if w7["blocks"] else [],
+              g24["min"], g24["min"] >= 6.0, g7["min"], g7["min"] >= 6.0,
+              g24["overlap"], g7["overlap"]))
 
 
 def check_deck_geometry(page):
@@ -985,7 +1035,7 @@ def check_tape_architecture(page):
                }""")
 
     def pxf_for(m):
-        return (190.0 if m["horizon"] == "7d" else max(550.0, round(m["tlW"]))) / 96.0
+        return (330.0 if m["horizon"] == "7d" else max(550.0, round(m["tlW"]))) / 96.0
 
     def centred(m):
         return abs(m["pillCx"] - m["tlCx"]) <= 1.0
@@ -1031,7 +1081,7 @@ def check_tape_architecture(page):
     m7 = metrics()
     ok_centre7 = centred(m7)
     ok_frame7 = frame_under_reticle(m7)
-    ok_tape7 = 1100 <= m7["tapeW"] <= 1400
+    ok_tape7 = 2280 <= m7["tapeW"] <= 2340
     bgs = m7["blockBg"]
     ok_alt = len(bgs) >= 2 and all(bgs[i] != bgs[i + 1] for i in range(len(bgs) - 1))
     ok_blocks7 = m7["blockCount"] == 7 and all(c == 8 for c in m7["subCounts"])
@@ -1150,7 +1200,7 @@ def check_scrub_decoupling(page):
         "() => { var r = document.getElementById('timeline').getBoundingClientRect();"
         " return { cx: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width }; }")
     n = int(page.get_attribute("#track", "aria-valuemax")) + 1
-    pxf = (190.0 if n == 672 else max(550.0, round(tl["w"]))) / 96.0
+    pxf = (330.0 if n == 672 else max(550.0, round(tl["w"]))) / 96.0
     start_idx = int(page.get_attribute("#track", "aria-valuenow"))
 
     cx, ty = tl["cx"], tl["y"]

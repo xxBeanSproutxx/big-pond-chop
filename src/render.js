@@ -89,11 +89,12 @@ function shouldPaintMap(nowMs, lastPaintMs, busy, minIntervalMs) {
 }
 
 // ---- stage 5G: scrolling tape geometry (pure helpers) ----
-// Tape density: 7 d is a fixed 190 px/day (672 frames -> 1,330 px); a single 24 h day is
+// Tape density: 7 d is a fixed 330 px/day (672 frames -> 2,310 px; 41.25 px per 3 h
+// interval, wide enough that the tick and wind rows never collide); a single 24 h day is
 // a 550 px/day tape so it has ~176 px of runway at a phone viewport, and still fills at
 // least the viewing window on desktop/tablet (window-fill, as in 5G).
 function pxPerDay(horizon, windowW) {
-  return horizon === '7d' ? 190 : Math.max(550, Math.round(Number(windowW) || 0));
+  return horizon === '7d' ? 330 : Math.max(550, Math.round(Number(windowW) || 0));
 }
 
 function pxPerFrame(horizon, windowW) {

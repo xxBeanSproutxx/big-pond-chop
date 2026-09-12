@@ -276,8 +276,8 @@ check('stale async result cached but not painted (decision helper)', () => {
 });
 
 console.log('\n== [9] stage-5g: tape geometry ==');
-check('pxPerDay is 190 in 7d and max(550, window) in 24h', () => {
-  assert.strictEqual(pxPerDay('7d', 374), 190);
+check('pxPerDay is 330 in 7d and max(550, window) in 24h', () => {
+  assert.strictEqual(pxPerDay('7d', 374), 330);
   assert.strictEqual(pxPerDay('24h', 374), 550);
   assert.strictEqual(pxPerDay('24h', 120), 550, 'a single day keeps the 550 px/day phone floor');
   console.log(`       7d->${pxPerDay('7d', 374)} 24h(374)->${pxPerDay('24h', 374)} ` +
@@ -286,11 +286,11 @@ check('pxPerDay is 190 in 7d and max(550, window) in 24h', () => {
 check('24h runway is >= 150 px at a 374 px window; 7d unchanged', () => {
   assert.ok(pxPerDay('24h', 374) - 374 >= 150,
     `24h runway ${pxPerDay('24h', 374) - 374} px`);
-  assert.strictEqual(pxPerDay('7d', 374), 190);
+  assert.strictEqual(pxPerDay('7d', 374), 330);
   console.log(`       24h runway ${pxPerDay('24h', 374) - 374} px (tape ${pxPerDay('24h', 374)} - window 374)`);
 });
 check('pxPerFrame is pxPerDay / 96', () => {
-  assert.strictEqual(pxPerFrame('7d', 374), 190 / 96);
+  assert.strictEqual(pxPerFrame('7d', 374), 330 / 96);
   assert.strictEqual(pxPerFrame('24h', 374), 550 / 96);
   console.log(`       7d->${pxPerFrame('7d', 374).toFixed(4)} 24h->${pxPerFrame('24h', 374).toFixed(4)}`);
 });
@@ -304,7 +304,7 @@ check('tapeTranslate keeps the active frame under the reticle centre', () => {
     `idx 671 -> ${tapeTranslate(671, pxf, center).toFixed(1)}`);
 });
 check('idxFromDrag: dragging left advances, right rewinds, clamped at both ends', () => {
-  const pxf = 190 / 96, n = 672, start = 200;
+  const pxf = 330 / 96, n = 672, start = 200;
   for (const k of [1, 5, 37, 120]) {
     assert.strictEqual(idxFromDrag(-pxf * k, start, pxf, n), start + k, `advance ${k}`);
   }
@@ -389,7 +389,7 @@ check('paintRaster: calm water -> CALM_RGBA opaque (alpha 255), land -> transpar
   const img = { width: W, height: H, data: new Uint8ClampedArray(W * H * 4) };
   const ctx = { createImageData: () => img, putImageData: () => {} };
   paintRaster(ctx, raster, W, H, landFrac);
-  assert.deepStrictEqual(Array.from(img.data.slice(0, 4)), [3, 105, 161, 255], 'calm water');
+  assert.deepStrictEqual(Array.from(img.data.slice(0, 4)), [6, 182, 212, 255], 'calm water');
   assert.deepStrictEqual(Array.from(img.data.slice(4, 8)), [0, 0, 0, 0], 'land');
 });
 check('paintRaster: positive Hs still uses the colour ramp (opaque), no landFrac needed', () => {

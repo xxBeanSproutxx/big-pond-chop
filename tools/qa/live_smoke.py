@@ -103,7 +103,7 @@ def main():
                     tapeW: document.getElementById('track-tape').getBoundingClientRect().width,
                     boot: document.getElementById('boot').classList.contains('hidden')};
         }""")
-        rec("7 day live", w["n"] == 7 and w["alternating"] and w["boot"] and 1100 <= w["tapeW"] <= 1400
+        rec("7 day live", w["n"] == 7 and w["alternating"] and w["boot"] and 2280 <= w["tapeW"] <= 2340
             and all(c == 8 for c in w["subs"]),
             "blocks=%d alt=%s boot-hidden=%s tape=%.0f sub-labels=%s"
             % (w["n"], w["alternating"], w["boot"], w["tapeW"], w["subs"]))
