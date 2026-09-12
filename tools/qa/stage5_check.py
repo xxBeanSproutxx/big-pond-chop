@@ -405,30 +405,31 @@ def check_compass(page, gamma):
 
 
 def check_ramp_location(page):
-    # Stage 5J: the six-stop ramp moved OUT of the deck into a non-interactive card inside
-    # #map (it previously lived in #deck since the 5B move).
+    # Stage 5K: the six-stop ramp is docked INSIDE #deck again (5B first moved it from an
+    # on-map legend into the deck; 5J floated it into a non-interactive card inside #map;
+    # 5K docks it back at the deck base).
     v = page.evaluate(
         """() => {
-             var bar = document.getElementById('legend-card-bar');
+             var bar = document.getElementById('ramp-bar');
              var deck = document.getElementById('deck');
              var map = document.getElementById('map');
-             var ticks = document.getElementById('legend-card-ticks');
+             var ticks = document.getElementById('ramp-ticks');
              return {
                exists: !!bar,
                inDeck: !!(bar && deck && deck.contains(bar)),
                inMap: !!(bar && map && map.contains(bar)),
-               legend: !!document.getElementById('legend'),
+               legend: !!document.getElementById('legend-card'),
                stops: ticks ? Array.from(ticks.children).map(function (s) { return s.textContent; }) : [],
                gradient: bar ? getComputedStyle(bar).backgroundImage : '',
              };
            }""")
     grad_ok = all(c in v["gradient"] for c in (
-        "rgb(15, 39, 68)", "rgb(6, 182, 212)", "rgb(245, 158, 11)",
+        "rgb(42, 88, 133)", "rgb(6, 182, 212)", "rgb(245, 158, 11)",
         "rgb(234, 88, 12)", "rgb(220, 38, 38)", "rgb(190, 24, 93)"))
     stops_ok = v["stops"] == ["0", "1", "2", "3.5", "4.5", "6+"]
-    ok = v["exists"] and v["inMap"] and not v["inDeck"] and stops_ok and grad_ok
+    ok = v["exists"] and v["inDeck"] and not v["inMap"] and stops_ok and grad_ok
     record("7a", "ramp location", ok,
-           "ramp in-deck=%s in-map=%s legend-present=%s stops=%s gradient-six=%s"
+           "ramp in-deck=%s in-map=%s legend-card-present=%s stops=%s gradient-six=%s"
            % (v["inDeck"], v["inMap"], v["legend"], v["stops"], grad_ok))
 
 
@@ -491,7 +492,7 @@ def check_card_and_touch(page, warp):
 def check_touch_ergonomics(page):
     """5G: #track is a scrolling tape with a fixed centre reticle. A real mouse drag on
     #deck scrolls the tape: LEFT advances into the future, RIGHT rewinds, the amber pill
-    never moves, a click on #play does not scrub, and a drag starting in the .deck-wind
+    never moves, a click on #play does not scrub, and a drag starting in the .deck-ramp
     row still scrubs (deck-wide pointer capture)."""
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_timeout(300)
@@ -580,14 +581,14 @@ def check_touch_ergonomics(page):
     page.wait_for_timeout(150)
     e_ok = idx_before == idx_after
 
-    # (f) a drag starting in the non-interactive .deck-wind row still scrubs (deck-wide capture).
+    # (f) a drag starting in the non-interactive .deck-ramp row still scrubs (deck-wide capture).
     dcx = g["deck"]["x"] + g["deck"]["w"] / 2
     dcy = g["deck"]["y"] + g["deck"]["h"] - 6
     hit = page.evaluate(
         "(p) => { var e = document.elementFromPoint(p[0], p[1]);"
-        " var strip = document.getElementById('wind-strip');"
+        " var ramp = document.querySelector('.deck-ramp');"
         " return { tag: e ? e.tagName : 'none', cls: e ? (e.className || '') : '',"
-        "   strip: !!(e && strip && (e === strip || strip.contains(e))),"
+        "   ramp: !!(e && ramp && (e === ramp || ramp.contains(e))),"
         "   interactive: !!(e && e.closest && e.closest('button, [role=button], a, input')) }; }",
         [dcx, dcy])
     ramp_before = metrics()
@@ -600,7 +601,7 @@ def check_touch_ergonomics(page):
     page.mouse.up()
     page.wait_for_timeout(150)
     ramp_adv = ramp_during["idx"] - ramp_before["idx"]
-    f_ok = hit["strip"] and not hit["interactive"] and abs(ramp_adv - 120.0 / pxf) <= 1.0
+    f_ok = hit["ramp"] and not hit["interactive"] and abs(ramp_adv - 120.0 / pxf) <= 1.0
 
     # (g) play button still meets the 44px touch target.
     h_ok = g["play"]["w"] >= 44 and g["play"]["h"] >= 44
@@ -621,9 +622,9 @@ def check_touch_ergonomics(page):
              d_lo["idx"], d_lo["pillCx"], d_lo["tlCx"]))
     print("        play-click: before=%d after=%d unchanged=%s play=%dx%d"
           % (idx_before, idx_after, e_ok, round(g["play"]["w"]), round(g["play"]["h"])))
-    print("        deck-wind drift: press=(%.1f,%.1f) target=%s.%s strip=%s interactive=%s "
+    print("        deck-ramp drift: press=(%.1f,%.1f) target=%s.%s ramp=%s interactive=%s "
           "idx=%d->%d (+%.1f)"
-          % (dcx, dcy, hit["tag"], hit["cls"], hit["strip"], hit["interactive"],
+          % (dcx, dcy, hit["tag"], hit["cls"], hit["ramp"], hit["interactive"],
              ramp_before["idx"], ramp_during["idx"], ramp_adv))
     record("7b", "touch ergonomics", ok,
            "pxf=%.4f left-adv=%.1f right-rew=%.1f clamp=[%d/%d, %d/0] pill-fixed=%.2fpx "
@@ -635,9 +636,10 @@ def check_touch_ergonomics(page):
 
 
 def check_timeline_labels(page):
-    """5J: a wide 24 h block repeats the day header once per 6 h cell, every sub-tick stays
-    fully inside its own block, the last block carries a right-anchored midnight '12', and
-    7 d keeps its 8 ticks per block with no duplicate '12' at a day join."""
+    """5K: the 24 h block carries exactly ONE day header, pinned at the block's start (no
+    repeated 6 h date text); every sub-tick stays fully inside its block, the last block
+    carries a right-anchored midnight '12', and 7 d keeps its 8 ticks per block with no
+    duplicate '12' at a day join."""
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_timeout(300)
     if page.get_attribute("#h-24h", "aria-pressed") != "true":
@@ -661,7 +663,7 @@ def check_timeline_labels(page):
 
     def metrics():
         return page.evaluate(
-            """(args) => {
+            """() => {
                  var tl = document.getElementById('timeline').getBoundingClientRect();
                  var blocks = Array.from(document.getElementById('track-days').children);
                  function ticks(b) {
@@ -674,12 +676,19 @@ def check_timeline_labels(page):
                               inside: r.left >= br.left - 1 && r.right <= br.right + 1 };
                    });
                  }
-                 var heads = Array.from(document.querySelectorAll('#track-days .day-head'));
-                 return {
-                   headsInWindow: heads.filter(function (h) {
+                 var heads = [];
+                 blocks.forEach(function (b, bi) {
+                   var br = b.getBoundingClientRect();
+                   b.querySelectorAll('.day-head').forEach(function (h) {
                      var r = h.getBoundingClientRect();
-                     return r.width > 0 && r.left >= tl.left - 1 && r.right <= tl.right + 1;
-                   }).length,
+                     heads.push({ text: h.textContent, block: bi,
+                                  leftOffset: r.left - br.left,
+                                  inside: r.left >= br.left - 1 && r.right <= br.right + 1 });
+                   });
+                 });
+                 return {
+                   heads: heads,
+                   headCount: heads.length,
                    blockCount: blocks.length,
                    first: ticks(blocks[0]),
                    last: ticks(blocks[blocks.length - 1]),
@@ -690,15 +699,31 @@ def check_timeline_labels(page):
 
     heads = {}
     indices_ok = True
+    head_count_ok = True
     for idx in (0, 24, 48, 72, 95):
         goto(idx)
         m = metrics()
         if m["now"] != idx:
             indices_ok = False
-        heads[idx] = m["headsInWindow"]
-    heads_ok = all(n >= 1 for n in heads.values())
+        if m["headCount"] != 1:
+            head_count_ok = False
+        heads[idx] = m["headCount"]
 
     m24 = metrics()
+    # Exactly one header, pinned within 12 px of its block's left edge, inside the block.
+    one_head = len(m24["heads"]) == 1
+    head = m24["heads"][0] if one_head else {}
+    head_pinned = one_head and abs(head["leftOffset"]) <= 12 and head["inside"] and \
+        bool(head["text"].strip())
+    # No two heads share the same text within a block.
+    no_repeat = True
+    by_block = {}
+    for h in m24["heads"]:
+        by_block.setdefault(h["block"], []).append(h["text"])
+    for texts in by_block.values():
+        if len(set(texts)) != len(texts):
+            no_repeat = False
+
     first, last = m24["first"], m24["last"]
     left_edge_ok = any(t["text"] == "12" and t["edge"] and t["transform"] in ("none", "") and
                        abs(float(t["left"].replace("px", "")) - 3) <= 1 for t in first)
@@ -742,20 +767,23 @@ def check_timeline_labels(page):
         timeout=60000)
     page.wait_for_timeout(300)
 
-    ok = (indices_ok and heads_ok and left_edge_ok and boundary_ok and ticks_ok and
-          labels_ok and inside_ok and seven_ok)
-    print("        heads/idx=%s sub-ticks/24h=%d (last block) left-edge=%s boundary=%s "
-          "inside=%s labels=%s" % (heads, len(last), left_edge_ok, boundary_ok, inside_ok, labels_ok))
-    record(18, "timeline labels (5J)", ok,
-           "indices=%s heads=%s left-edge-12=%s last-boundary-12=%s ticks=9=%s labels-3h=%s "
-           "all-inside=%s | 7d counts=%s min-12-gap=%.1f>=20=%s"
-           % (indices_ok, heads, left_edge_ok, boundary_ok, ticks_ok, labels_ok, inside_ok,
-              seven["counts"], seven["minGap"] if math.isfinite(seven["minGap"]) else -1.0,
-              seven_ok))
+    ok = (indices_ok and head_count_ok and one_head and head_pinned and no_repeat and
+          left_edge_ok and boundary_ok and ticks_ok and labels_ok and inside_ok and seven_ok)
+    print("        heads/idx=%s headCount=%d pinned-offset=%.1f text='%s' sub-ticks/24h=%d "
+          "(last block) left-edge=%s boundary=%s inside=%s labels=%s"
+          % (heads, m24["headCount"], head.get("leftOffset", float("nan")), head.get("text", ""),
+             len(last), left_edge_ok, boundary_ok, inside_ok, labels_ok))
+    record(18, "timeline labels (5K)", ok,
+           "indices=%s heads=%s one-head=%s pinned=%s no-repeat=%s left-edge-12=%s "
+           "last-boundary-12=%s ticks=9=%s labels-3h=%s all-inside=%s | "
+           "7d counts=%s min-12-gap=%.1f>=20=%s"
+           % (indices_ok, heads, one_head, head_pinned, no_repeat, left_edge_ok, boundary_ok,
+              ticks_ok, labels_ok, inside_ok, seven["counts"],
+              seven["minGap"] if math.isfinite(seven["minGap"]) else -1.0, seven_ok))
 
 
 def check_deck_geometry(page):
-    """5F: two-row deck, timeline geometry, permanent amber pill, embedded play, flush ribbon."""
+    """5F/5K: two-row deck, timeline geometry, permanent amber pill, embedded play, flush ribbon."""
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_timeout(400)
     v = page.evaluate(
@@ -765,7 +793,7 @@ def check_deck_geometry(page):
              var timelineEl = document.getElementById('timeline');
              var timeline = timelineEl.getBoundingClientRect();
              var play = document.getElementById('play').getBoundingClientRect();
-             var ramp = document.getElementById('wind-strip').getBoundingClientRect();
+             var ramp = document.querySelector('.deck-ramp').getBoundingClientRect();
              var pill = document.getElementById('time-pill');
              var pr = pill.getBoundingClientRect();
              var days = document.getElementById('track-days');
@@ -810,7 +838,7 @@ def check_deck_geometry(page):
           abs(v["rampBottom"] - v["deckBottom"]) <= 2)
     print("        5F rects: deck h=%.1f play=[%.1f,%.1f]x%.1fx%.1f "
           "timeline=[%.1f,%.1f]-[%.1f,%.1f] pill=[%.1f,%.1f] %.1fx%.1f text='%s' "
-          "pill-cx=%.1f timeline-cx=%.1f blocks=%d bg=%s wind-strip-deck delta=%.1f"
+          "pill-cx=%.1f timeline-cx=%.1f blocks=%d bg=%s deck-ramp-deck delta=%.1f"
           % (v["deckH"], p["x"], p["y"], p["w"], p["h"], tl["x"], tl["y"], tl["r"], tl["b"],
              v["pillRect"]["x"], v["pillRect"]["y"], v["pillRect"]["w"], v["pillRect"]["h"],
              v["pillText"], pill_cx, tl_cx, v["blockCount"], bgs,
@@ -818,7 +846,7 @@ def check_deck_geometry(page):
     record(15, "deck geometry (5F)", ok,
            "deckH=%.1f absent=%s pill-visible=%s pill-hidden=%s pill='%s' pill-centred=%s "
            "(cx=%.1f timeline-cx=%.1f) play-inside=%s timeline-fills=%s blocks=%d "
-           "adjacent-differ=%s wind-strip-bottom=%.1f deck-bottom=%.1f"
+           "adjacent-differ=%s deck-ramp-bottom=%.1f deck-bottom=%.1f"
            % (v["deckH"], v["absent"], v["pillVisible"], v["pillHidden"], v["pillText"],
               pill_centred, pill_cx, tl_cx, play_inside, timeline_inside, v["blockCount"],
               adjacent_ok, v["rampBottom"], v["deckBottom"]))
