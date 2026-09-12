@@ -2,13 +2,16 @@
 // Stage 3: pure UI helpers — headline formatting, Hs palette, spot naming.
 // No DOM, no tables: node-testable and browser-loadable via the tiny loader.
 
-// ---- Hs palette (ft): deep lake blue -> cyan -> amber -> orange-red -> crimson -> magenta ----
+// ---- Hs palette (ft): cyan -> cyan -> amber -> orange-red -> crimson -> magenta ----
 // The 0 ft stop is the calm-lake colour: flat water is painted opaque at this value (see
-// render.paintRaster), so calm water reads as one continuous saturated blue sheet. The
+// render.paintRaster), so calm water reads as one continuous saturated cyan sheet. The
 // ramp above 0 ft is opaque too; only land stays transparent.
+// Known consequence (stage 5N): the 1.0 ft stop was already #06b6d4, so the 0-1 ft band is
+// now a single flat cyan and its legend segment shows no gradient. That is intended, not a
+// bug; the alternative #0891b2 floor keeps a gradient if the flat band is ever unwanted.
 const HS_STOPS = [
-  [0.0, 0x03, 0x69, 0xa1], // saturated deep lake blue (calm water, opaque)
-  [1.0, 0x06, 0xb6, 0xd4], // vibrant cyan
+  [0.0, 0x06, 0xb6, 0xd4], // vibrant cyan (calm water, opaque)
+  [1.0, 0x06, 0xb6, 0xd4], // vibrant cyan (same colour as the 0 ft floor)
   [2.0, 0xf5, 0x9e, 0x0b], // amber
   [3.5, 0xea, 0x58, 0x0c], // orange-red
   [4.5, 0xdc, 0x26, 0x26], // crimson
@@ -17,10 +20,10 @@ const HS_STOPS = [
 // Calm-water RGBA. Must equal HS_STOPS[0]'s rgb (single source of truth): the legend's
 // 0 ft colour and the map's calm colour are the same colour. Alpha 255 = fully opaque in
 // the PNG; the Leaflet overlay multiplies it by OVERLAY_OPACITY 0.68, so calm water lands
-// at 0.68 effective. Composite 0.68 x rgb(3, 105, 161) over the desaturated basemap reads
-// ~rgb(67, 138, 176): still clearly blue, with bay/reef/island labels legible through it.
+// at 0.68 effective. Composite 0.68 x rgb(6, 182, 212) + 0.32 x rgb(205, 207, 207) is
+// ~rgb(70, 190, 210): bright, clean turquoise, with bay/lake labels legible through it.
 // Land stays exactly transparent.
-const CALM_RGBA = [0x03, 0x69, 0xa1, 255];
+const CALM_RGBA = [0x06, 0xb6, 0xd4, 255];
 const HS_BREAKS = [0, 1, 2, 3.5, 4.5, 6];
 const OVERLAY_OPACITY = 0.68;
 

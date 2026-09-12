@@ -46,11 +46,11 @@ check('legend breakpoints and overlay opacity are pinned', () => {
   eq(ui.HS_BREAKS, [0, 1, 2, 3.5, 4.5, 6]);
   assert.strictEqual(ui.OVERLAY_OPACITY, 0.68);
 });
-check('stage-5l: HS_STOPS[0] is saturated deep lake blue #0369a1', () => {
-  eq(ui.HS_STOPS[0], [0.0, 0x03, 0x69, 0xa1]);
+check('stage-5n: HS_STOPS[0] is vibrant cyan #06b6d4', () => {
+  eq(ui.HS_STOPS[0], [0.0, 0x06, 0xb6, 0xd4]);
 });
-check('stage-5l: CALM_RGBA agrees with the 0 ft stop (single source of truth)', () => {
-  eq(ui.CALM_RGBA, [3, 105, 161, 255]);
+check('stage-5n: CALM_RGBA agrees with the 0 ft stop (single source of truth)', () => {
+  eq(ui.CALM_RGBA, [6, 182, 212, 255]);
   eq(ui.CALM_RGBA, [ui.HS_STOPS[0][1], ui.HS_STOPS[0][2], ui.HS_STOPS[0][3], 255]);
   assert.deepStrictEqual(ui.colorForHs(0), [0, 0, 0, 0], 'colorForHs still transparent at 0');
 });
@@ -232,7 +232,7 @@ console.log('\n== [10] stage-5b rampGradient ==');
 check('ramp gradient contains the six Hs stops in order', () => {
   const g = ui.rampGradient();
   const stops = [
-    ['rgb(3, 105, 161)', '0%'],
+    ['rgb(6, 182, 212)', '0%'],
     ['rgb(6, 182, 212)', '16.7%'],
     ['rgb(245, 158, 11)', '33.3%'],
     ['rgb(234, 88, 12)', '50%'],
@@ -246,6 +246,10 @@ check('ramp gradient contains the six Hs stops in order', () => {
     assert.ok(idx > at, `missing or out of order: ${rgb} ${pct} in ${g}`);
     at = idx;
   }
+  // 5N: the 0 ft floor is now #06b6d4, the same colour as the 1 ft stop — the 0-1 ft band
+  // is intentionally flat cyan, not a missing stop. Assert the duplicate explicitly.
+  assert.ok(g.includes('rgb(6, 182, 212) 0%') && g.includes('rgb(6, 182, 212) 16.7%'),
+    'both 0% and 16.7% must be cyan #06b6d4');
   console.log(`       ${g}`);
 });
 
