@@ -120,10 +120,12 @@ check('stage-5b deck markup holds the frozen ids, drops the legend', () => {
     'viewport meta must drop maximum-scale/user-scalable and add viewport-fit=cover');
   const footer = /<footer id="deck">([\s\S]*?)<\/footer>/.exec(html);
   assert.ok(footer, 'missing <footer id="deck">');
-  const ids = ['play', 'play-label', 'hour-label', 'deck-day', 'horizon', 'h-24h', 'h-7d',
-    'track', 'track-label', 'track-days', 'track-ticks', 'track-rail', 'track-progress',
-    'now-tick', 'playhead', 'time-pill', 'ramp-bar', 'ramp-ticks'];
-  for (const id of ids) assert.ok(footer[1].includes(`id="${id}"`), `deck missing #${id}`);
+  const ids = ['play', 'track', 'timeline', 'track-days', 'track-ticks', 'track-label',
+    'now-tick', 'time-pill', 'h-24h', 'h-7d', 'ramp-bar', 'ramp-ticks'];
+  for (const id of ids) assert.ok(html.includes(`id="${id}"`), `page missing #${id}`);
+  const removed = ['playhead', 'track-rail', 'track-progress', 'deck-day', 'hour-label',
+    'play-label', 'deck-main'];
+  for (const id of removed) assert.ok(!html.includes(id), `#${id} must be gone (5F)`);
   assert.ok(!footer[1].includes('id="scrub"'), '#scrub shim must be gone (5D)');
   assert.ok(!footer[1].includes('id="legend"'), '#legend must be gone from the deck');
   assert.ok(!footer[1].includes('id="readout"'), '#readout must be out of the deck');
@@ -284,14 +286,14 @@ check('idxFromX is monotone across the rail', () => {
   }
   console.log(`       96 frames across ${W}px: non-decreasing, within [0,${N - 1}]`);
 });
-check('clampPillX keeps the 64px pill inside the track at both ends', () => {
+check('clampPillX keeps the 68px pill inside the track at both ends', () => {
   const trackW = 360;
   assert.strictEqual(clampPillX(11, trackW), 4, 'frame 0 -> 4');
-  assert.strictEqual(clampPillX(trackW - 11, trackW), trackW - 68, 'last frame -> trackW-68');
-  assert.strictEqual(clampPillX(100, trackW), 68, 'mid -> x-32');
+  assert.strictEqual(clampPillX(trackW - 11, trackW), trackW - 72, 'last frame -> trackW-72');
+  assert.strictEqual(clampPillX(100, trackW), 66, 'mid -> x-34');
   assert.strictEqual(clampPillX(0, trackW), 4, 'left clamp');
-  assert.strictEqual(clampPillX(trackW, trackW), trackW - 68, 'right clamp');
-  console.log(`       frame0=4 last=${trackW - 68} mid=68`);
+  assert.strictEqual(clampPillX(trackW, trackW), trackW - 72, 'right clamp');
+  console.log(`       frame0=4 last=${trackW - 72} mid=66`);
 });
 
 console.log('\n== [10] stage-5d: day partitions + 7-day cadence ==');
@@ -337,7 +339,7 @@ check('playStep + nextPlayIdx wrap cleanly at the 7-day boundary', () => {
 check('#scrub shim is gone; timeline containers present', () => {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   assert.ok(!/\bid="scrub"/.test(html), '#scrub must be gone');
-  for (const id of ['track-days', 'track-ticks', 'track-label', 'deck-day', 'h-24h', 'h-7d']) {
+  for (const id of ['track-days', 'track-ticks', 'track-label', 'timeline', 'h-24h', 'h-7d']) {
     assert.ok(html.includes(`id="${id}"`), `missing #${id}`);
   }
 });

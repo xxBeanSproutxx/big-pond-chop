@@ -88,7 +88,7 @@ function idxFromX(px, railLeft, railWidth, n) {
 }
 
 // Left offset that keeps the fixed-width pill inside the track at both ends.
-function clampPillX(xLocal, trackW, pillW = 64, pad = 4) {
+function clampPillX(xLocal, trackW, pillW = 68, pad = 4) {
   return Math.min(Math.max(xLocal - pillW / 2, pad), trackW - pad - pillW);
 }
 
@@ -326,18 +326,15 @@ async function mount(deps) {
   const cctx = canvas.getContext('2d');
   const deck = document.getElementById('deck');
   const trackEl = document.getElementById('track');
-  const trackRail = document.getElementById('track-rail');
-  const trackProgress = document.getElementById('track-progress');
+  const timeline = document.getElementById('timeline');
   const trackDays = document.getElementById('track-days');
   const trackTicks = document.getElementById('track-ticks');
   const trackLabel = document.getElementById('track-label');
-  const deckDay = document.getElementById('deck-day');
-  const playhead = document.getElementById('playhead');
   const timePill = document.getElementById('time-pill');
   const nowTick = document.getElementById('now-tick');
+  const horizonEl = document.getElementById('horizon');
   const h24Btn = document.getElementById('h-24h');
   const h7Btn = document.getElementById('h-7d');
-  const label = document.getElementById('hour-label');
   const windEl = document.getElementById('wind-info');
   const frameEl = document.getElementById('frame-info');
   const verdictRange = document.getElementById('verdict-range');
@@ -347,7 +344,6 @@ async function mount(deps) {
   const badgeText = document.getElementById('wind-badge-text');
   const badgeArrow = document.getElementById('wind-badge-arrow');
   const playBtn = document.getElementById('play');
-  const playLabel = document.getElementById('play-label');
   const card = document.getElementById('card');
   const mapEl = document.getElementById('map');
   const readout = document.getElementById('readout');
@@ -356,6 +352,7 @@ async function mount(deps) {
   ['click', 'mousedown', 'touchstart', 'dblclick'].forEach((t) => {
     card.addEventListener(t, (e) => e.stopPropagation());
     windBadge.addEventListener(t, (e) => e.stopPropagation());
+    horizonEl.addEventListener(t, (e) => e.stopPropagation());
   });
   const q = new URLSearchParams(location.search);
   const point = wind.pointFromQuery(location.search);
@@ -567,69 +564,75 @@ async function mount(deps) {
   });
 
   // ---- stage 5C: deck-wide scrub surface + feedback ----
-  const SCRUB_LINGER_MS = 900;
   let railRect = null;
   let trackW = 0;
   let scrubbing = false;
   let scrubPointerId = null;
-  let pillHideTimer = null;
   let scrubRaf = 0;
   let scrubX = 0;
 
   // Cached once per gesture / on layout change; never read in the move path.
+  // All x-geometry maps into #timeline (the #track row also holds the play button).
   function refreshRailRect() {
-    railRect = trackRail.getBoundingClientRect();
-    trackW = trackEl.getBoundingClientRect().width;
+    railRect = timeline.getBoundingClientRect();
+    trackW = railRect.width;
   }
 
-  // ---- stage 5D: timeline DOM ----
-  function isLongLabel() { return window.innerWidth >= 414; }
-  // Same rail mapping as the playhead: 11 px inset each side of the track.
-  function railXFor(index, n) { return 11 + (n > 1 ? index / (n - 1) : 0) * (trackW - 22); }
+  // ---- stage 5F: timeline DOM ----
+  function timelineXFor(index, n) {
+    return n > 1 ? (index / (n - 1)) * trackW : 0;
+  }
 
   // Re-place the now hairline from the stored now-index (safe to call after width changes).
   function placeNowTick() {
     if (nowTickIdx == null || !frames.length || !trackW) return;
-    nowTick.style.left = `${railXFor(nowTickIdx, frames.length)}px`;
+    nowTick.style.left = `${timelineXFor(nowTickIdx, frames.length)}px`;
     nowTick.style.transform = 'translateX(-50%)';
   }
 
+  // Solid segmented day blocks: alternating shades, midnight divider, a centred day header
+  // (long -> abbreviated -> number as the block narrows) and a thinned 3 h sub-row.
   function renderTimeline() {
     trackDays.textContent = '';
     trackTicks.textContent = '';
-    trackLabel.textContent = horizon === '7d' ? '7 day · hourly → 15 min' : '24 h · 15 min';
+    trackLabel.textContent = horizon === '7d' ? '7 day' : '24 h';
     if (!frames.length || !trackW) return;
     const n = frames.length;
-    const long = isLongLabel();
     const parts = dayPartitions(frames);
+    // Decide the header form from the WIDEST label of each form so every full-width
+    // block picks the same form (per-block text widths differ enough to flip otherwise).
+    const measure = document.createElement('canvas').getContext('2d');
+    measure.font = '700 11px system-ui, -apple-system, sans-serif';
+    let longW = 0, shortW = 0;
     for (const p of parts) {
-      const wrap = document.createElement('div');
-      wrap.className = 'day-div';
-      wrap.style.left = `${railXFor(p.index, n)}px`;
-      const lab = document.createElement('span');
-      lab.className = 'day-lab';
-      lab.textContent = ui.dayLabel(frames[p.index].time, long);
-      // The first label cannot centre on its divider — it would clip at the row edge.
-      if (p.index === 0) lab.style.transform = 'translateX(2px)';
-      wrap.appendChild(lab);
-      trackDays.appendChild(wrap);
+      longW = Math.max(longW, measure.measureText(ui.dayLabel(p.date, true)).width);
+      shortW = Math.max(shortW, measure.measureText(ui.dayLabel(p.date, false)).width);
     }
-    if (window.innerWidth >= 768) {
-      for (let i = 0; i < n; i++) {
-        if (frames[i].time.slice(14, 16) !== '00') continue;
-        const tick = document.createElement('div');
-        tick.className = 'hour-tick';
-        tick.style.left = `${railXFor(i, n)}px`;
-        trackTicks.appendChild(tick);
+    for (let k = 0; k < parts.length; k++) {
+      const start = parts[k].index;
+      const end = k + 1 < parts.length ? parts[k + 1].index : n - 1;
+      const left = timelineXFor(start, n);
+      const w = Math.max(1, timelineXFor(end, n) - left);
+      const block = document.createElement('div');
+      block.className = 'day-block' + (k % 2 ? ' alt' : '');
+      block.style.left = `${left}px`;
+      block.style.width = `${w}px`;
+      const head = document.createElement('span');
+      head.className = 'day-head';
+      const fitsLong = longW <= w - 4, fitsShort = shortW <= w - 4;
+      head.textContent = fitsLong ? ui.dayLabel(parts[k].date, true)
+        : fitsShort ? ui.dayLabel(parts[k].date, false)
+          : String(+parts[k].date.slice(8, 10));
+      block.appendChild(head);
+      trackDays.appendChild(block);
+      const step = [3, 6, 12, 24].find((h) => (h / 24) * w >= 12) || 24;
+      for (let h = 0; h < 24; h += step) {
+        const sub = document.createElement('span');
+        sub.className = 'day-sub';
+        sub.style.left = `${Math.max(6, Math.min(w - 6, (h / 24) * w))}px`;
+        sub.textContent = String((h % 12) || 12).padStart(2, '0');
+        block.appendChild(sub);
       }
-    } else if (horizon === '7d' && parts.length >= 3) {
-      const left = railXFor(parts[2].index, n);
-      const hatch = document.createElement('div');
-      hatch.className = 'blend-hatch';
-      hatch.setAttribute('aria-hidden', 'true');
-      hatch.style.left = `${left}px`;
-      hatch.style.width = `${railXFor(n - 1, n) - left}px`;
-      trackTicks.appendChild(hatch);
     }
   }
 
@@ -640,28 +643,13 @@ async function mount(deps) {
     timelineTimer = setTimeout(() => { timelineTimer = null; renderTimeline(); }, 100);
   }
 
-  function schedulePillHide() {
-    if (pillHideTimer) clearTimeout(pillHideTimer);
-    pillHideTimer = setTimeout(() => {
-      pillHideTimer = null;
-      if (!scrubbing && !playing) timePill.hidden = true;
-    }, SCRUB_LINGER_MS);
-  }
-
   // Single feedback helper, called by showFrame (play + programmatic) and by scrub.
+  // The pill is permanent: no hidden toggling, it just moves + updates its text.
   function updateScrubUi(idx) {
     if (!frames.length || !trackW) return;
-    const n = frames.length;
-    const t = n > 1 ? idx / (n - 1) : 0;
-    const x = 11 + t * (trackW - 22); // rail inset 11px each side (5B CSS)
-    playhead.style.left = `${x}px`;
-    playhead.style.transform = 'translateX(-50%)';
-    trackProgress.style.transform = `scaleX(${t})`;
-    timePill.textContent = ui.formatClockLocal(frames[idx].time);
-    timePill.style.left = '0';
-    timePill.style.transform = `translateX(${clampPillX(x, trackW)}px)`;
-    if (scrubbing || playing || pillHideTimer) timePill.hidden = false;
-    else timePill.hidden = true;
+    const x = timelineXFor(idx, frames.length);
+    timePill.textContent = ui.formatPillTime(frames[idx].time);
+    timePill.style.left = `${clampPillX(x, trackW)}px`;
     trackEl.setAttribute('aria-valuenow', String(idx));
     trackEl.setAttribute('aria-valuetext',
       `${ui.formatClockLocal(frames[idx].time)}, ${ui.dayLabel(frames[idx].time, true)}`);
@@ -685,10 +673,8 @@ async function mount(deps) {
     const wasPlaying = playing;
     if (wasPlaying) pause(); // capture only; never auto-resume
     deck.setPointerCapture(e.pointerId);
-    if (pillHideTimer) { clearTimeout(pillHideTimer); pillHideTimer = null; }
     scrubX = e.clientX;
     scrubTo(scrubX);
-    timePill.hidden = false;
   });
   deck.addEventListener('pointermove', (e) => {
     if (!scrubbing || e.pointerId !== scrubPointerId) return;
@@ -703,7 +689,6 @@ async function mount(deps) {
     if (!scrubbing || (e && e.pointerId !== scrubPointerId)) return;
     scrubbing = false;
     scrubPointerId = null;
-    schedulePillHide();
   }
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
     deck.addEventListener(type, endScrub);
@@ -843,8 +828,6 @@ async function mount(deps) {
     body.dataset.bearingGrid = e.bearingGrid.toFixed(3);
     body.dataset.teffH = e.tEffH.toFixed(2);
     updateScrubUi(cur);
-    label.textContent = ui.formatClockLocal(e.time);
-    deckDay.textContent = ui.dayLabel(e.time, isLongLabel());
     windEl.textContent = ui.windLine(e.speedMph, e.gustMph);
     frameEl.textContent = `H/L ${s.hlMax.toFixed(3)}`;
     const c = ui.compass(e.dirTrueDeg, e.speedMph);
@@ -900,7 +883,6 @@ async function mount(deps) {
     playing = !!on;
     playBtn.setAttribute('aria-pressed', playing ? 'true' : 'false');
     playBtn.dataset.state = playing ? 'pause' : 'play';
-    playLabel.textContent = playing ? 'Pause' : 'Play';
     if (playing) {
       regather(); // switch to the play-width class before the first tick
       timer = setInterval(() => {
@@ -943,7 +925,6 @@ async function mount(deps) {
   function resyncTrackUi() {
     updateScrubUi(cur);
     placeNowTick();
-    if (frames.length) deckDay.textContent = ui.dayLabel(frames[cur].time, isLongLabel());
   }
   window.addEventListener('resize', () => { refreshRailRect(); scheduleRegather(); scheduleTimeline(); resyncTrackUi(); });
   window.addEventListener('orientationchange', () => { refreshRailRect(); scheduleTimeline(); resyncTrackUi(); });
