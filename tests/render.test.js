@@ -7,7 +7,7 @@ const path = require('path');
 const { decodeTables, BATHY_ROWS, BATHY_COLS } = require('../src/tables');
 const { waveCore, blendFetch, FT } = require('../src/wave-math');
 const {
-  gridToLonlat, lonlatToGrid, gatherRaster, hmaxFt, computeFrame,
+  gridToLonlat, lonlatToGrid, gatherRaster, hmaxFt, computeFrame, paintRaster,
   TILE_URL, TILE_ATTRIBUTION, TILE_MAX_ZOOM, OVERLAY_OPACITY, PLAY_INTERVAL_MS,
   FRAME_MINUTES, targetWidth, landMaskRaster, smoothRaster,
   cacheKey, frameBytes, createFrameCache,
@@ -121,7 +121,8 @@ check('stage-5b deck markup holds the frozen ids, drops the legend', () => {
   const footer = /<footer id="deck">([\s\S]*?)<\/footer>/.exec(html);
   assert.ok(footer, 'missing <footer id="deck">');
   const ids = ['play', 'track', 'timeline', 'track-tape', 'track-days', 'track-ticks',
-    'track-label', 'now-tick', 'time-pill', 'h-24h', 'h-7d', 'ramp-bar', 'ramp-ticks'];
+    'track-label', 'now-tick', 'time-pill', 'h-24h', 'h-7d',
+    'wind-strip', 'legend-card-bar', 'legend-card-ticks'];
   for (const id of ids) assert.ok(html.includes(`id="${id}"`), `page missing #${id}`);
   const removed = ['playhead', 'track-rail', 'track-progress', 'deck-day', 'hour-label',
     'play-label', 'deck-main'];
@@ -129,10 +130,12 @@ check('stage-5b deck markup holds the frozen ids, drops the legend', () => {
   assert.ok(!footer[1].includes('id="scrub"'), '#scrub shim must be gone (5D)');
   assert.ok(!footer[1].includes('id="legend"'), '#legend must be gone from the deck');
   assert.ok(!footer[1].includes('id="readout"'), '#readout must be out of the deck');
-  const ticks = footer[1].match(/id="ramp-ticks">([\s\S]*?)<\/div>/);
+  assert.ok(!footer[1].includes('ramp-bar') && !footer[1].includes('ramp-ticks'),
+    'the ramp row must be out of the deck (5J)');
+  const ticks = html.match(/id="legend-card-ticks">([\s\S]*?)<\/div>/);
   assert.ok(ticks && ['0', '1', '2', '3.5', '4.5', '6+'].every((s) => ticks[1].includes(`<span>${s}</span>`)),
-    'ramp ticks must list the six Hs stops');
-  console.log('       deck ids present, #scrub shim gone, legend/readout out of deck');
+    'legend ticks must list the six Hs stops');
+  console.log('       deck ids present, ramp moved to the map legend, legend/readout out of deck');
 });
 check('frame carries a water-only p10 at or below the lake max', () => {
   const entry = { speedMph: 30, dirTrueDeg: 315, tEffH: 8 };
@@ -369,6 +372,25 @@ check('shouldPaintMap: gate closed -> false; open+idle -> true; open+busy -> fal
   assert.strictEqual(shouldPaintMap(1000, 0, true, MIN), false, 'busy wins even when open');
   assert.strictEqual(shouldPaintMap(1000, 1000 - MIN, true, MIN), false, 'busy at the boundary');
   console.log('       closed/busy suppress; open+idle paints');
+});
+
+console.log('\n== [12] stage-5j: calm-water paint ==');
+check('paintRaster: calm water -> CALM_RGBA opaque, land -> transparent', () => {
+  const W = 2, H = 1;
+  const raster = new Float32Array([0, 0]);        // both non-positive
+  const landFrac = new Float32Array([0, 1]);       // col 0 water (calm), col 1 land
+  const img = { width: W, height: H, data: new Uint8ClampedArray(W * H * 4) };
+  const ctx = { createImageData: () => img, putImageData: () => {} };
+  paintRaster(ctx, raster, W, H, landFrac);
+  assert.deepStrictEqual(Array.from(img.data.slice(0, 4)), ui.CALM_RGBA, 'calm water');
+  assert.deepStrictEqual(Array.from(img.data.slice(4, 8)), [0, 0, 0, 0], 'land');
+});
+check('paintRaster: positive Hs still uses the colour ramp (opaque), no landFrac needed', () => {
+  const img = { width: 1, height: 1, data: new Uint8ClampedArray(4) };
+  const ctx = { createImageData: () => img, putImageData: () => {} };
+  paintRaster(ctx, new Float32Array([1]), 1, 1, new Float32Array([0]));
+  assert.strictEqual(img.data[3], 255);
+  assert.deepStrictEqual(Array.from(img.data.slice(0, 3)), [6, 182, 212]);
 });
 
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);
