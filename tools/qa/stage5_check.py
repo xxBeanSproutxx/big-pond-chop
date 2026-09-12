@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Stage 4C re-runnable QA harness for big-pond-chop.
+"""Stage 5 re-runnable QA harness for big-pond-chop.
 
 Usage (from anywhere):
-    /home/reid/.hermes/hermes-agent/venv/bin/python tools/qa/stage4_check.py
+    /home/reid/.hermes/hermes-agent/venv/bin/python tools/qa/stage5_check.py
 
 Serves the repo root with `python -m http.server` and drives the app with
 Playwright/Chromium at 390x844 (DPR 2) and 360x800. Every check prints
 `ok`/`FAIL` with the measured number. It also prints a before/after upscale
-table against a read-only worktree of the `pre-stage4` tag, the tails of the
-four Node suites, saves screenshots to /tmp/bpc-s4-*.png, and ends with a
+table against a read-only worktree of the `pre-stage4` tag (the stage-1-3
+baseline), the tails of the four Node suites, the live +48 h seam delta via
+tools/qa/seam_check.js, saves screenshots to /tmp/bpc-s5-*.png, and ends with a
 summary. Failures are *findings*: the harness always runs every check to
 completion and exits 0 so it can be re-run without a one-off data snapshot.
 """
@@ -195,6 +196,51 @@ def check_frame_base(page):
     return hours
 
 
+def check_horizon_ceiling(page):
+    """5D: the frame ceiling tracks the horizon (24 h = 96 frames, 7 day = 672)."""
+    page.click("#h-7d")
+    page.wait_for_function(
+        "() => document.getElementById('track').getAttribute('aria-valuemax') === '671'",
+        timeout=60000)
+    max7 = page.get_attribute("#track", "aria-valuemax")
+    p24_when7 = page.get_attribute("#h-24h", "aria-pressed")
+    p7_when7 = page.get_attribute("#h-7d", "aria-pressed")
+    page.click("#h-24h")
+    page.wait_for_function(
+        "() => document.getElementById('track').getAttribute('aria-valuemax') === '95'",
+        timeout=60000)
+    max24 = page.get_attribute("#track", "aria-valuemax")
+    p24_when24 = page.get_attribute("#h-24h", "aria-pressed")
+    p7_when24 = page.get_attribute("#h-7d", "aria-pressed")
+    ok = (max7 == "671" and max24 == "95" and
+          p7_when7 == "true" and p24_when7 == "false" and
+          p24_when24 == "true" and p7_when24 == "false")
+    record("2b", "horizon ceiling", ok,
+           "7d max=%s pressed 7d/24h=%s/%s | 24h max=%s pressed 24h/7d=%s/%s"
+           % (max7, p7_when7, p24_when7, max24, p24_when24, p7_when24))
+
+
+def check_lazy_7d(page):
+    """5A/5D: widening to 7d must build frames on demand, not eagerly evaluate the series."""
+    page.click("#h-7d")
+    page.wait_for_function(
+        "() => document.getElementById('track').getAttribute('aria-valuemax') === '671' &&"
+        " document.getElementById('track').getAttribute('aria-valuenow') !== null",
+        timeout=60000)
+    r1 = float(page.evaluate("parseFloat(document.body.dataset.precomputeMs)"))
+    page.wait_for_timeout(2500)  # idle: paused, no interaction, no play tick
+    r2 = float(page.evaluate("parseFloat(document.body.dataset.precomputeMs)"))
+    delta = r2 - r1
+    ok = delta <= 10.0 and r1 < 500.0
+    record(13, "lazy 7d compute", ok,
+           "precomputeMs first=%.1f idle=%.1f idle_delta=%.1f (gate <=10, first<500)"
+           % (r1, r2, delta))
+    page.click("#h-24h")
+    page.wait_for_function(
+        "() => document.getElementById('track').getAttribute('aria-valuemax') === '95'",
+        timeout=60000)
+
+
 def _header_metrics(page):
     return page.evaluate(
         "() => { var h = document.querySelector('header');"
@@ -234,7 +280,7 @@ def check_header(page, names):
         sw = _sweep(page, names)
         rows.append((w, m))
         sweeps.append((w, sw))
-        page.screenshot(path=str(SHOTS / ("bpc-s4-%d.png" % w)))
+        page.screenshot(path=str(SHOTS / ("bpc-s5-%d.png" % w)))
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_timeout(300)
     ok = all(m["c"] == 72 and m["s"] <= 72 for _, m in rows) and \
@@ -376,7 +422,7 @@ def check_card_and_touch(page, warp):
                pin: document.querySelectorAll('#map .leaflet-overlay-pane path').length };
            }""")
     six = len(card["fields"]) == 6 and all(f.strip() not in ("", "—") for f in card["fields"])
-    page.screenshot(path=str(SHOTS / "bpc-s4-card.png"))
+    page.screenshot(path=str(SHOTS / "bpc-s5-card.png"))
 
     page.click("#card-close")
     page.wait_for_timeout(400)
@@ -415,23 +461,27 @@ def check_card_and_touch(page, warp):
 
 
 def check_touch_ergonomics(page):
-    """5C: a real mouse drag on #deck seeks through vertical wander (pointer capture),
-    the pill lingers then hides, buttons are not swallowed by the scrub surface."""
+    """5C/5E: a real mouse drag on #deck seeks through vertical wander (pointer capture),
+    the pill lingers then hides, buttons are not swallowed by the scrub surface, and the
+    pill stays clamped inside the track at BOTH ends. A second drift presses inside the
+    deck-main row itself (non-interactive centre) to prove capture is deck-wide."""
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_timeout(300)
     g = page.evaluate(
         """() => {
              var rail = document.getElementById('track-rail').getBoundingClientRect();
              var track = document.getElementById('track').getBoundingClientRect();
+             var deck = document.getElementById('deck').getBoundingClientRect();
              var play = document.getElementById('play').getBoundingClientRect();
              return {
                rail: {x: rail.x, y: rail.y, w: rail.width, h: rail.height},
                track: {x: track.x, y: track.y, w: track.width, h: track.height},
+               deck: {x: deck.x, y: deck.y, w: deck.width, h: deck.height},
                n: parseInt(document.getElementById('track').getAttribute('aria-valuemax'), 10) + 1,
                play: {w: play.width, h: play.height},
              };
            }""")
-    rail, track, n = g["rail"], g["track"], g["n"]
+    rail, track, deck, n = g["rail"], g["track"], g["deck"], g["n"]
     y = track["y"] + 2  # inside .deck-track, clear of the deck-main buttons
     x20 = rail["x"] + 0.20 * rail["w"]
     x70 = rail["x"] + 0.70 * rail["w"]
@@ -468,36 +518,80 @@ def check_touch_ergonomics(page):
     # (d) play button still meets the 44px touch target
     d_ok = g["play"]["w"] >= 44 and g["play"]["h"] >= 44
 
-    # focused drift check: drag to the extreme right -> last frame, pill fully inside track
-    page.mouse.move(x20, y)
-    page.mouse.down()
-    page.mouse.move(rail["x"] + rail["w"] - 0.5, y, steps=6)
-    page.wait_for_timeout(80)
-    right = page.evaluate(
-        """() => { var p = document.getElementById('time-pill').getBoundingClientRect();
-             var t = document.getElementById('track').getBoundingClientRect();
-             return { px: p.x, pw: p.width, tx: t.x, tw: t.width,
-                      idx: parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10) }; }""")
-    page.mouse.up()
-    page.wait_for_timeout(1200)
-    pill_in_track = (right["px"] >= right["tx"] - 0.5 and
-                     right["px"] + right["pw"] <= right["tx"] + right["tw"] + 0.5)
-    right_ok = right["idx"] == n - 1 and pill_in_track
+    # focused drift helper: press in the track row, drag to target_x, keep the pill
+    # inside the track. Returns the raw pill/track rects + the landed index.
+    def pill_clamp(target_x):
+        page.mouse.move(x20, y)
+        page.mouse.down()
+        page.mouse.move(target_x, y, steps=6)
+        page.wait_for_timeout(80)
+        r = page.evaluate(
+            """() => { var p = document.getElementById('time-pill').getBoundingClientRect();
+                 var t = document.getElementById('track').getBoundingClientRect();
+                 return { px: p.x, pw: p.width, tx: t.x, tw: t.width,
+                          idx: parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10) }; }""")
+        page.mouse.up()
+        page.wait_for_timeout(1200)
+        inside = (r["px"] >= r["tx"] - 0.5 and
+                  r["px"] + r["pw"] <= r["tx"] + r["tw"] + 0.5)
+        return r, inside
 
-    ok = a_ok and b_ok and c_ok and d_ok and right_ok
+    # pill clamp at BOTH ends: far right -> last frame, far left -> frame 0.
+    right, right_inside = pill_clamp(rail["x"] + rail["w"] - 0.5)
+    right_ok = right["idx"] == n - 1 and right_inside
+    left, left_inside = pill_clamp(rail["x"] + 0.5)
+    left_ok = left["idx"] == 0 and left_inside
+
+    # second drift: press INSIDE the deck-main row (non-interactive centre), wander
+    # +/-80 px, land at 70% of the rail. Deck-wide pointer capture makes the drag seek.
+    dcx = deck["x"] + deck["w"] / 2
+    dcy = deck["y"] + 24
+    hit = page.evaluate(
+        "(p) => { var e = document.elementFromPoint(p[0], p[1]);"
+        " return { tag: e ? e.tagName : 'none', cls: e ? (e.className || '') : '',"
+        "   interactive: !!(e && e.closest && e.closest('button, [role=button], a, input')) }; }",
+        [dcx, dcy])
+    page.mouse.move(dcx, dcy)
+    page.mouse.down()
+    page.mouse.move(dcx, dcy - 80, steps=4)
+    page.mouse.move(x20, dcy + 80, steps=4)
+    page.mouse.move(x70, y, steps=6)
+    page.wait_for_timeout(80)
+    during2 = page.evaluate(
+        "() => ({ hidden: document.getElementById('time-pill').hidden,"
+        " idx: parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10) })")
+    page.mouse.up()
+    page.wait_for_timeout(200)
+    landed2 = int(page.evaluate("parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10)"))
+    page.wait_for_timeout(1200)
+    pill_after2 = page.evaluate("document.getElementById('time-pill').hidden")
+    e_ok = (not hit["interactive"] and abs(landed2 - expected) <= 1 and
+            during2["hidden"] is False and pill_after2 is True)
+
+    ok = a_ok and b_ok and c_ok and d_ok and right_ok and left_ok and e_ok
     print("        drift: start=%d landed=%d expected=%d (+/-1) during-pill=%s text='%s' "
           "after-pill-hidden=%s" % (start_idx, landed, expected, not during["hidden"],
                                     during["text"], pill_after))
-    print("        play-click: before=%d after=%d unchanged=%s play=%dx%d | "
-          "right: idx=%d/%d pill=[%.1f,%.1f] track=[%.1f,%.1f] inside=%s"
-          % (idx_before, idx_after, c_ok, round(g["play"]["w"]), round(g["play"]["h"]),
-             right["idx"], n - 1, right["px"], right["px"] + right["pw"],
-             right["tx"], right["tx"] + right["tw"], pill_in_track))
+    print("        play-click: before=%d after=%d unchanged=%s play=%dx%d"
+          % (idx_before, idx_after, c_ok, round(g["play"]["w"]), round(g["play"]["h"])))
+    print("        pill right: idx=%d/%d pill=[%.1f,%.1f] track=[%.1f,%.1f] inside=%s"
+          % (right["idx"], n - 1, right["px"], right["px"] + right["pw"],
+             right["tx"], right["tx"] + right["tw"], right_inside))
+    print("        pill left:  idx=%d/0 pill=[%.1f,%.1f] track=[%.1f,%.1f] inside=%s"
+          % (left["idx"], left["px"], left["px"] + left["pw"],
+             left["tx"], left["tx"] + left["tw"], left_inside))
+    print("        deck-main drift: press=(%.1f,%.1f) target=%s.%s interactive=%s "
+          "landed=%d expected=%d (+/-1) pill-during=%s hidden-after=%s"
+          % (dcx, dcy, hit["tag"], hit["cls"], hit["interactive"], landed2, expected,
+             not during2["hidden"], pill_after2))
     record("7b", "touch ergonomics", ok,
            "wander±80 landed=%d/%d pill-during=%s hidden-after=%s play-unchanged=%s "
-           "play=%dx%d last=%d pill-inside=%s"
+           "play=%dx%d right=%d/%d inside=%s left=%d/0 inside=%s "
+           "deck-press=%s.%s noninteractive=%s deck-landed=%d/%d"
            % (landed, expected, not during["hidden"], pill_after, c_ok,
-              round(g["play"]["w"]), round(g["play"]["h"]), right["idx"], pill_in_track))
+              round(g["play"]["w"]), round(g["play"]["h"]), right["idx"], n - 1, right_inside,
+              left["idx"], left_inside, hit["tag"], hit["cls"], not hit["interactive"],
+              landed2, expected))
 
 
 def check_playback(page, warp):
@@ -517,7 +611,7 @@ def check_playback(page, warp):
         "() => ({ cw: document.getElementById('field').width,"
         " hours: window.__s4h.slice(), fms: window.__s4f.slice(),"
         " encode: document.body.dataset.encodeMs })")
-    page.screenshot(path=str(SHOTS / "bpc-s4-play.png"))
+    page.screenshot(path=str(SHOTS / "bpc-s5-play.png"))
     page.click("#play")
     page.wait_for_timeout(1000)
     post = page.evaluate(
@@ -552,13 +646,13 @@ def measure_upscales(page, warp, prefix):
     page.wait_for_timeout(1100)
     page.wait_for_function(OVERLAY_OK, timeout=30000)
     out["fit"] = _upscale(page)
-    page.screenshot(path=str(SHOTS / ("bpc-s4-%s-fit.png" % prefix)))
+    page.screenshot(path=str(SHOTS / ("bpc-s5-%s-fit.png" % prefix)))
     for z in (13, 14):
         page.evaluate("(z) => window.__bpcMap.setZoom(z)", z)
         page.wait_for_timeout(1400)
         page.wait_for_function(OVERLAY_OK, timeout=30000)
         out[str(z)] = _upscale(page)
-        page.screenshot(path=str(SHOTS / ("bpc-s4-%s-z%d.png" % (prefix, z))))
+        page.screenshot(path=str(SHOTS / ("bpc-s5-%s-z%d.png" % (prefix, z))))
     return out
 
 
@@ -673,11 +767,31 @@ def check_suites():
     return all_ok
 
 
+def check_seam():
+    """5A: the live +48 h handoff from native minutely_15 to vector-blended hourly
+    frames is continuous. Runs tools/qa/seam_check.js (live network) and parses its
+    one-line SEAM summary."""
+    r = subprocess.run(["node", "tools/qa/seam_check.js"], cwd=ROOT,
+                       capture_output=True, text=True)
+    lines = [ln for ln in (r.stdout or "").splitlines() if ln.strip()]
+    for ln in lines:
+        print("        seam: %s" % ln)
+    summary = next((ln for ln in lines if ln.startswith("SEAM ")), "")
+    m = re.search(r"dSpeed=([0-9.]+)\s+dDir=([0-9.]+)", summary)
+    if r.stderr.strip():
+        print("        seam stderr: %s" % r.stderr.strip().splitlines()[-1])
+    detail = "exit=%d %s" % (r.returncode, summary or "(no SEAM line)")
+    if m:
+        detail = "exit=%d dSpeed=%s dDir=%s | %s" % (
+            r.returncode, m.group(1), m.group(2), summary)
+    record(14, "live seam", r.returncode == 0 and m is not None, detail)
+
+
 # --------------------------------------------------------------------------- #
 # main
 # --------------------------------------------------------------------------- #
 def main():
-    for stale in SHOTS.glob("bpc-s4-*.png"):
+    for stale in SHOTS.glob("bpc-s5-*.png"):
         stale.unlink()
     meta = json.loads((ROOT / "public/meta.v1.json").read_text())
     warp = json.loads((ROOT / "public/warp.v1.json").read_text())
@@ -696,7 +810,7 @@ def main():
         srv.terminate()
         return 1
 
-    print("STAGE 4C RECEIPTS — big-pond-chop")
+    print("STAGE 5 RECEIPTS — big-pond-chop")
     print("generated: %s" % datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z"))
     print("HEAD: %s %s" % (head, subject))
     print("harness: 390x844 DPR2 + 360x800, http://127.0.0.1:%d" % port)
@@ -721,10 +835,17 @@ def main():
             now_ups = safe(10, "radar smoothing", check_smoothing, page, meta, warp)
             if now_ups:
                 safe(11, "before/after", check_before_after, pw, now_ups, warp)
+            # Stage-5 browser gates run LAST: a widen leaves the app's boot skeleton
+            # visible (observed 5D defect, render.js:835/1009 — out of scope here), so
+            # running them after the pre-existing interaction groups keeps those groups
+            # byte-identical to stage 4. See docs/STAGE-5-RECEIPTS.md.
+            safe("2b", "horizon ceiling", check_horizon_ceiling, page)
+            safe(13, "lazy 7d compute", check_lazy_7d, page)
         finally:
             print("page errors: %d %s" % (len(errors), errors[:3]))
             browser.close()
         safe(12, "suites", check_suites)
+        safe(14, "live seam", check_seam)
     srv.terminate()
 
     okc = sum(1 for _, _, ok, _ in RESULTS if ok)
@@ -734,7 +855,7 @@ def main():
     for num, name, ok, _ in RESULTS:
         if not ok:
             print("  FAIL [%s] %s" % (num, name))
-    print("screenshots: %s" % ", ".join(sorted(p.name for p in SHOTS.glob("bpc-s4-*.png"))))
+    print("screenshots: %s" % ", ".join(sorted(p.name for p in SHOTS.glob("bpc-s5-*.png"))))
     return 0
 
 
