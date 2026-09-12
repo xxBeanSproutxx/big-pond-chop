@@ -96,7 +96,10 @@
   .deck-row  { overflow: hidden; }
   .deck-track{ overflow: visible; position: relative; } /* pill floats above; play overlays */
   .deck-track{ height: 48px; display: flex; align-items: stretch; }
-  .deck-ramp { height: 20px; display: flex; flex-direction: column; gap: 1px; }
+  /* Stage 5J: deck footer is the live wind status strip (was the wave ramp). */
+  .deck-wind { height: 20px; display: flex; align-items: center; font-size: 11px; color: #cfe3f2;
+               font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden;
+               text-overflow: ellipsis; }
   /* Horizon micro-pill: lives in the map corner, clear of the zoom control + wind badge. */
   #horizon { position: absolute; top: 12px; left: 56px; z-index: 1000; display: flex; gap: 4px; }
   #horizon button { height: 28px; min-height: 28px; padding: 0 9px; background: rgba(16,38,58,.85);
@@ -135,8 +138,13 @@
   .day-sub { position: absolute; top: 30px; transform: translateX(-50%);
              font: 10px/1 system-ui, -apple-system, sans-serif; color: #9fc3dd; white-space: nowrap;
              font-variant-numeric: tabular-nums; }
-  #ramp-bar  { flex: 0 0 11px; height: 11px; border-radius: 3px; border: 1px solid #33506b; }
-  #ramp-ticks{ flex: 1 1 auto; line-height: 8px; display: flex; justify-content: space-between; font-size: 8px; color: #9fc3dd; }
+  .day-sub.edge { color: #e8f0f7; } /* midnight/boundary ticks read stronger than the 3 h row */
+  /* Stage 5J: the wave colour bar lives in a non-interactive card inside #map. */
+  #legend-card { position: absolute; right: 10px; bottom: 100px; z-index: 500; pointer-events: none;
+                 background: rgba(16,38,58,.85); border-radius: 8px; padding: 6px 8px; }
+  #legend-card-bar { width: 150px; height: 11px; border-radius: 3px; border: 1px solid #33506b; }
+  #legend-card-ticks { width: 150px; margin-top: 2px; display: flex; justify-content: space-between;
+                       font-size: 8px; line-height: 1; color: #9fc3dd; }
   #track:focus-visible { outline: 2px solid #ffd166; outline-offset: -2px; }
   /* Play control pinned to the window's left edge: icon only, no chrome. It overlays the
      tape (no flex space) so the tape scrolls behind it; the faint scrim keeps the glyph legible. */
@@ -170,6 +178,8 @@
   /* Muted basemap: CARTO's keyless tiles now stamp "API KEY REQUIRED", so the tile pane
      itself is desaturated instead — kills the green/wetland clash under the wave overlay. */
   .leaflet-tile-pane { filter: grayscale(.9) saturate(.35) brightness(1.04) contrast(.94); }
+  /* Stage 5J: lift Leaflet's attribution clear of the floating amber pill / deck edge. */
+  .leaflet-bottom { bottom: calc(var(--deck-h) + 6px); }
   #field { display: none; }
 </style>
 </head>
@@ -185,6 +195,7 @@
         <div id="verdict-peak"></div>
         <div id="secondary">
           <span id="wind-info"></span>
+          <span class="sep" aria-hidden="true">·</span>
           <span id="frame-info"></span>
         </div>
       </div>
@@ -218,6 +229,10 @@
       </span>
       <span id="wind-badge-text">From NW 315°</span>
     </div>
+    <div id="legend-card" aria-hidden="true">
+      <div id="legend-card-bar"></div>
+      <div id="legend-card-ticks"><span>0</span><span>1</span><span>2</span><span>3.5</span><span>4.5</span><span>6+</span></div>
+    </div>
     <div id="note"><span id="note-msg">wind unavailable — retry</span><button id="note-retry" type="button">Retry</button></div>
     <div id="boot">
       <div id="boot-text">Loading wave map…</div>
@@ -244,10 +259,7 @@
       </button>
     </div>
 
-    <div class="deck-row deck-ramp">
-      <div id="ramp-bar"></div>
-      <div id="ramp-ticks"><span>0</span><span>1</span><span>2</span><span>3.5</span><span>4.5</span><span>6+</span></div>
-    </div>
+    <div class="deck-row deck-wind" id="wind-strip" role="status">Wind: —</div>
   </footer>
   <canvas id="field"></canvas>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -287,8 +299,6 @@
         var wave = await load('src/wave-math.js');
         var wind = await load('src/wind.js');
         var ui = await load('src/ui.js');
-        var rampBar = document.getElementById('ramp-bar');
-        if (rampBar) rampBar.style.background = ui.rampGradient();
         var render = await load('src/render.js');
         await render.mount({ tables: tables, wave: wave, wind: wind, render: render, ui: ui });
       } catch (err) {

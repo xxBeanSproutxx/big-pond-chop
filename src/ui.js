@@ -2,20 +2,25 @@
 // Stage 3: pure UI helpers — headline formatting, Hs palette, spot naming.
 // No DOM, no tables: node-testable and browser-loadable via the tiny loader.
 
-// ---- Hs palette (ft): deep blue -> cyan -> amber -> orange-red -> crimson -> magenta ----
+// ---- Hs palette (ft): glassy navy -> cyan -> amber -> orange-red -> crimson -> magenta ----
+// The 0 ft stop is the calm-lake colour: flat water is painted opaque navy at this value
+// (see render.paintRaster), never transparent, so land and calm water stay distinguishable.
 const HS_STOPS = [
-  [0.0, 0x1e, 0x40, 0xaf], // deep blue
+  [0.0, 0x0f, 0x27, 0x44], // deep glassy navy (calm water)
   [1.0, 0x06, 0xb6, 0xd4], // vibrant cyan
   [2.0, 0xf5, 0x9e, 0x0b], // amber
   [3.5, 0xea, 0x58, 0x0c], // orange-red
   [4.5, 0xdc, 0x26, 0x26], // crimson
   [5.5, 0xbe, 0x18, 0x5d], // magenta
 ];
+// Opaque calm-water RGBA. Must equal HS_STOPS[0]'s rgb (single source of truth): the
+// legend's 0 ft colour and the map's calm colour are the same colour.
+const CALM_RGBA = [0x0f, 0x27, 0x44, 255];
 const HS_BREAKS = [0, 1, 2, 3.5, 4.5, 6];
 const OVERLAY_OPACITY = 0.72;
 
-// RGBA for an Hs value in ft. Land / flat water -> fully transparent; water -> opaque,
-// opacity is applied once by the Leaflet overlay.
+// RGBA for an Hs value in ft. Non-positive / non-finite -> fully transparent (the caller
+// decides land vs calm water); water -> opaque. Opacity is applied once by the Leaflet overlay.
 function colorForHs(hsFt) {
   if (!(hsFt > 0) || !Number.isFinite(hsFt)) return [0, 0, 0, 0];
   const t = Math.min(hsFt, HS_STOPS[HS_STOPS.length - 1][0]);
@@ -37,8 +42,8 @@ function rgbForHs(hsFt) {
   return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
 }
 
-// Single source of truth for the deck ramp gradient: the six Hs stop colours, evenly
-// spaced. index.html applies it to #ramp-bar at mount.
+// Single source of truth for the legend ramp gradient: the six Hs stop colours, evenly
+// spaced. src/render.js applies it to #legend-card-bar at mount.
 const RAMP_PCT = ['0%', '16.7%', '33.3%', '50%', '66.7%', '100%'];
 function rampGradient() {
   const stops = HS_STOPS.map(([, r, g, b], i) => `rgb(${r}, ${g}, ${b}) ${RAMP_PCT[i]}`);
@@ -147,6 +152,8 @@ function formatHeadline(frame) {
 
 // ---- Stage 4B: wind split, compass, condition tier, local clock ----
 const CALM_MPH = 3;
+const CALM_TIER_MPH = 4; // Stage 5J: "Calm · Flat" badge below this wind (green only)
+const CALM_HS_FT = 0.5;  // Stage 5J: ...or below this lake-max Hs (green only)
 const CHICAGO_TZ = 'America/Chicago';
 const TIERS = {
   red: 'Dangerous · Stay Home',
@@ -191,8 +198,18 @@ function compass(bearingDeg, speedMph) {
   };
 }
 
+// Stage 5J wind status strip: windLine plus the SOURCE bearing when it is finite.
+// Calm / non-finite speed -> "Wind: calm" (no From clause); finite bearing -> " · From <sector> <deg>°".
+function windStrip(speedMph, gustMph, bearingDeg) {
+  const base = windLine(speedMph, gustMph);
+  if (base === 'Wind: calm') return base;
+  const c = compass(bearingDeg, speedMph);
+  return c.fromDeg == null ? base : `${base} · From ${c.sector} ${c.degText}`;
+}
+
 // Condition tier, strict red -> amber -> yellow -> green (first match wins).
-// Missing/NaN inputs never trigger a condition.
+// Missing/NaN inputs never trigger a condition. A green sea is relabelled "Calm · Flat"
+// when the wind is under 4 mph or the lake max is under 0.5 ft — never for rougher keys.
 function comfortTier(stats) {
   const s = stats || {};
   const maxHs = Number(s.maxHsFt), roller = Number(s.rollerFt), hl = Number(s.hlMax);
@@ -201,6 +218,13 @@ function comfortTier(stats) {
   if (at(maxHs, 5.0) || at(roller, 4.0) || at(hl, 0.055)) key = 'red';
   else if (at(maxHs, 3.5) || at(roller, 2.5)) key = 'amber';
   else if (at(maxHs, 2.0) || at(roller, 1.5)) key = 'yellow';
+  if (key === 'green') {
+    const windMph = Number(s.windMph);
+    if ((Number.isFinite(maxHs) && maxHs < CALM_HS_FT) ||
+        (Number.isFinite(windMph) && windMph < CALM_TIER_MPH)) {
+      return { key: 'green', label: 'Calm · Flat' };
+    }
+  }
   return { key, label: TIERS[key] };
 }
 
@@ -260,11 +284,11 @@ function dayLabel(isoLocal, long) {
 }
 
 module.exports = {
-  HS_STOPS, HS_BREAKS, OVERLAY_OPACITY,
+  HS_STOPS, HS_BREAKS, OVERLAY_OPACITY, CALM_RGBA,
   colorForHs, rgbForHs, rampGradient, percentile, p10,
   SECTORS, haversineM, bearing8, centroidOfCorners, sectorFor,
   nameSpot, describePin, sectorPhrase, sectorName, shortPlace, formatHeadline,
   FEATURE_RADIUS_M, SHORE_RADIUS_M,
-  CALM_MPH, normalizeDeg, windLine, compass, comfortTier, formatClockLocal,
-  formatPillTime, dayLabel,
+  CALM_MPH, CALM_TIER_MPH, CALM_HS_FT, normalizeDeg, windLine, windStrip, compass,
+  comfortTier, formatClockLocal, formatPillTime, dayLabel,
 };
