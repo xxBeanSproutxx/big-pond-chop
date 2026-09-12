@@ -57,6 +57,7 @@ drop the one-shot `bootHidden` guard).
 ## Verbatim run
 
 ```text
+STAGE 5 RECEIPTS — big-pond-chop
 generated: 2026-09-12 01:24:33 UTC
 HEAD: d26664c docs(stage5): dispatch spec for 5E (QA harness migration + receipts + deploy prep)
 harness: 390x844 DPR2 + 360x800, http://127.0.0.1:60623
