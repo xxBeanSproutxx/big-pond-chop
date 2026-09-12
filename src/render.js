@@ -915,10 +915,11 @@ async function mount(deps) {
       windBadge.setAttribute('aria-label', 'Wind calm');
     } else {
       badgeArrow.style.display = 'block';
-      badgeArrow.style.transform = `rotate(${c.arrowDeg}deg)`;
-      badgeText.textContent = `${c.sector} ${c.degText}`;
+      badgeArrow.style.transform = `rotate(${c.arrowDeg}deg)`; // downwind flow vector
+      badgeText.textContent = `From ${c.sector} ${c.degText}`;
       windBadge.setAttribute('aria-label',
-        `Wind from ${c.sector} at ${Math.round(c.arrowDeg)} degrees`);
+        `Wind from ${c.sector} at ${Math.round(c.fromDeg)} degrees, ` +
+        `blowing toward ${Math.round(c.arrowDeg)} degrees`);
     }
     const tier = ui.comfortTier({ maxHsFt: s.maxHs, rollerFt: s.rollerFt, hlMax: s.hlMax });
     comfortChip.className = `tier-${tier.key}`;
