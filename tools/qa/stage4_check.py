@@ -378,30 +378,6 @@ def check_card_and_touch(page, warp):
     six = len(card["fields"]) == 6 and all(f.strip() not in ("", "—") for f in card["fields"])
     page.screenshot(path=str(SHOTS / "bpc-s4-card.png"))
 
-    # DEFERRED (stage 5B): the unified deck ships no pointer surface yet and #controls is
-    # gone, so this group cannot assert until 5C re-enables it. Body kept for that moment;
-    # excluded from the FAIL count via the explicit marker below.
-    print("        DEFERRED touch ergonomics (5C re-enables)")
-    try:
-        tg = page.evaluate(
-            """() => {
-                 function r(id) { var b = document.getElementById(id).getBoundingClientRect();
-                                   return [Math.round(b.width), Math.round(b.height)]; }
-                 return { refresh: r('refresh'), play: r('play'), card: r('card-close'),
-                          scrub: r('scrub'),
-                          touch: getComputedStyle(document.getElementById('controls')).touchAction };
-               }""")
-        touch_ok = (tg["refresh"][0] >= 48 and tg["refresh"][1] >= 48 and
-                    tg["play"][0] >= 48 and tg["play"][1] >= 48 and
-                    tg["card"][0] >= 48 and tg["card"][1] >= 48 and
-                    tg["scrub"][1] >= 48 and tg["touch"] == "none")
-        print("        (deferred measurement) refresh=%dx%d play=%dx%d card-close=%dx%d "
-              "scrub-h=%d controls.touch-action=%s"
-              % (tg["refresh"][0], tg["refresh"][1], tg["play"][0], tg["play"][1],
-                 tg["card"][0], tg["card"][1], tg["scrub"][1], tg["touch"]))
-    except Exception as exc:  # noqa: BLE001 - deferred group must not abort tap-card (8)
-        print("        (deferred measurement skipped: %s)" % exc)
-
     page.click("#card-close")
     page.wait_for_timeout(400)
     a = page.evaluate(
@@ -436,6 +412,92 @@ def check_card_and_touch(page, warp):
     record(8, "tap card", ok,
            "fields=%s opened=%s dismissed-pin=0=%s land-flash='%s' revert='%s' land-hit=%s"
            % (card["fields"], not card["hidden"], stayed, flash, revert, tag))
+
+
+def check_touch_ergonomics(page):
+    """5C: a real mouse drag on #deck seeks through vertical wander (pointer capture),
+    the pill lingers then hides, buttons are not swallowed by the scrub surface."""
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.wait_for_timeout(300)
+    g = page.evaluate(
+        """() => {
+             var rail = document.getElementById('track-rail').getBoundingClientRect();
+             var track = document.getElementById('track').getBoundingClientRect();
+             var play = document.getElementById('play').getBoundingClientRect();
+             return {
+               rail: {x: rail.x, y: rail.y, w: rail.width, h: rail.height},
+               track: {x: track.x, y: track.y, w: track.width, h: track.height},
+               n: parseInt(document.getElementById('scrub').max, 10) + 1,
+               play: {w: play.width, h: play.height},
+             };
+           }""")
+    rail, track, n = g["rail"], g["track"], g["n"]
+    y = track["y"] + 2  # inside .deck-track, clear of the deck-main buttons
+    x20 = rail["x"] + 0.20 * rail["w"]
+    x70 = rail["x"] + 0.70 * rail["w"]
+    half_up = lambda v: int(math.floor(v + 0.5))
+    start_idx = half_up(0.20 * (n - 1))
+    expected = half_up(0.70 * (n - 1))
+
+    # (a)/(b) press at 20%, wander +/-80px vertically, land at 70%, release.
+    page.mouse.move(x20, y)
+    page.mouse.down()
+    page.mouse.move(x20, y - 80, steps=4)                      # wander up onto the map
+    page.mouse.move(x20 + 0.25 * rail["w"], y + 80, steps=4)   # wander down across the deck
+    page.mouse.move(x70, y, steps=6)                           # land on target
+    page.wait_for_timeout(80)
+    during = page.evaluate(
+        "() => ({ hidden: document.getElementById('time-pill').hidden,"
+        " text: document.getElementById('time-pill').textContent,"
+        " idx: parseInt(document.getElementById('scrub').value, 10) })")
+    page.mouse.up()
+    page.wait_for_timeout(200)
+    landed = int(page.evaluate("parseInt(document.getElementById('scrub').value, 10)"))
+    page.wait_for_timeout(1200)  # >1.2 s after release
+    pill_after = page.evaluate("document.getElementById('time-pill').hidden")
+    a_ok = abs(landed - expected) <= 1 and landed != start_idx
+    b_ok = (during["hidden"] is False and bool(during["text"]) and pill_after is True)
+    # (c) clicking #play is ignored by the scrub surface (index does not jump)
+    idx_before = int(page.evaluate("parseInt(document.getElementById('scrub').value, 10)"))
+    page.click("#play")
+    page.wait_for_timeout(80)  # < PLAY_INTERVAL_MS, before the first tick
+    idx_after = int(page.evaluate("parseInt(document.getElementById('scrub').value, 10)"))
+    page.click("#play")        # back to paused
+    page.wait_for_timeout(150)
+    c_ok = idx_before == idx_after
+    # (d) play button still meets the 44px touch target
+    d_ok = g["play"]["w"] >= 44 and g["play"]["h"] >= 44
+
+    # focused drift check: drag to the extreme right -> last frame, pill fully inside track
+    page.mouse.move(x20, y)
+    page.mouse.down()
+    page.mouse.move(rail["x"] + rail["w"] - 0.5, y, steps=6)
+    page.wait_for_timeout(80)
+    right = page.evaluate(
+        """() => { var p = document.getElementById('time-pill').getBoundingClientRect();
+             var t = document.getElementById('track').getBoundingClientRect();
+             return { px: p.x, pw: p.width, tx: t.x, tw: t.width,
+                      idx: parseInt(document.getElementById('scrub').value, 10) }; }""")
+    page.mouse.up()
+    page.wait_for_timeout(1200)
+    pill_in_track = (right["px"] >= right["tx"] - 0.5 and
+                     right["px"] + right["pw"] <= right["tx"] + right["tw"] + 0.5)
+    right_ok = right["idx"] == n - 1 and pill_in_track
+
+    ok = a_ok and b_ok and c_ok and d_ok and right_ok
+    print("        drift: start=%d landed=%d expected=%d (+/-1) during-pill=%s text='%s' "
+          "after-pill-hidden=%s" % (start_idx, landed, expected, not during["hidden"],
+                                    during["text"], pill_after))
+    print("        play-click: before=%d after=%d unchanged=%s play=%dx%d | "
+          "right: idx=%d/%d pill=[%.1f,%.1f] track=[%.1f,%.1f] inside=%s"
+          % (idx_before, idx_after, c_ok, round(g["play"]["w"]), round(g["play"]["h"]),
+             right["idx"], n - 1, right["px"], right["px"] + right["pw"],
+             right["tx"], right["tx"] + right["tw"], pill_in_track))
+    record("7b", "touch ergonomics", ok,
+           "wander±80 landed=%d/%d pill-during=%s hidden-after=%s play-unchanged=%s "
+           "play=%dx%d last=%d pill-inside=%s"
+           % (landed, expected, not during["hidden"], pill_after, c_ok,
+              round(g["play"]["w"]), round(g["play"]["h"]), right["idx"], pill_in_track))
 
 
 def check_playback(page, warp):
@@ -654,6 +716,7 @@ def main():
             safe(6, "compass badge", check_compass, page, gamma)
             safe("7a", "ramp location", check_ramp_location, page)
             safe(7, "touch", check_card_and_touch, page, warp)
+            safe("7b", "touch ergonomics", check_touch_ergonomics, page)
             safe(9, "playback perf", check_playback, page, warp)
             now_ups = safe(10, "radar smoothing", check_smoothing, page, meta, warp)
             if now_ups:
