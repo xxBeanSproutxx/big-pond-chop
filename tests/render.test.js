@@ -11,7 +11,7 @@ const {
   TILE_URL, TILE_ATTRIBUTION, TILE_MAX_ZOOM, OVERLAY_OPACITY, PLAY_INTERVAL_MS,
   FRAME_MINUTES, targetWidth, landMaskRaster, smoothRaster,
   cacheKey, frameBytes, createFrameCache,
-  playWidth, PLAY_MAX_WIDTH, revokeUrl, shouldPaintResult, offscreenSupported,
+  playWidth, PLAY_MAX_WIDTH, revokeUrl, shouldPaintResult, shouldPaintMap, offscreenSupported,
   pxPerDay, pxPerFrame, tapeTranslate, idxFromDrag, dayPartitions, playStep, nextPlayIdx,
 } = require('../src/render');
 const ui = require('../src/ui');
@@ -266,16 +266,22 @@ check('stale async result cached but not painted (decision helper)', () => {
 });
 
 console.log('\n== [9] stage-5g: tape geometry ==');
-check('pxPerDay is 190 in 7d and max(190, window) in 24h', () => {
+check('pxPerDay is 190 in 7d and max(550, window) in 24h', () => {
   assert.strictEqual(pxPerDay('7d', 374), 190);
-  assert.strictEqual(pxPerDay('24h', 374), 374);
-  assert.strictEqual(pxPerDay('24h', 120), 190, 'a single day always at least fills the window');
+  assert.strictEqual(pxPerDay('24h', 374), 550);
+  assert.strictEqual(pxPerDay('24h', 120), 550, 'a single day keeps the 550 px/day phone floor');
   console.log(`       7d->${pxPerDay('7d', 374)} 24h(374)->${pxPerDay('24h', 374)} ` +
     `24h(120)->${pxPerDay('24h', 120)}`);
 });
+check('24h runway is >= 150 px at a 374 px window; 7d unchanged', () => {
+  assert.ok(pxPerDay('24h', 374) - 374 >= 150,
+    `24h runway ${pxPerDay('24h', 374) - 374} px`);
+  assert.strictEqual(pxPerDay('7d', 374), 190);
+  console.log(`       24h runway ${pxPerDay('24h', 374) - 374} px (tape ${pxPerDay('24h', 374)} - window 374)`);
+});
 check('pxPerFrame is pxPerDay / 96', () => {
   assert.strictEqual(pxPerFrame('7d', 374), 190 / 96);
-  assert.strictEqual(pxPerFrame('24h', 374), 374 / 96);
+  assert.strictEqual(pxPerFrame('24h', 374), 550 / 96);
   console.log(`       7d->${pxPerFrame('7d', 374).toFixed(4)} 24h->${pxPerFrame('24h', 374).toFixed(4)}`);
 });
 check('tapeTranslate keeps the active frame under the reticle centre', () => {
@@ -351,6 +357,18 @@ check('#scrub shim is gone; timeline containers present', () => {
   for (const id of ['track-days', 'track-ticks', 'track-label', 'timeline', 'h-24h', 'h-7d']) {
     assert.ok(html.includes(`id="${id}"`), `missing #${id}`);
   }
+});
+
+console.log('\n== [11] stage-5h: drag-time map paint throttle ==');
+check('shouldPaintMap: gate closed -> false; open+idle -> true; open+busy -> false', () => {
+  const MIN = 72;
+  assert.strictEqual(shouldPaintMap(1000, 1000, false, MIN), false, 'gate closed');
+  assert.strictEqual(shouldPaintMap(1000, 1000 - MIN + 1, false, MIN), false, 'just under the gate');
+  assert.strictEqual(shouldPaintMap(1000, 1000 - MIN, false, MIN), true, 'gate open, not busy');
+  assert.strictEqual(shouldPaintMap(1000, 0, false, MIN), true, 'opened long ago');
+  assert.strictEqual(shouldPaintMap(1000, 0, true, MIN), false, 'busy wins even when open');
+  assert.strictEqual(shouldPaintMap(1000, 1000 - MIN, true, MIN), false, 'busy at the boundary');
+  console.log('       closed/busy suppress; open+idle paints');
 });
 
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);

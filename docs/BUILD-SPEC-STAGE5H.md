@@ -207,6 +207,8 @@ Requirements:
 4. Your own two-run determinism check on any one gate (same command twice, same verdicts).
 5. A `docs/STAGE-5H-RECEIPTS.md` draft: what changed per file, the numbered gate deltas with a
    per-change justification, the bench table, the exact commands, and any spec/reality conflict.
+6. ONE commit on branch `stage5h`, message `Stage 5H: touch decoupling & scrub performance`
+   (put the `git diff --stat` in the commit body). Do not deploy; do not merge; do not tag.
 
 Report back: files changed, `git diff --stat`, the harness summary line, the bench numbers
 before and after, and anything in this spec that reality contradicted.
