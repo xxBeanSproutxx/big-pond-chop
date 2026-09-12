@@ -1,5 +1,12 @@
 # STAGE 5J — RECEIPTS (polish & fixes: calm lake, 24h tape labels, calm tier, legend card + wind strip)
 
+> **SUPERSEDED — Reid rejected this visual direction (2026-09-12).** The floating legend card, the
+> bottom wind text strip and the 6-hour repeating day header were all reversed in **Stage 5K**
+> (`docs/STAGE-5K-RECEIPTS.md`); the calm-water colour was also reworked from opaque navy to a
+> translucent tint. Kept as history: the land/calm separation, the tick edge work, the calm tier
+> rule, the `.leaflet-bottom` lift, the header delimiter and the `[18]` gate all survive in 5K.
+> The 5J branch was never merged.
+
 Branch `stage5j` (off `main` @ 383126e). **Not merged/deployed** — see "Status" at the bottom.
 
 Spec: `docs/BUILD-SPEC-STAGE5J.md`. Implementation: OpenCode worker; recon, gates and visual
