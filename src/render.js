@@ -134,6 +134,26 @@ function nextPlayIdx(cur, step, n) {
   return n > 0 ? (cur + step) % n : 0;
 }
 
+// ---- stage 5M: three-hourly wind row (pure helper) ----
+// h = 0,3,…,21 -> Math.round(speedMph) of the frame in [start, end) whose local time is hh:00.
+// Missing frame or non-finite speed is skipped (no label). Returns [{ h, mph }] ordered by hour.
+function tickWinds(entries, start, end) {
+  const list = entries || [];
+  const lo = Math.max(0, start | 0);
+  const hi = Math.min(list.length, end == null ? list.length : end | 0);
+  const out = [];
+  for (let h = 0; h <= 21; h += 3) {
+    const hh = String(h).padStart(2, '0') + ':00';
+    for (let i = lo; i < hi; i++) {
+      const e = list[i];
+      if (!e || String(e.time).slice(11, 16) !== hh) continue;
+      if (Number.isFinite(e.speedMph)) out.push({ h, mph: Math.round(e.speedMph) });
+      break;
+    }
+  }
+  return out;
+}
+
 function bilinearSample(field, cols, rows, colF, rowF) {
   const cx = colF < 0 ? 0 : colF > cols - 1 ? cols - 1 : colF;
   const ry = rowF < 0 ? 0 : rowF > rows - 1 ? rows - 1 : rowF;
@@ -357,7 +377,6 @@ async function mount(deps) {
   const trackLabel = document.getElementById('track-label');
   const timePill = document.getElementById('time-pill');
   const nowTick = document.getElementById('now-tick');
-  const windStripEl = document.getElementById('wind-strip');
   const horizonEl = document.getElementById('horizon');
   const h24Btn = document.getElementById('h-24h');
   const h7Btn = document.getElementById('h-7d');
@@ -725,6 +744,20 @@ async function mount(deps) {
         sub.textContent = String((h % 12) || 12).padStart(2, '0');
         block.appendChild(sub);
       }
+      // 5M: three-hourly wind labels, mirroring each three-hourly tick's anchor rule so the
+      // centres line up within 1.5 px. No label on the boundary 12 tick (no 24:00 frame).
+      for (const t of tickWinds(frames, start, end)) {
+        const wind = document.createElement('span');
+        wind.className = 'day-wind';
+        if (t.h === 0) {
+          wind.style.left = '3px';
+          wind.style.transform = 'none';
+        } else {
+          wind.style.left = `${Math.max(6, Math.min(w - 6, (t.h / 24) * w))}px`;
+        }
+        wind.textContent = String(t.mph);
+        block.appendChild(wind);
+      }
       // Midnight boundary tick, right-anchored, on the 24 h tape's final block only:
       // 7d blocks are too narrow (~5 px to the next day's tick) and would double the label.
       if (horizon === '24h' && k === lastPart) {
@@ -754,9 +787,6 @@ async function mount(deps) {
     const e = frames[idx];
     const text = ui.formatPillTime(e.time);
     if (timePill.textContent !== text) timePill.textContent = text;
-    // 5L: the deck wind strip is written on this one path, so scrub and playback stay in sync.
-    const strip = ui.windStrip(e.speedMph, e.gustMph, e.dirTrueDeg);
-    if (windStripEl && windStripEl.textContent !== strip) windStripEl.textContent = strip;
     trackEl.setAttribute('aria-valuenow', String(idx));
     trackEl.setAttribute('aria-valuetext',
       `${ui.formatClockLocal(e.time)}, ${ui.dayLabel(e.time, true)}`);
@@ -1175,4 +1205,5 @@ module.exports = {
   landMaskRaster, smoothRaster, cacheKey, frameBytes, createFrameCache, mount,
   offscreenSupported, revokeUrl, shouldPaintResult, shouldPaintMap, encodeOffscreen,
   pxPerDay, pxPerFrame, tapeTranslate, idxFromDrag, dayPartitions, playStep, nextPlayIdx,
+  tickWinds,
 };

@@ -16,12 +16,13 @@ const HS_STOPS = [
 ];
 // Calm-water RGBA. Must equal HS_STOPS[0]'s rgb (single source of truth): the legend's
 // 0 ft colour and the map's calm colour are the same colour. Alpha 255 = fully opaque in
-// the PNG; the Leaflet overlay multiplies it by OVERLAY_OPACITY 0.85, so calm water lands
-// at 0.85 effective. Composite 0.85 x rgb(3, 105, 161) over the desaturated basemap reads
-// ~rgb(33, 120, 168): deep saturated lake blue, never slate gray.
+// the PNG; the Leaflet overlay multiplies it by OVERLAY_OPACITY 0.68, so calm water lands
+// at 0.68 effective. Composite 0.68 x rgb(3, 105, 161) over the desaturated basemap reads
+// ~rgb(67, 138, 176): still clearly blue, with bay/reef/island labels legible through it.
+// Land stays exactly transparent.
 const CALM_RGBA = [0x03, 0x69, 0xa1, 255];
 const HS_BREAKS = [0, 1, 2, 3.5, 4.5, 6];
-const OVERLAY_OPACITY = 0.85;
+const OVERLAY_OPACITY = 0.68;
 
 // RGBA for an Hs value in ft. Non-positive / non-finite -> fully transparent (the caller
 // decides land vs calm water); water -> opaque. Opacity is applied once by the Leaflet overlay.
@@ -202,15 +203,6 @@ function compass(bearingDeg, speedMph) {
   };
 }
 
-// Stage 5L wind status strip: windLine plus the SOURCE bearing when it is finite.
-// Calm / non-finite speed -> "Wind: calm" (no From clause); finite bearing -> " · From <sector> <deg>°".
-function windStrip(speedMph, gustMph, bearingDeg) {
-  const base = windLine(speedMph, gustMph);
-  if (base === 'Wind: calm') return base;
-  const c = compass(bearingDeg, speedMph);
-  return c.fromDeg == null ? base : `${base} · From ${c.sector} ${c.degText}`;
-}
-
 // Condition tier, strict red -> amber -> yellow -> green (first match wins).
 // Missing/NaN inputs never trigger a condition. A green sea is relabelled "Calm · Flat"
 // when the wind is under 4 mph or the lake max is under 0.5 ft — never for rougher keys.
@@ -293,6 +285,6 @@ module.exports = {
   SECTORS, haversineM, bearing8, centroidOfCorners, sectorFor,
   nameSpot, describePin, sectorPhrase, sectorName, shortPlace, formatHeadline,
   FEATURE_RADIUS_M, SHORE_RADIUS_M,
-  CALM_MPH, CALM_TIER_MPH, CALM_HS_FT, normalizeDeg, windLine, windStrip, compass,
+  CALM_MPH, CALM_TIER_MPH, CALM_HS_FT, normalizeDeg, windLine, compass,
   comfortTier, formatClockLocal, formatPillTime, dayLabel,
 };

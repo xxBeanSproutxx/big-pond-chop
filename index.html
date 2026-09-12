@@ -79,7 +79,7 @@
   #boot.indeterminate #boot-bar { width: 40%; animation: boot-slide 1.1s ease-in-out infinite; }
   @keyframes boot-slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
   body.reduced-motion #boot.indeterminate #boot-bar { animation: none; width: 100%; opacity: .55; }
-  /* Stage 5F: two-row deck — timeline track (48 px) + ribbon (~20 px). */
+  /* Stage 5M: single full-height scrolling tape — day header + hour ticks + wind row. */
   :root { --deck-h: 68px; }
   body { height: 100vh; height: 100dvh; }
   #deck {
@@ -95,11 +95,7 @@
   }
   .deck-row  { overflow: hidden; }
   .deck-track{ overflow: visible; position: relative; } /* pill floats above; play overlays */
-  .deck-track{ height: 48px; display: flex; align-items: stretch; }
-  /* Stage 5L: deck footer is the live wind status strip (the ramp lives in the map legend). */
-  .deck-wind { height: 20px; display: flex; align-items: center; font-size: 11px; color: #cfe3f2;
-               font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden;
-               text-overflow: ellipsis; }
+  .deck-track{ height: 68px; display: flex; align-items: stretch; }
   /* Horizon micro-pill: lives in the map corner, clear of the zoom control + wind badge. */
   #horizon { position: absolute; top: 12px; left: 56px; z-index: 1000; display: flex; gap: 4px; }
   #horizon button { height: 28px; min-height: 28px; padding: 0 9px; background: rgba(16,38,58,.85);
@@ -107,7 +103,7 @@
                     font: 11px/1 system-ui, sans-serif; touch-action: manipulation; }
   #horizon button[aria-pressed="true"] { background: #ffd166; color: #10263a; border-color: #ffd166; }
   /* #timeline is the viewing window: the tape scrolls under a fixed centre reticle. */
-  #timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 48px; overflow: hidden;
+  #timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 68px; overflow: hidden;
               border-radius: 4px; background: #262930; }
   /* Wide filmstrip tape; translated by the single writeTape() path in render.js. */
   #track-tape { position: absolute; left: 0; top: 0; height: 100%;
@@ -135,12 +131,21 @@
   .day-block + .day-block { border-left: 1px solid #3a3f4a; }
   .day-head { position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
               font: 700 11px/1 system-ui, -apple-system, sans-serif; color: #e8f0f7; white-space: nowrap; }
-  .day-sub { position: absolute; top: 30px; transform: translateX(-50%);
+  .day-sub { position: absolute; top: 28px; transform: translateX(-50%);
              font: 10px/1 system-ui, -apple-system, sans-serif; color: #9fc3dd; white-space: nowrap;
-             font-variant-numeric: tabular-nums; }
+             font-variant-numeric: tabular-nums; width: 1.5em; text-align: center; }
   .day-sub.edge { color: #e8f0f7; } /* midnight/boundary ticks read stronger than the 3 h row */
-  /* Stage 5L: the wave colour bar lives in a non-interactive card at the map's bottom-left. */
-  #legend-card { position: absolute; left: 10px; bottom: 10px; z-index: 500; pointer-events: none;
+  /* 5M wind row: mph under each 3 h tick, mirroring the tick's anchor + left offset. The
+     shared 1.5em centred box keeps the h=0 labels aligned even when the wind is one digit. */
+  .day-wind { position: absolute; top: 48px; transform: translateX(-50%);
+              font: 600 10px/1 system-ui, -apple-system, sans-serif; color: #e8f0f7;
+              white-space: nowrap; font-variant-numeric: tabular-nums;
+              width: 1.5em; text-align: center; }
+  /* Stage 5L/5M: the wave colour bar lives in a non-interactive card at the map's bottom-left.
+     Reid asked for bottom:78px, but the card's 78-111px band crosses the OSM attribution band
+     (74-91px from the map's bottom, x 156-390) in x 156-176. Measured clearance at 98px is
+     ~7px, so the card is docked at 98px. */
+  #legend-card { position: absolute; left: 10px; bottom: 98px; z-index: 500; pointer-events: none;
                  background: rgba(16,38,58,.85); border-radius: 8px; padding: 6px 8px; }
   #legend-card-bar { width: 150px; height: 11px; border-radius: 3px; border: 1px solid #33506b; }
   #legend-card-ticks { width: 150px; margin-top: 2px; display: flex; justify-content: space-between;
@@ -165,7 +170,7 @@
           font-size: 13px; align-items: center; gap: 10px; }
   #note-retry { background: #ffd7d7; color: #5a1f1f; border: 0; border-radius: 5px;
                 padding: 6px 10px; font-size: 12px; font-weight: 700; touch-action: manipulation; }
-  #card { position: absolute; left: 10px; bottom: 54px; z-index: 550; min-width: 230px;
+  #card { position: absolute; left: 10px; bottom: 140px; z-index: 550; min-width: 230px;
           background: #ffffff; color: #0d1b2a; border: 1px solid #cbd5e1;
           border-radius: 8px; padding: 8px 46px 8px 10px; font-size: 12px;
           box-shadow: 0 2px 8px rgba(0,0,0,.3); font-variant-numeric: tabular-nums; }
@@ -258,10 +263,6 @@
         <svg class="icon icon-pause" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
       </button>
     </div>
-
-    <!-- aria-live off: the strip rewrites every frame during playback; a polite live
-         region would queue an announcement per frame. role=status keeps the semantics. -->
-    <div class="deck-row deck-wind" id="wind-strip" role="status" aria-live="off">Wind: —</div>
   </footer>
   <canvas id="field"></canvas>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
