@@ -500,6 +500,7 @@ async function mount(deps) {
   let full7d = null;      // cached '7d' ingest result for the zero-fetch narrow
   let widening = false;   // re-entry guard while the 7-day fetch is in flight
   let applied = false;    // true after the first successful applyWindData (boot overrides)
+  let nowTickIdx = null;  // now-index the hairline shows (null = hidden)
   let pinned = null;
   let pin = null;
   let playing = false;
@@ -585,6 +586,13 @@ async function mount(deps) {
   // Same rail mapping as the playhead: 11 px inset each side of the track.
   function railXFor(index, n) { return 11 + (n > 1 ? index / (n - 1) : 0) * (trackW - 22); }
 
+  // Re-place the now hairline from the stored now-index (safe to call after width changes).
+  function placeNowTick() {
+    if (nowTickIdx == null || !frames.length || !trackW) return;
+    nowTick.style.left = `${railXFor(nowTickIdx, frames.length)}px`;
+    nowTick.style.transform = 'translateX(-50%)';
+  }
+
   function renderTimeline() {
     trackDays.textContent = '';
     trackTicks.textContent = '';
@@ -600,6 +608,8 @@ async function mount(deps) {
       const lab = document.createElement('span');
       lab.className = 'day-lab';
       lab.textContent = ui.dayLabel(frames[p.index].time, long);
+      // The first label cannot centre on its divider — it would clip at the row edge.
+      if (p.index === 0) lab.style.transform = 'translateX(2px)';
       wrap.appendChild(lab);
       trackDays.appendChild(wrap);
     }
@@ -928,8 +938,14 @@ async function mount(deps) {
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
   playBtn.addEventListener('click', () => setPlaying(!playing));
   document.getElementById('card-close').addEventListener('click', dismissPin);
-  window.addEventListener('resize', () => { refreshRailRect(); scheduleRegather(); scheduleTimeline(); });
-  window.addEventListener('orientationchange', () => { refreshRailRect(); scheduleTimeline(); });
+  // A width change moves the rail mapping: re-place the hairline/playhead + day label.
+  function resyncTrackUi() {
+    updateScrubUi(cur);
+    placeNowTick();
+    if (frames.length) deckDay.textContent = ui.dayLabel(frames[cur].time, isLongLabel());
+  }
+  window.addEventListener('resize', () => { refreshRailRect(); scheduleRegather(); scheduleTimeline(); resyncTrackUi(); });
+  window.addEventListener('orientationchange', () => { refreshRailRect(); scheduleTimeline(); resyncTrackUi(); });
   // test hook: same handler the map click uses
   window.__bpcTap = (lat, lon) => placePin(L.latLng(lat, lon));
 
@@ -950,10 +966,11 @@ async function mount(deps) {
     const nowIdx = Number.isFinite(data.currentIndex) ? data.currentIndex : 0;
     // The now-tick marks the real "now"; an explicit ?hour=/?frame= override hides it.
     if (!q.has('hour') && !q.has('frame') && frames.length) {
-      nowTick.style.left = `${railXFor(nowIdx, frames.length)}px`;
-      nowTick.style.transform = 'translateX(-50%)';
+      nowTickIdx = nowIdx;
       nowTick.hidden = false;
+      placeNowTick();
     } else {
+      nowTickIdx = null;
       nowTick.hidden = true;
     }
     let start;
