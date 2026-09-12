@@ -402,6 +402,7 @@ async function mount(deps) {
     if (frac == null) bootEl.classList.add('indeterminate');
     else { bootEl.classList.remove('indeterminate'); bootBar.style.width = `${Math.round(frac * 100)}%`; }
     bootEl.classList.remove('hidden');
+    bootHidden = false; // 5D.2: a freshly shown skeleton hides again on the next painted frame
   }
   function hideBoot() { bootEl.classList.add('hidden'); }
   function showNote(msg, retryFn) {
