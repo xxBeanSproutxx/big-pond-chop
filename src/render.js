@@ -18,6 +18,7 @@ const PLAY_INTERVAL_MS = 333;
 const FRAME_MINUTES = 15;
 const FRAME_CACHE_MAX = 8;
 const MAP_PAINT_MIN_MS = 72; // ~13.9 fps: drag-time overlay repaint throttle (12-15 fps band)
+const STICKY_INSET = 56;    // 5L: sticky day header clears the 48 px #play button at the window edge
 
 // ---- affine warp ----
 function gridToLonlat(warp, col, row) {
@@ -88,11 +89,12 @@ function shouldPaintMap(nowMs, lastPaintMs, busy, minIntervalMs) {
 }
 
 // ---- stage 5G: scrolling tape geometry (pure helpers) ----
-// Tape density: 7 d is a fixed 190 px/day (672 frames -> 1,330 px); a single 24 h day is
+// Tape density: 7 d is a fixed 330 px/day (672 frames -> 2,310 px; 41.25 px per 3 h
+// interval, wide enough that the tick and wind rows never collide); a single 24 h day is
 // a 550 px/day tape so it has ~176 px of runway at a phone viewport, and still fills at
 // least the viewing window on desktop/tablet (window-fill, as in 5G).
 function pxPerDay(horizon, windowW) {
-  return horizon === '7d' ? 190 : Math.max(550, Math.round(Number(windowW) || 0));
+  return horizon === '7d' ? 330 : Math.max(550, Math.round(Number(windowW) || 0));
 }
 
 function pxPerFrame(horizon, windowW) {
@@ -131,6 +133,26 @@ function playStep(horizon) {
 
 function nextPlayIdx(cur, step, n) {
   return n > 0 ? (cur + step) % n : 0;
+}
+
+// ---- stage 5M: three-hourly wind row (pure helper) ----
+// h = 0,3,…,21 -> Math.round(speedMph) of the frame in [start, end) whose local time is hh:00.
+// Missing frame or non-finite speed is skipped (no label). Returns [{ h, mph }] ordered by hour.
+function tickWinds(entries, start, end) {
+  const list = entries || [];
+  const lo = Math.max(0, start | 0);
+  const hi = Math.min(list.length, end == null ? list.length : end | 0);
+  const out = [];
+  for (let h = 0; h <= 21; h += 3) {
+    const hh = String(h).padStart(2, '0') + ':00';
+    for (let i = lo; i < hi; i++) {
+      const e = list[i];
+      if (!e || String(e.time).slice(11, 16) !== hh) continue;
+      if (Number.isFinite(e.speedMph)) out.push({ h, mph: Math.round(e.speedMph) });
+      break;
+    }
+  }
+  return out;
 }
 
 function bilinearSample(field, cols, rows, colF, rowF) {
@@ -186,12 +208,17 @@ function computeFrame(tables, entry, opts = {}) {
   return { capped, afterKs, ts, maxHs, maxIdx, rollerFt, hlMax: (afterKs[maxIdx] * waveMath.FT) / L_m };
 }
 
-// ---- colour scale (land / flat water transparent) ----
-function paintRaster(ctx, raster, W, H) {
+// ---- colour scale (land transparent, calm water opaque navy) ----
+// raster[k] > 0 is water with a height -> Hs ramp. Otherwise the pixel is either calm
+// water (paint CALM_RGBA) or land (stay transparent); landFrac tells them apart. The
+// land-fraction raster may be omitted (e.g. pure unit paint) -> non-positive is transparent.
+function paintRaster(ctx, raster, W, H, landFrac) {
   const img = ctx.createImageData(W, H);
   const px = img.data;
   for (let k = 0, p = 0; k < raster.length; k++, p += 4) {
-    const c = ui.colorForHs(raster[k]);
+    const c = raster[k] > 0
+      ? ui.colorForHs(raster[k])
+      : (landFrac && landFrac[k] < 0.5 ? ui.CALM_RGBA : [0, 0, 0, 0]);
     px[p] = c[0]; px[p + 1] = c[1]; px[p + 2] = c[2]; px[p + 3] = c[3];
   }
   ctx.putImageData(img, 0, 0);
@@ -199,9 +226,9 @@ function paintRaster(ctx, raster, W, H) {
 
 // Async PNG encode: paint the same raster into an OffscreenCanvas, then let the browser
 // encode to a blob off the main thread. Resolves to an object URL.
-function encodeOffscreen(raster, W, H) {
+function encodeOffscreen(raster, W, H, landFrac) {
   const off = new OffscreenCanvas(W, H);
-  paintRaster(off.getContext('2d'), raster, W, H);
+  paintRaster(off.getContext('2d'), raster, W, H, landFrac);
   return off.convertToBlob({ type: 'image/png' }).then((blob) => URL.createObjectURL(blob));
 }
 
@@ -478,11 +505,8 @@ async function mount(deps) {
     bounds = displayBounds(warp);
   }
 
-  const legendBar = document.getElementById('legend-bar');
-  if (legendBar) {
-    const stops = ui.HS_STOPS.map(([v, r, g, b]) => `rgb(${r}, ${g}, ${b}) ${(v / 6 * 100).toFixed(1)}%`);
-    legendBar.style.background = `linear-gradient(90deg, ${stops.join(', ')})`;
-  }
+  const legendBar = document.getElementById('legend-card-bar');
+  if (legendBar) legendBar.style.background = ui.rampGradient();
 
   function isShoreCell(lat, lon) {
     const g = lonlatToGrid(warp, lon, lat);
@@ -599,6 +623,7 @@ async function mount(deps) {
   let paintGen = 0;            // bumped per committed paint; stale encodes are dropped
   let inFlightEncode = 0;      // convertToBlob calls not yet settled
   let lastOverlayUrl = null;   // overlay URL dedupe (cache hits re-apply the same blob:)
+  let stickyHead = null;       // 5L: wide (24h) day header, clamped in writeTape
 
   // Cached once per gesture / on layout change; never read in the move path.
   function refreshRailRect() {
@@ -613,11 +638,16 @@ async function mount(deps) {
   }
 
   // Single writer for the tape transform: centre the active frame under the fixed reticle.
+  // 5L: also clamps the wide day header to the window's left edge so it stays visible.
   function writeTape(idx) {
     if (!viewportW) return;
     const center = viewportW / 2;
-    trackTape.style.transform =
-      'translateX(' + tapeTranslate(idx, pxPerFrame(horizon, viewportW), center) + 'px)';
+    const tx = tapeTranslate(idx, pxPerFrame(horizon, viewportW), center);
+    trackTape.style.transform = 'translateX(' + tx + 'px)';
+    if (stickyHead) {
+      const want = Math.max(6, (-tx) + STICKY_INSET - stickyHead.blockLeft);
+      if (stickyHead.el.style.left !== want + 'px') stickyHead.el.style.left = want + 'px';
+    }
   }
 
   // Stage 5H §C1: overlay URL dedupe — cache hits re-apply the same blob: URL today.
@@ -664,18 +694,23 @@ async function mount(deps) {
     paintArmed = false;
   }
 
-  // Solid segmented day blocks at real width: alternating shades, midnight divider, a centred
-  // day header and the full 3 h sub-row. Blocks are date-string derived; each is sized from
+  // Solid segmented day blocks at real width: alternating shades, midnight divider, day
+  // headers and the full 3 h sub-row. Blocks are date-string derived; each is sized from
   // its own frame run, so uneven days still tile exactly.
+  // 5K: exactly one header per day block, pinned at the block's start on the wide 24 h
+  // block (one "Saturday 12" on the tape) and centred on the narrow 7 d blocks.
+  // 5L: the wide header is sticky — writeTape() clamps it to the window's left edge.
   function renderTimeline() {
     trackDays.textContent = '';
     trackTicks.textContent = '';
+    stickyHead = null;
     trackLabel.textContent = horizon === '7d' ? '7 day' : '24 h';
     if (!frames.length || !viewportW) return;
     const n = frames.length;
     const pxf = pxPerFrame(horizon, viewportW);
     trackTape.style.width = `${n * pxf}px`;
     const parts = dayPartitions(frames);
+    const lastPart = parts.length - 1;
     for (let k = 0; k < parts.length; k++) {
       const start = parts[k].index;
       const end = k + 1 < parts.length ? parts[k + 1].index : n;
@@ -685,16 +720,74 @@ async function mount(deps) {
       block.className = 'day-block' + (k % 2 ? ' alt' : '');
       block.style.left = `${left}px`;
       block.style.width = `${w}px`;
+      const label = ui.dayLabel(parts[k].date, true);
+      // Exactly one header per day block. A wide (24 h) block pins it left at the day
+      // boundary; narrow 7 d blocks keep the centred default from CSS.
       const head = document.createElement('span');
       head.className = 'day-head';
-      head.textContent = ui.dayLabel(parts[k].date, true);
+      if (w > 275) {
+        head.style.left = '6px';
+        head.style.transform = 'none';
+        stickyHead = { el: head, blockLeft: left }; // 5L: only the wide 24h block is sticky
+      }
+      head.textContent = label;
       block.appendChild(head);
       for (let h = 0; h < 24; h += 3) {
         const sub = document.createElement('span');
-        sub.className = 'day-sub';
-        sub.style.left = `${Math.max(6, Math.min(w - 6, (h / 24) * w))}px`;
+        sub.className = 'day-sub' + (h === 0 ? ' edge' : '');
+        if (h === 0) {
+          // Left-anchored so the first tick can never clip against the block edge.
+          sub.style.left = '3px';
+          sub.style.transform = 'none';
+        } else {
+          sub.style.left = `${Math.max(6, Math.min(w - 6, (h / 24) * w))}px`;
+        }
         sub.textContent = String((h % 12) || 12).padStart(2, '0');
         block.appendChild(sub);
+      }
+      // 5P: one heat stop per hour (24 samples from the 15-min frames), feeding the
+      // per-block ribbon gradient. Appended before the wind numbers so the ribbon paints
+      // behind them (no z-index games). Same per-block loop as the ticks; no per-frame work.
+      const hourly = [];
+      for (let h = 0; h < 24; h++) {
+        const hh = String(h).padStart(2, '0') + ':00';
+        for (let i = start; i < end; i++) {
+          const e = frames[i];
+          if (!e || String(e.time).slice(11, 16) !== hh) continue;
+          hourly.push(e.speedMph);
+          break;
+        }
+      }
+      const heat = document.createElement('div');
+      heat.className = 'day-heat';
+      heat.setAttribute('aria-hidden', 'true');
+      heat.style.backgroundImage = ui.windHeatGradient(hourly);
+      block.appendChild(heat);
+      // 5P: three-hourly wind labels embedded in the ribbon, mirroring each three-hourly
+      // tick's anchor rule so the centres line up within 1.5 px. No label on the boundary
+      // 12 tick (no 24:00 frame).
+      for (const t of tickWinds(frames, start, end)) {
+        const wind = document.createElement('span');
+        wind.className = 'day-wind';
+        if (t.h === 0) {
+          wind.style.left = '3px';
+          wind.style.transform = 'none';
+        } else {
+          wind.style.left = `${Math.max(6, Math.min(w - 6, (t.h / 24) * w))}px`;
+        }
+        wind.textContent = String(t.mph);
+        block.appendChild(wind);
+      }
+      // Midnight boundary tick, right-anchored, on the 24 h tape's final block only:
+      // 7d blocks are too narrow (~5 px to the next day's tick) and would double the label.
+      if (horizon === '24h' && k === lastPart) {
+        const edge = document.createElement('span');
+        edge.className = 'day-sub edge';
+        edge.style.right = '2px';
+        edge.style.left = 'auto';
+        edge.style.transform = 'none';
+        edge.textContent = '12';
+        block.appendChild(edge);
       }
       trackDays.appendChild(block);
     }
@@ -711,11 +804,12 @@ async function mount(deps) {
   // The pill is permanent and fixed: only its text changes; the tape moves underneath.
   function updateScrubUi(idx) {
     if (!frames.length || !viewportW) return;
-    const text = ui.formatPillTime(frames[idx].time);
+    const e = frames[idx];
+    const text = ui.formatPillTime(e.time);
     if (timePill.textContent !== text) timePill.textContent = text;
     trackEl.setAttribute('aria-valuenow', String(idx));
     trackEl.setAttribute('aria-valuetext',
-      `${ui.formatClockLocal(frames[idx].time)}, ${ui.dayLabel(frames[idx].time, true)}`);
+      `${ui.formatClockLocal(e.time)}, ${ui.dayLabel(e.time, true)}`);
     writeTape(idx);
   }
 
@@ -811,9 +905,9 @@ async function mount(deps) {
     const meta = { idx, pinIdx, W, H };
     let pending = null;
     if (offscreenSupported()) {
-      pending = encodeOffscreen(smooth, W, H); // raster paint is sync; PNG encode is not
+      pending = encodeOffscreen(smooth, W, H, landFrac); // raster paint is sync; PNG encode is not
     } else {
-      paintRaster(cctx, smooth, W, H); // fallback: old synchronous path
+      paintRaster(cctx, smooth, W, H, landFrac); // fallback: old synchronous path
       entry.url = canvas.toDataURL();
     }
     const ms = performance.now() - t0;
@@ -921,7 +1015,8 @@ async function mount(deps) {
         `Wind from ${c.sector} at ${Math.round(c.fromDeg)} degrees, ` +
         `blowing toward ${Math.round(c.arrowDeg)} degrees`);
     }
-    const tier = ui.comfortTier({ maxHsFt: s.maxHs, rollerFt: s.rollerFt, hlMax: s.hlMax });
+    const tier = ui.comfortTier({ maxHsFt: s.maxHs, rollerFt: s.rollerFt, hlMax: s.hlMax,
+      windMph: e.speedMph });
     comfortChip.className = `tier-${tier.key}`;
     comfortChip.textContent = tier.label;
     const headline = ui.formatHeadline({
@@ -1130,4 +1225,5 @@ module.exports = {
   landMaskRaster, smoothRaster, cacheKey, frameBytes, createFrameCache, mount,
   offscreenSupported, revokeUrl, shouldPaintResult, shouldPaintMap, encodeOffscreen,
   pxPerDay, pxPerFrame, tapeTranslate, idxFromDrag, dayPartitions, playStep, nextPlayIdx,
+  tickWinds,
 };

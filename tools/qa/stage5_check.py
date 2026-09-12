@@ -405,31 +405,31 @@ def check_compass(page, gamma):
 
 
 def check_ramp_location(page):
-    # Stage 5B: the legend strip is replaced by the Hs ramp row, which must live inside
-    # #deck (and NOT inside #map). (No pre-existing legend check was present in this
-    # harness; this is the authorised legend-location replacement.)
+    # Stage 5L: the six-stop ramp is a non-interactive legend card inside #map again
+    # (5K had docked it at the deck base; 5L floats it in a card with the wind strip
+    # taking the deck's second row).
     v = page.evaluate(
         """() => {
-             var bar = document.getElementById('ramp-bar');
+             var bar = document.getElementById('legend-card-bar');
              var deck = document.getElementById('deck');
              var map = document.getElementById('map');
-             var ticks = document.getElementById('ramp-ticks');
+             var ticks = document.getElementById('legend-card-ticks');
              return {
                exists: !!bar,
                inDeck: !!(bar && deck && deck.contains(bar)),
                inMap: !!(bar && map && map.contains(bar)),
-               legend: !!document.getElementById('legend'),
+               legend: !!document.getElementById('legend-card'),
                stops: ticks ? Array.from(ticks.children).map(function (s) { return s.textContent; }) : [],
                gradient: bar ? getComputedStyle(bar).backgroundImage : '',
              };
            }""")
     grad_ok = all(c in v["gradient"] for c in (
-        "rgb(30, 64, 175)", "rgb(6, 182, 212)", "rgb(245, 158, 11)",
+        "rgb(8, 145, 178)", "rgb(6, 182, 212)", "rgb(245, 158, 11)",
         "rgb(234, 88, 12)", "rgb(220, 38, 38)", "rgb(190, 24, 93)"))
     stops_ok = v["stops"] == ["0", "1", "2", "3.5", "4.5", "6+"]
-    ok = v["exists"] and v["inDeck"] and not v["inMap"] and stops_ok and grad_ok
+    ok = v["exists"] and v["inMap"] and not v["inDeck"] and v["legend"] and stops_ok and grad_ok
     record("7a", "ramp location", ok,
-           "ramp in-deck=%s in-map=%s legend-present=%s stops=%s gradient-six=%s"
+           "ramp in-deck=%s in-map=%s legend-card-present=%s stops=%s gradient-six=%s"
            % (v["inDeck"], v["inMap"], v["legend"], v["stops"], grad_ok))
 
 
@@ -490,10 +490,10 @@ def check_card_and_touch(page, warp):
 
 
 def check_touch_ergonomics(page):
-    """5G: #track is a scrolling tape with a fixed centre reticle. A real mouse drag on
+    """5G/5M: #track is a scrolling tape with a fixed centre reticle. A real mouse drag on
     #deck scrolls the tape: LEFT advances into the future, RIGHT rewinds, the amber pill
-    never moves, a click on #play does not scrub, and a drag starting in the .deck-ramp
-    row still scrubs (deck-wide pointer capture)."""
+    never moves, a click on #play does not scrub, and a drag starting in the deck's bottom
+    band (the 5M wind row, no second deck row) still scrubs (deck-wide pointer capture)."""
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_timeout(300)
     # Pin the 24 h horizon so the far-left/right clamp drags are guaranteed to clamp.
@@ -529,7 +529,7 @@ def check_touch_ergonomics(page):
 
     m0 = metrics()
     n, horizon = m0["n"], m0["horizon"]
-    pxf = (190.0 if horizon == "7d" else max(550.0, round(m0["tlW"]))) / 96.0
+    pxf = (330.0 if horizon == "7d" else max(550.0, round(m0["tlW"]))) / 96.0
     ty = m0["tlY"] + 24  # inside #timeline, below the floating pill
     cx = m0["tlX"] + m0["tlW"] / 2
 
@@ -581,12 +581,15 @@ def check_touch_ergonomics(page):
     page.wait_for_timeout(150)
     e_ok = idx_before == idx_after
 
-    # (f) a drag starting in the non-interactive .deck-ramp row still scrubs (deck-wide capture).
+    # (f) a drag starting in the deck's bottom band (the new 5M wind row, no second row
+    # anymore) still scrubs (deck-wide capture).
     dcx = g["deck"]["x"] + g["deck"]["w"] / 2
     dcy = g["deck"]["y"] + g["deck"]["h"] - 6
     hit = page.evaluate(
         "(p) => { var e = document.elementFromPoint(p[0], p[1]);"
+        " var tl = document.getElementById('timeline');"
         " return { tag: e ? e.tagName : 'none', cls: e ? (e.className || '') : '',"
+        "   inTape: !!(e && tl && (e === tl || tl.contains(e))),"
         "   interactive: !!(e && e.closest && e.closest('button, [role=button], a, input')) }; }",
         [dcx, dcy])
     ramp_before = metrics()
@@ -599,7 +602,7 @@ def check_touch_ergonomics(page):
     page.mouse.up()
     page.wait_for_timeout(150)
     ramp_adv = ramp_during["idx"] - ramp_before["idx"]
-    f_ok = not hit["interactive"] and abs(ramp_adv - 120.0 / pxf) <= 1.0
+    f_ok = hit["inTape"] and not hit["interactive"] and abs(ramp_adv - 120.0 / pxf) <= 1.0
 
     # (g) play button still meets the 44px touch target.
     h_ok = g["play"]["w"] >= 44 and g["play"]["h"] >= 44
@@ -620,21 +623,404 @@ def check_touch_ergonomics(page):
              d_lo["idx"], d_lo["pillCx"], d_lo["tlCx"]))
     print("        play-click: before=%d after=%d unchanged=%s play=%dx%d"
           % (idx_before, idx_after, e_ok, round(g["play"]["w"]), round(g["play"]["h"])))
-    print("        deck-ramp drift: press=(%.1f,%.1f) target=%s.%s interactive=%s "
+    print("        deck-wind drift: press=(%.1f,%.1f) target=%s.%s in-tape=%s interactive=%s "
           "idx=%d->%d (+%.1f)"
-          % (dcx, dcy, hit["tag"], hit["cls"], hit["interactive"], ramp_before["idx"],
-             ramp_during["idx"], ramp_adv))
+          % (dcx, dcy, hit["tag"], hit["cls"], hit["inTape"], hit["interactive"],
+             ramp_before["idx"], ramp_during["idx"], ramp_adv))
     record("7b", "touch ergonomics", ok,
            "pxf=%.4f left-adv=%.1f right-rew=%.1f clamp=[%d/%d, %d/0] pill-fixed=%.2fpx "
-           "tape-dx=%.1f play-unchanged=%s play=%dx%d deck-press=%s.%s noninteractive=%s "
-           "ramp-adv=%.1f"
+           "tape-dx=%.1f play-unchanged=%s play=%dx%d deck-press=%s.%s in-tape=%s "
+           "noninteractive=%s strip-adv=%.1f"
            % (pxf, adv, rew, d_hi["idx"], n - 1, d_lo["idx"], pill_ok and b_ok,
               tape_moved, e_ok, round(g["play"]["w"]), round(g["play"]["h"]),
-              hit["tag"], hit["cls"], not hit["interactive"], ramp_adv))
+              hit["tag"], hit["cls"], hit["inTape"], not hit["interactive"], ramp_adv))
+
+
+def check_timeline_labels(page):
+    """5L: the 24 h block carries exactly ONE day header, pinned at the block's start at
+    idx 0 then clamped to the window's left edge (clear of #play) as the day scrolls; every
+    sub-tick stays fully inside its block, the last block carries a right-anchored midnight
+    '12', and 7 d keeps its 8 ticks per block with no duplicate '12' at a day join."""
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.wait_for_timeout(300)
+    if page.get_attribute("#h-24h", "aria-pressed") != "true":
+        page.click("#h-24h")
+        page.wait_for_function(
+            "() => document.getElementById('track').getAttribute('aria-valuemax') === '95'",
+            timeout=60000)
+        page.wait_for_timeout(300)
+
+    def goto(target):
+        page.focus("#track")
+        page.keyboard.press("Home")
+        page.wait_for_timeout(200)
+        if target >= 95:
+            page.keyboard.press("End")
+        else:
+            for _ in range(target // 4):
+                page.keyboard.press("PageUp")
+                page.wait_for_timeout(60)
+        page.wait_for_timeout(420)  # let the 320 ms tape glide settle
+
+    def metrics():
+        return page.evaluate(
+            """() => {
+                 var tl = document.getElementById('timeline').getBoundingClientRect();
+                 var blocks = Array.from(document.getElementById('track-days').children);
+                 function ticks(b) {
+                   var br = b.getBoundingClientRect();
+                   return Array.from(b.querySelectorAll('.day-sub')).map(function (s) {
+                     var r = s.getBoundingClientRect();
+                     return { text: s.textContent, edge: s.classList.contains('edge'),
+                              transform: getComputedStyle(s).transform,
+                              left: getComputedStyle(s).left,
+                              inside: r.left >= br.left - 1 && r.right <= br.right + 1 };
+                   });
+                 }
+                 var heads = [];
+                 blocks.forEach(function (b, bi) {
+                   var br = b.getBoundingClientRect();
+                   b.querySelectorAll('.day-head').forEach(function (h) {
+                     var r = h.getBoundingClientRect();
+                     heads.push({ text: h.textContent, block: bi,
+                                  left: r.left, right: r.right,
+                                  leftOffset: r.left - br.left,
+                                  inside: r.left >= br.left - 1 && r.right <= br.right + 1,
+                                  insideTimeline: r.left >= tl.left - 1 && r.right <= tl.right + 1 });
+                   });
+                 });
+                 return {
+                   heads: heads,
+                   headCount: heads.length,
+                   blockCount: blocks.length,
+                   tlLeft: tl.left,
+                   first: ticks(blocks[0]),
+                   last: ticks(blocks[blocks.length - 1]),
+                   max: parseInt(document.getElementById('track').getAttribute('aria-valuemax'), 10),
+                   now: parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10),
+                 };
+                 }""", [])
+
+    def wind_alignment():
+        """5M: per block, pair each 3-hourly tick with its wind label and measure the centre
+        delta; also flag the boundary tick (right-anchored, left:auto) and its wind count."""
+        return page.evaluate(
+            """() => {
+                 var blocks = Array.from(document.getElementById('track-days').children);
+                 function cx(el) { var r = el.getBoundingClientRect(); return r.x + r.width / 2; }
+                 return blocks.map(function (b) {
+                   var subs = Array.from(b.querySelectorAll('.day-sub'));
+                   var winds = Array.from(b.querySelectorAll('.day-wind'));
+                   var dots = subs.map(function (s) {
+                     return { text: s.textContent, cx: cx(s),
+                              boundary: s.style.right !== '' };
+                   });
+                   var deltas = [];
+                   for (var i = 0; i < winds.length; i++) {
+                     if (dots[i]) deltas.push({ h: dots[i].text,
+                       d: Math.abs(cx(winds[i]) - dots[i].cx) });
+                   }
+                   return {
+                     subCount: subs.length, windCount: winds.length,
+                     windTexts: winds.map(function (w) { return w.textContent; }),
+                     boundaryCount: dots.filter(function (d) { return d.boundary; }).length,
+                     deltas: deltas,
+                   };
+                 });
+               }""")
+
+    def summarize_winds(blocks):
+        counts = [b["windCount"] for b in blocks]
+        texts_ok = bool(blocks) and all(re.fullmatch(r"\d+", t)
+                                        for b in blocks for t in b["windTexts"])
+        deltas = [d["d"] for b in blocks for d in b["deltas"]]
+        paired = all(b["windCount"] == len(b["deltas"]) for b in blocks)
+        boundary = sum(b["boundaryCount"] for b in blocks)
+        return {"counts": counts, "texts_ok": texts_ok, "paired": paired,
+                "boundary": boundary, "worst": max(deltas) if deltas else 0.0,
+                "blocks": blocks}
+
+    def ink_gaps():
+        """5N: measure the actual text-run ink boxes with Range.getClientRects() — the fixed
+        1.5 em span boxes hide real ink collisions. For each block's tick row (.day-sub) and
+        wind row (.day-wind), sort the runs and report the minimum consecutive gap."""
+        return page.evaluate(
+            """() => {
+                 var blocks = Array.from(document.getElementById('track-days').children);
+                 function runs(el) {
+                   var r = document.createRange();
+                   r.selectNodeContents(el);
+                   return Array.from(r.getClientRects())
+                     .filter(function (b) { return b.width > 0; })
+                     .map(function (b) { return { l: b.left, r: b.right }; });
+                 }
+                 function rowGap(els) {
+                   var rects = [];
+                   els.forEach(function (e) { rects = rects.concat(runs(e)); });
+                   rects.sort(function (a, b) { return a.l - b.l; });
+                   var min = Infinity;
+                   for (var i = 1; i < rects.length; i++)
+                     min = Math.min(min, rects[i].l - rects[i - 1].r);
+                   return { min: min, n: rects.length };
+                 }
+                 return blocks.map(function (b) {
+                   return { ticks: rowGap(Array.from(b.querySelectorAll('.day-sub'))),
+                            winds: rowGap(Array.from(b.querySelectorAll('.day-wind'))) };
+                 });
+               }""")
+
+    def summarize_gaps(blocks):
+        vals = []
+        overlap = False
+        for b in blocks:
+            for row in (b["ticks"], b["winds"]):
+                if math.isfinite(row["min"]):
+                    vals.append(row["min"])
+                    if row["min"] < 0:
+                        overlap = True
+        return {"min": min(vals) if vals else float("inf"), "overlap": overlap, "n": len(vals)}
+
+    def heat_rows():
+        """5P: per 7d block — the .day-heat ribbon geometry/colour, the embedded .day-wind
+        containment + shadow, and the row fonts."""
+        return page.evaluate(
+            """() => {
+                 var blocks = Array.from(document.getElementById('track-days').children);
+                 var tiers = ['rgb(8, 145, 178)','rgb(16, 185, 129)','rgb(245, 158, 11)',
+                              'rgb(249, 115, 22)','rgb(239, 68, 68)'];
+                 function tierSet(g) {
+                   var m = g.match(/rgb\\(\\s*\\d+,\\s*\\d+,\\s*\\d+\\s*\\)/g) || [];
+                   var seen = [];
+                   m.forEach(function (c) {
+                     var norm = c.replace(/\\s+/g, ' ');
+                     if (tiers.indexOf(norm) >= 0 && seen.indexOf(norm) < 0) seen.push(norm);
+                   });
+                   return seen;
+                 }
+                 return blocks.map(function (b) {
+                   var br = b.getBoundingClientRect();
+                   var hs = Array.from(b.querySelectorAll('.day-heat'));
+                   var h = hs[0];
+                   var hr = h ? h.getBoundingClientRect() : null;
+                   var cs = h ? getComputedStyle(h) : null;
+                   var winds = Array.from(b.querySelectorAll('.day-wind'));
+                   var inside = hr ? winds.every(function (w) {
+                     var wr = w.getBoundingClientRect();
+                     return wr.top >= hr.top - 1 && wr.bottom <= hr.bottom + 1;
+                   }) : false;
+                   var head = b.querySelector('.day-head');
+                   var sub = b.querySelector('.day-sub:not(.edge)');
+                   var wind = winds[0];
+                   var grad = cs ? cs.backgroundImage : '';
+                   return {
+                     n: hs.length,
+                     hh: hr ? hr.height : 0,
+                     hw: hr ? hr.width : 0,
+                     bw: br.width,
+                     radius: cs ? parseFloat(cs.borderTopLeftRadius) : 0,
+                     tiers: tierSet(grad),
+                     stops: (grad.match(/rgb\\(/g) || []).length,
+                     headSize: head ? parseFloat(getComputedStyle(head).fontSize) : 0,
+                     headWeight: head ? getComputedStyle(head).fontWeight : '',
+                     subSize: sub ? parseFloat(getComputedStyle(sub).fontSize) : 0,
+                     subColor: sub ? getComputedStyle(sub).color : '',
+                     windSize: wind ? parseFloat(getComputedStyle(wind).fontSize) : 0,
+                     windWeight: wind ? getComputedStyle(wind).fontWeight : '',
+                     windColor: wind ? getComputedStyle(wind).color : '',
+                     shadow: wind ? getComputedStyle(wind).textShadow : '',
+                     inside: inside,
+                     hx: hr ? hr.x : 0,
+                     bx: br.x,
+                   };
+                 });
+               }""")
+
+    heads = {}
+    head_x = {}
+    indices_ok = True
+    head_count_ok = True
+    sticky_window_ok = True
+    sticky_block_ok = True
+    ms = {}
+    for idx in (0, 24, 48, 72, 95):
+        goto(idx)
+        m = metrics()
+        ms[idx] = m
+        if m["now"] != idx:
+            indices_ok = False
+        if m["headCount"] != 1:
+            head_count_ok = False
+        heads[idx] = m["headCount"]
+        h = m["heads"][0] if m["headCount"] else None
+        head_x[idx] = h["left"] if h else float("nan")
+        # Sticky header stays inside the window and clear of the 48 px #play button.
+        if not h or not h["insideTimeline"] or h["left"] < m["tlLeft"] + 52:
+            sticky_window_ok = False
+        # It must never leave its own day block.
+        if not h or not h["inside"]:
+            sticky_block_ok = False
+
+    m0, m24 = ms[0], ms[95]
+    # Exactly one header, pinned within 12 px of its block's left edge at the day start.
+    one_head = len(m0["heads"]) == 1 and len(m24["heads"]) == 1
+    head = m0["heads"][0] if m0["heads"] else {}
+    head_pinned = one_head and abs(head.get("leftOffset", 1e9)) <= 12 and \
+        head.get("inside") and bool(head.get("text", "").strip())
+    # No two heads share the same text within a block.
+    no_repeat = True
+    by_block = {}
+    for h in m24["heads"]:
+        by_block.setdefault(h["block"], []).append(h["text"])
+    for texts in by_block.values():
+        if len(set(texts)) != len(texts):
+            no_repeat = False
+    # Sticky clamp engages: the header moves > 50 px between idx 0 and the day's end.
+    sticky_shift = abs(head_x[95] - head_x[0])
+    sticky_engages = sticky_shift > 50
+
+    first, last = m24["first"], m24["last"]
+    left_edge_ok = any(t["text"] == "12" and t["edge"] and t["transform"] in ("none", "") and
+                       abs(float(t["left"].replace("px", "")) - 3) <= 1 for t in first)
+    boundary_ok = any(t["text"] == "12" and t["edge"] and t["transform"] in ("none", "")
+                      for t in last)
+    ticks_ok = len(last) == 9
+    labels_ok = sorted(t["text"] for t in first if t["text"] != "12") == \
+        ["03", "03", "06", "06", "09", "09"]
+    inside_ok = all(t["inside"] for t in first) and all(t["inside"] for t in last)
+
+    # 5M: wind row at 24 h — one block, 8 three-hourly labels, no boundary sibling.
+    w24 = summarize_winds(wind_alignment())
+    eight24_ok = len(w24["counts"]) >= 1 and all(c == 8 for c in w24["counts"])
+    boundary_no_wind = w24["boundary"] == 1
+    wind24_ok = (eight24_ok and w24["texts_ok"] and w24["paired"] and
+                 w24["worst"] <= 1.5 and boundary_no_wind)
+    g24 = summarize_gaps(ink_gaps())
+
+    # 7 day: 8 ticks per block and no two '12's within 20 px at a day join.
+    page.click("#h-7d")
+    page.wait_for_function(
+        "() => document.getElementById('track').getAttribute('aria-valuemax') === '671'",
+        timeout=60000)
+    page.wait_for_timeout(600)
+    seven = page.evaluate(
+        """() => {
+             var blocks = Array.from(document.getElementById('track-days').children);
+             var counts = blocks.map(function (b) { return b.querySelectorAll('.day-sub').length; });
+             var twelves = [];
+             blocks.forEach(function (b) {
+               b.querySelectorAll('.day-sub').forEach(function (s) {
+                 if (s.textContent === '12') {
+                   var r = s.getBoundingClientRect();
+                   twelves.push(r.x + r.width / 2);
+                 }
+               });
+             });
+             twelves.sort(function (a, b) { return a - b; });
+             var minGap = Infinity;
+             for (var i = 1; i < twelves.length; i++)
+               minGap = Math.min(minGap, twelves[i] - twelves[i - 1]);
+             return { counts: counts, minGap: minGap, twelves: twelves.length };
+           }""")
+    seven_ok = seven["counts"] == [8, 8, 8, 8, 8, 8, 8] and seven["minGap"] >= 20
+    # 5M: wind row at 7 d — 7 blocks, 8 labels each, all aligned, no boundary tick.
+    w7 = summarize_winds(wind_alignment())
+    wind7_ok = (w7["counts"] == [8, 8, 8, 8, 8, 8, 8] and w7["texts_ok"] and
+                w7["paired"] and w7["worst"] <= 1.5 and w7["boundary"] == 0)
+    g7 = summarize_gaps(ink_gaps())
+    # 5P: per-day heat ribbon (20 px, tier colours) with the wind numbers embedded inside
+    # it, row typography, and the ribbon moving in lockstep with its parent block.
+    heats = heat_rows()
+    heat_count_ok = all(b["n"] == 1 for b in heats)
+    heat_size_ok = all(abs(b["hh"] - 20) <= 1 and
+                       abs(b["hw"] - (b["bw"] - 6)) <= 1 and b["radius"] >= 2 for b in heats)
+    heat_inside_ok = all(b["inside"] for b in heats)
+    # One stop per hourly sample in every block, and >= 2 distinct tier colours across the
+    # 7d horizon (a uniformly calm day is legitimately one colour, so a per-block >= 2 would
+    # fail on real calm stretches; see the 5p evidence line for per-block tier sets).
+    heat_stops_ok = all(b["stops"] == 24 for b in heats)
+    all_tiers = set()
+    for b in heats:
+        all_tiers.update(b["tiers"])
+    heat_color_ok = heat_stops_ok and len(all_tiers) >= 2
+    shadow_ok = all(b["shadow"] and b["shadow"] != "none" for b in heats)
+    fonts_ok = all(b["headSize"] == 12 and b["headWeight"] == "600" and
+                   b["subSize"] == 11 and b["subColor"] == "rgb(148, 163, 184)" and
+                   b["windSize"] == 12 and b["windWeight"] == "700" and
+                   b["windColor"] == "rgb(255, 255, 255)" for b in heats)
+    page.focus("#track")
+    page.keyboard.press("Home")
+    page.wait_for_timeout(420)
+    before_x = heat_rows()
+    page.keyboard.press("ArrowRight")
+    page.wait_for_timeout(420)
+    after_x = heat_rows()
+    moved = any(abs(after_x[i]["hx"] - before_x[i]["hx"]) > 1 for i in range(len(before_x)))
+    scroll_ok = (len(before_x) == len(after_x) == len(heats) and moved and
+                 all(abs((after_x[i]["hx"] - before_x[i]["hx"]) -
+                         (after_x[i]["bx"] - before_x[i]["bx"])) <= 1
+                     for i in range(len(before_x))))
+    heat_ok = (heat_count_ok and heat_size_ok and heat_inside_ok and heat_color_ok and
+               shadow_ok and fonts_ok and scroll_ok)
+
+    # 5N: no two consecutive text runs in either row may overlap, and the minimum gap at
+    # both horizons must be >= 6 px (ink boxes, not the fixed 1.5 em span boxes).
+    ink_ok = (g24["min"] >= 6.0 and g7["min"] >= 6.0 and
+              not g24["overlap"] and not g7["overlap"])
+
+    page.click("#h-24h")
+    page.wait_for_function(
+        "() => document.getElementById('track').getAttribute('aria-valuemax') === '95'",
+        timeout=60000)
+    page.wait_for_timeout(300)
+
+    ok = (indices_ok and head_count_ok and one_head and head_pinned and no_repeat and
+          sticky_window_ok and sticky_block_ok and sticky_engages and
+          left_edge_ok and boundary_ok and ticks_ok and labels_ok and inside_ok and seven_ok and
+          wind24_ok and wind7_ok and ink_ok and heat_ok)
+    print("        heads/idx=%s headCount=%d pinned-offset=%.1f text='%s' "
+          "sticky x0=%.0f x95=%.0f shift=%.0f window-ok=%s block-ok=%s sub-ticks/24h=%d "
+          "(last block) left-edge=%s boundary=%s inside=%s labels=%s"
+          % (heads, m24["headCount"], head.get("leftOffset", float("nan")), head.get("text", ""),
+             head_x[0], head_x[95], sticky_shift, sticky_window_ok, sticky_block_ok,
+             len(last), left_edge_ok, boundary_ok, inside_ok, labels_ok))
+    print("        5M wind 24h: counts=%s worst-delta=%.2fpx nums=%s boundary-no-wind=%s list=%s"
+          % (w24["counts"], w24["worst"], w24["texts_ok"], boundary_no_wind,
+             w24["blocks"][0]["windTexts"] if w24["blocks"] else []))
+    print("        5M wind 7d:  counts=%s worst-delta=%.2fpx nums=%s list(block0)=%s"
+          % (w7["counts"], w7["worst"], w7["texts_ok"],
+             w7["blocks"][0]["windTexts"] if w7["blocks"] else []))
+    print("        5n gaps 24h=%.1fpx 7d=%.1fpx" % (g24["min"], g7["min"]))
+    print("        5p ribbon: count=%s h=%s stops=%s colours=%s inside=%s shadow=%s fonts=%s "
+          "scroll=%s | ink-gap 24h=%.1fpx 7d=%.1fpx"
+          % (heat_count_ok, heat_size_ok, heat_stops_ok, heat_color_ok, heat_inside_ok,
+             shadow_ok, fonts_ok, scroll_ok, g24["min"], g7["min"]))
+    print("        5p tiers/block: %s (union=%d>=2)"
+          % ([b["tiers"] for b in heats], len(all_tiers)))
+    record(18, "timeline labels (5L)", ok,
+           "indices=%s heads=%s one-head=%s pinned=%s no-repeat=%s sticky-window=%s "
+           "sticky-block=%s head-x0=%.0f head-x95=%.0f shift=%.0f>50=%s "
+           "left-edge-12=%s last-boundary-12=%s ticks=9=%s labels-3h=%s all-inside=%s | "
+           "7d counts=%s min-12-gap=%.1f>=20=%s | 5m wind 24h counts=%s worst=%.2fpx nums=%s "
+           "boundary-no-wind=%s list=%s | 7d counts=%s worst=%.2fpx nums=%s list0=%s | "
+           "5n gaps 24h=%.1f>=6=%s 7d=%.1f>=6=%s overlap=%s/%s | "
+           "5p ribbon heat-count=%s h=%s inside=%s shadow=%s colours=%s fonts=%s scroll=%s"
+           % (indices_ok, heads, one_head, head_pinned, no_repeat, sticky_window_ok,
+              sticky_block_ok, head_x[0], head_x[95], sticky_shift, sticky_engages,
+              left_edge_ok, boundary_ok, ticks_ok, labels_ok, inside_ok, seven["counts"],
+              seven["minGap"] if math.isfinite(seven["minGap"]) else -1.0, seven_ok,
+              w24["counts"], w24["worst"], w24["texts_ok"], boundary_no_wind,
+              w24["blocks"][0]["windTexts"] if w24["blocks"] else [],
+              w7["counts"], w7["worst"], w7["texts_ok"],
+              w7["blocks"][0]["windTexts"] if w7["blocks"] else [],
+              g24["min"], g24["min"] >= 6.0, g7["min"], g7["min"] >= 6.0,
+              g24["overlap"], g7["overlap"],
+              heat_count_ok, heat_size_ok, heat_inside_ok, shadow_ok, heat_color_ok, fonts_ok,
+              scroll_ok))
 
 
 def check_deck_geometry(page):
-    """5F: two-row deck, timeline geometry, permanent amber pill, embedded play, flush ribbon."""
+    """5F/5L/5M: single full-height tape, timeline geometry, permanent amber pill, embedded
+    play, wind strip gone."""
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_timeout(400)
     v = page.evaluate(
@@ -644,13 +1030,16 @@ def check_deck_geometry(page):
              var timelineEl = document.getElementById('timeline');
              var timeline = timelineEl.getBoundingClientRect();
              var play = document.getElementById('play').getBoundingClientRect();
-             var ramp = document.querySelector('.deck-ramp').getBoundingClientRect();
+             var strip = document.getElementById('wind-strip');
              var pill = document.getElementById('time-pill');
              var pr = pill.getBoundingClientRect();
              var days = document.getElementById('track-days');
              var blocks = Array.from(days.children);
              return {
                deckH: deck.height,
+               stripAbsent: !strip,
+               trackH: track.height,
+               timelineH: timeline.height,
                absent: {
                  main: !document.querySelector('.deck-main'),
                  playhead: !document.getElementById('playhead'),
@@ -666,7 +1055,6 @@ def check_deck_geometry(page):
                track: {x: track.x, y: track.y, r: track.x + track.width, b: track.y + track.height},
                timeline: {x: timeline.x, y: timeline.y, r: timeline.x + timeline.width,
                           b: timeline.y + timeline.height},
-               rampBottom: ramp.bottom, deckBottom: deck.bottom,
                blockCount: blocks.length,
                blockBg: blocks.map(function (b) { return getComputedStyle(b).backgroundColor; }),
              };
@@ -683,24 +1071,26 @@ def check_deck_geometry(page):
     pill_centred = abs(pill_cx - tl_cx) <= 1  # 5G: pill is anchored to the window centre
     bgs = v["blockBg"]
     adjacent_ok = all(bgs[i] != bgs[i + 1] for i in range(len(bgs) - 1))
-    ok = (v["deckH"] <= 72 and all(v["absent"].values()) and v["pillVisible"] and
-          not v["pillHidden"] and bool(v["pillText"].strip()) and pill_centred and
-          play_inside and timeline_inside and v["blockCount"] >= 1 and adjacent_ok and
-          abs(v["rampBottom"] - v["deckBottom"]) <= 2)
-    print("        5F rects: deck h=%.1f play=[%.1f,%.1f]x%.1fx%.1f "
-          "timeline=[%.1f,%.1f]-[%.1f,%.1f] pill=[%.1f,%.1f] %.1fx%.1f text='%s' "
-          "pill-cx=%.1f timeline-cx=%.1f blocks=%d bg=%s ramp-deck delta=%.1f"
-          % (v["deckH"], p["x"], p["y"], p["w"], p["h"], tl["x"], tl["y"], tl["r"], tl["b"],
+    # 5P: the wind strip stays gone and the 3-tier deck is 62 px: #track/#timeline are 62 px.
+    tape_62 = abs(v["trackH"] - 62) <= 1 and abs(v["timelineH"] - 62) <= 1
+    ok = (v["deckH"] <= 72 and v["stripAbsent"] and tape_62 and all(v["absent"].values()) and
+          v["pillVisible"] and not v["pillHidden"] and bool(v["pillText"].strip()) and
+          pill_centred and play_inside and timeline_inside and v["blockCount"] >= 1 and adjacent_ok)
+    print("        5F/5P rects: deck h=%.1f wind-strip-absent=%s track h=%.1f timeline h=%.1f "
+          "play=[%.1f,%.1f]x%.1fx%.1f timeline=[%.1f,%.1f]-[%.1f,%.1f] pill=[%.1f,%.1f] %.1fx%.1f "
+          "text='%s' pill-cx=%.1f timeline-cx=%.1f blocks=%d bg=%s"
+          % (v["deckH"], v["stripAbsent"], v["trackH"], v["timelineH"],
+             p["x"], p["y"], p["w"], p["h"], tl["x"], tl["y"], tl["r"], tl["b"],
              v["pillRect"]["x"], v["pillRect"]["y"], v["pillRect"]["w"], v["pillRect"]["h"],
-             v["pillText"], pill_cx, tl_cx, v["blockCount"], bgs,
-             v["rampBottom"] - v["deckBottom"]))
+             v["pillText"], pill_cx, tl_cx, v["blockCount"], bgs))
     record(15, "deck geometry (5F)", ok,
-           "deckH=%.1f absent=%s pill-visible=%s pill-hidden=%s pill='%s' pill-centred=%s "
-           "(cx=%.1f timeline-cx=%.1f) play-inside=%s timeline-fills=%s blocks=%d "
-           "adjacent-differ=%s ramp-bottom=%.1f deck-bottom=%.1f"
-           % (v["deckH"], v["absent"], v["pillVisible"], v["pillHidden"], v["pillText"],
+           "deckH=%.1f absent=%s strip-absent=%s trackH=%.1f timelineH=%.1f pill-visible=%s "
+           "pill-hidden=%s pill='%s' pill-centred=%s (cx=%.1f timeline-cx=%.1f) play-inside=%s "
+           "timeline-fills=%s blocks=%d adjacent-differ=%s"
+           % (v["deckH"], v["absent"], v["stripAbsent"], v["trackH"], v["timelineH"],
+              v["pillVisible"], v["pillHidden"], v["pillText"],
               pill_centred, pill_cx, tl_cx, play_inside, timeline_inside, v["blockCount"],
-              adjacent_ok, v["rampBottom"], v["deckBottom"]))
+              adjacent_ok))
 
 
 def check_tape_architecture(page):
@@ -744,7 +1134,7 @@ def check_tape_architecture(page):
                }""")
 
     def pxf_for(m):
-        return (190.0 if m["horizon"] == "7d" else max(550.0, round(m["tlW"]))) / 96.0
+        return (330.0 if m["horizon"] == "7d" else max(550.0, round(m["tlW"]))) / 96.0
 
     def centred(m):
         return abs(m["pillCx"] - m["tlCx"]) <= 1.0
@@ -790,27 +1180,32 @@ def check_tape_architecture(page):
     m7 = metrics()
     ok_centre7 = centred(m7)
     ok_frame7 = frame_under_reticle(m7)
-    ok_tape7 = 1100 <= m7["tapeW"] <= 1400
+    ok_tape7 = 2280 <= m7["tapeW"] <= 2340
     bgs = m7["blockBg"]
     ok_alt = len(bgs) >= 2 and all(bgs[i] != bgs[i + 1] for i in range(len(bgs) - 1))
+    # 5O: the two tones are pinned exactly (#23272e vs #1b1d22) and must alternate.
+    tone_set = set(bgs)
+    tones_ok = tone_set == {"rgb(35, 39, 46)", "rgb(27, 29, 34)"} and ok_alt
     ok_blocks7 = m7["blockCount"] == 7 and all(c == 8 for c in m7["subCounts"])
     print("        7d:  tapeW=%.1f (window %.1f, pxf=%.4f) pill-cx=%.1f tl-cx=%.1f "
           "frame-cx=%.1f cur=%d blocks=%d subs=%s transform=%s"
           % (m7["tapeW"], m7["tlW"], pxf_for(m7), m7["pillCx"], m7["tlCx"],
              m7["tapeX"] + m7["cur"] * pxf_for(m7), m7["cur"], m7["blockCount"],
              m7["subCounts"], m7["transform"]))
+    print("        5o tones: set=%s alternating=%s" % (sorted(tone_set), ok_alt))
 
     ok = (ok_parent and ok_play and ok_centre24 and ok_frame24 and ok_tape24 and
           ok_blocks24 and ok_scrub and ok_centre7 and ok_frame7 and ok_tape7 and
-          ok_alt and ok_blocks7)
+          ok_alt and ok_blocks7 and tones_ok)
     record(16, "tape architecture (5G)", ok,
            "tape-in-timeline=%s now-in-tape=%s play-left=%.1f z=%s | "
            "24h tape=%.1f/window=%.1f runway=%.1f centred=%s frame-under=%s | "
-           "7d tape=%.1f blocks=%d subs=%s alt=%s centred=%s frame-under=%s"
+           "7d tape=%.1f blocks=%d subs=%s alt=%s tones=%s tones-ok=%s centred=%s frame-under=%s"
            % (m24["tapeInTimeline"], m24["nowInTape"], m24["playX"] - m24["trackX"],
               m24["playZ"], m24["tapeW"], m24["tlW"], m24["tapeW"] - m24["tlW"],
               ok_centre24, ok_frame24,
-              m7["tapeW"], m7["blockCount"], m7["subCounts"], ok_alt, ok_centre7, ok_frame7))
+              m7["tapeW"], m7["blockCount"], m7["subCounts"], ok_alt, sorted(tone_set),
+              tones_ok, ok_centre7, ok_frame7))
 
     # restore 24 h for the checks that follow.
     page.click("#h-24h")
@@ -909,7 +1304,7 @@ def check_scrub_decoupling(page):
         "() => { var r = document.getElementById('timeline').getBoundingClientRect();"
         " return { cx: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width }; }")
     n = int(page.get_attribute("#track", "aria-valuemax")) + 1
-    pxf = (190.0 if n == 672 else max(550.0, round(tl["w"]))) / 96.0
+    pxf = (330.0 if n == 672 else max(550.0, round(tl["w"]))) / 96.0
     start_idx = int(page.get_attribute("#track", "aria-valuenow"))
 
     cx, ty = tl["cx"], tl["y"]
@@ -1245,6 +1640,7 @@ def main():
             safe("7a", "ramp location", check_ramp_location, page)
             safe(7, "touch", check_card_and_touch, page, warp)
             safe("7b", "touch ergonomics", check_touch_ergonomics, page)
+            safe(18, "timeline labels (5L)", check_timeline_labels, page)
             safe(9, "playback perf", check_playback, page, warp)
             now_ups = safe(10, "radar smoothing", check_smoothing, page, meta, warp)
             if now_ups:

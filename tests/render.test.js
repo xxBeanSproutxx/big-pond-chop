@@ -7,12 +7,13 @@ const path = require('path');
 const { decodeTables, BATHY_ROWS, BATHY_COLS } = require('../src/tables');
 const { waveCore, blendFetch, FT } = require('../src/wave-math');
 const {
-  gridToLonlat, lonlatToGrid, gatherRaster, hmaxFt, computeFrame,
+  gridToLonlat, lonlatToGrid, gatherRaster, hmaxFt, computeFrame, paintRaster,
   TILE_URL, TILE_ATTRIBUTION, TILE_MAX_ZOOM, OVERLAY_OPACITY, PLAY_INTERVAL_MS,
   FRAME_MINUTES, targetWidth, landMaskRaster, smoothRaster,
   cacheKey, frameBytes, createFrameCache,
   playWidth, PLAY_MAX_WIDTH, revokeUrl, shouldPaintResult, shouldPaintMap, offscreenSupported,
   pxPerDay, pxPerFrame, tapeTranslate, idxFromDrag, dayPartitions, playStep, nextPlayIdx,
+  tickWinds,
 } = require('../src/render');
 const ui = require('../src/ui');
 
@@ -110,18 +111,18 @@ check('basemap is muted + keyless (no watermarked provider)', () => {
   const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
   assert.ok(/\.leaflet-tile-pane\s*\{[^}]*filter:[^}]*grayscale/.test(html), 'tile pane must be desaturated');
   assert.strictEqual(TILE_MAX_ZOOM, 19);
-  assert.strictEqual(OVERLAY_OPACITY, 0.72);
+  assert.strictEqual(OVERLAY_OPACITY, 0.68);
   assert.strictEqual(PLAY_INTERVAL_MS, 333);
   console.log(`       ${TILE_URL} @ opacity ${OVERLAY_OPACITY}`);
 });
-check('stage-5b deck markup holds the frozen ids, drops the legend', () => {
+check('stage-5m deck markup: single full-height tape, no wind strip', () => {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   assert.ok(/<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">/.test(html),
     'viewport meta must drop maximum-scale/user-scalable and add viewport-fit=cover');
   const footer = /<footer id="deck">([\s\S]*?)<\/footer>/.exec(html);
   assert.ok(footer, 'missing <footer id="deck">');
   const ids = ['play', 'track', 'timeline', 'track-tape', 'track-days', 'track-ticks',
-    'track-label', 'now-tick', 'time-pill', 'h-24h', 'h-7d', 'ramp-bar', 'ramp-ticks'];
+    'track-label', 'now-tick', 'time-pill', 'h-24h', 'h-7d'];
   for (const id of ids) assert.ok(html.includes(`id="${id}"`), `page missing #${id}`);
   const removed = ['playhead', 'track-rail', 'track-progress', 'deck-day', 'hour-label',
     'play-label', 'deck-main'];
@@ -129,10 +130,19 @@ check('stage-5b deck markup holds the frozen ids, drops the legend', () => {
   assert.ok(!footer[1].includes('id="scrub"'), '#scrub shim must be gone (5D)');
   assert.ok(!footer[1].includes('id="legend"'), '#legend must be gone from the deck');
   assert.ok(!footer[1].includes('id="readout"'), '#readout must be out of the deck');
-  const ticks = footer[1].match(/id="ramp-ticks">([\s\S]*?)<\/div>/);
+  assert.ok(!footer[1].includes('id="wind-strip"'), 'the wind strip must be gone (5M)');
+  assert.ok(!/\.deck-wind\b/.test(html), '.deck-wind CSS must be gone (5M)');
+  assert.ok(!footer[1].includes('ramp-bar') && !footer[1].includes('ramp-ticks'),
+    'the ramp row must be out of the deck (5L)');
+  const map = /<div id="map">([\s\S]*?)<footer id="deck">/.exec(html);
+  assert.ok(map, 'missing <div id="map">');
+  for (const id of ['legend-card', 'legend-card-bar', 'legend-card-ticks']) {
+    assert.ok(map[1].includes(`id="${id}"`), `#${id} must be inside #map (5L)`);
+  }
+  const ticks = html.match(/id="legend-card-ticks">([\s\S]*?)<\/div>/);
   assert.ok(ticks && ['0', '1', '2', '3.5', '4.5', '6+'].every((s) => ticks[1].includes(`<span>${s}</span>`)),
-    'ramp ticks must list the six Hs stops');
-  console.log('       deck ids present, #scrub shim gone, legend/readout out of deck');
+    'legend ticks must list the six Hs stops');
+  console.log('       single-row tape, wind strip gone, ramp in the map legend card');
 });
 check('frame carries a water-only p10 at or below the lake max', () => {
   const entry = { speedMph: 30, dirTrueDeg: 315, tEffH: 8 };
@@ -266,8 +276,8 @@ check('stale async result cached but not painted (decision helper)', () => {
 });
 
 console.log('\n== [9] stage-5g: tape geometry ==');
-check('pxPerDay is 190 in 7d and max(550, window) in 24h', () => {
-  assert.strictEqual(pxPerDay('7d', 374), 190);
+check('pxPerDay is 330 in 7d and max(550, window) in 24h', () => {
+  assert.strictEqual(pxPerDay('7d', 374), 330);
   assert.strictEqual(pxPerDay('24h', 374), 550);
   assert.strictEqual(pxPerDay('24h', 120), 550, 'a single day keeps the 550 px/day phone floor');
   console.log(`       7d->${pxPerDay('7d', 374)} 24h(374)->${pxPerDay('24h', 374)} ` +
@@ -276,11 +286,11 @@ check('pxPerDay is 190 in 7d and max(550, window) in 24h', () => {
 check('24h runway is >= 150 px at a 374 px window; 7d unchanged', () => {
   assert.ok(pxPerDay('24h', 374) - 374 >= 150,
     `24h runway ${pxPerDay('24h', 374) - 374} px`);
-  assert.strictEqual(pxPerDay('7d', 374), 190);
+  assert.strictEqual(pxPerDay('7d', 374), 330);
   console.log(`       24h runway ${pxPerDay('24h', 374) - 374} px (tape ${pxPerDay('24h', 374)} - window 374)`);
 });
 check('pxPerFrame is pxPerDay / 96', () => {
-  assert.strictEqual(pxPerFrame('7d', 374), 190 / 96);
+  assert.strictEqual(pxPerFrame('7d', 374), 330 / 96);
   assert.strictEqual(pxPerFrame('24h', 374), 550 / 96);
   console.log(`       7d->${pxPerFrame('7d', 374).toFixed(4)} 24h->${pxPerFrame('24h', 374).toFixed(4)}`);
 });
@@ -294,7 +304,7 @@ check('tapeTranslate keeps the active frame under the reticle centre', () => {
     `idx 671 -> ${tapeTranslate(671, pxf, center).toFixed(1)}`);
 });
 check('idxFromDrag: dragging left advances, right rewinds, clamped at both ends', () => {
-  const pxf = 190 / 96, n = 672, start = 200;
+  const pxf = 330 / 96, n = 672, start = 200;
   for (const k of [1, 5, 37, 120]) {
     assert.strictEqual(idxFromDrag(-pxf * k, start, pxf, n), start + k, `advance ${k}`);
   }
@@ -369,6 +379,57 @@ check('shouldPaintMap: gate closed -> false; open+idle -> true; open+busy -> fal
   assert.strictEqual(shouldPaintMap(1000, 0, true, MIN), false, 'busy wins even when open');
   assert.strictEqual(shouldPaintMap(1000, 1000 - MIN, true, MIN), false, 'busy at the boundary');
   console.log('       closed/busy suppress; open+idle paints');
+});
+
+console.log('\n== [12] stage-5l: calm-water paint ==');
+check('paintRaster: calm water -> CALM_RGBA opaque (alpha 255), land -> transparent', () => {
+  const W = 2, H = 1;
+  const raster = new Float32Array([0, 0]);        // both non-positive
+  const landFrac = new Float32Array([0, 1]);       // col 0 water (calm), col 1 land
+  const img = { width: W, height: H, data: new Uint8ClampedArray(W * H * 4) };
+  const ctx = { createImageData: () => img, putImageData: () => {} };
+  paintRaster(ctx, raster, W, H, landFrac);
+  assert.deepStrictEqual(Array.from(img.data.slice(0, 4)), [8, 145, 178, 255], 'calm water');
+  assert.deepStrictEqual(Array.from(img.data.slice(4, 8)), [0, 0, 0, 0], 'land');
+});
+check('paintRaster: positive Hs still uses the colour ramp (opaque), no landFrac needed', () => {
+  const img = { width: 1, height: 1, data: new Uint8ClampedArray(4) };
+  const ctx = { createImageData: () => img, putImageData: () => {} };
+  paintRaster(ctx, new Float32Array([1]), 1, 1, new Float32Array([0]));
+  assert.strictEqual(img.data[3], 255);
+  assert.deepStrictEqual(Array.from(img.data.slice(0, 3)), [6, 182, 212]);
+});
+
+console.log('\n== [13] stage-5m: tickWinds ==');
+check('full day -> 8 entries, ordered by hour, integer mph', () => {
+  const mk = (i) => ({
+    time: `2026-09-11T${String(Math.floor(i / 4)).padStart(2, '0')}:${String((i % 4) * 15).padStart(2, '0')}`,
+    speedMph: i,
+  });
+  const day = Array.from({ length: 96 }, (_, i) => mk(i));
+  const w = tickWinds(day, 0, day.length);
+  assert.deepStrictEqual(w.map((x) => x.h), [0, 3, 6, 9, 12, 15, 18, 21]);
+  assert.deepStrictEqual(w.map((x) => x.mph), [0, 12, 24, 36, 48, 60, 72, 84]);
+  assert.ok(w.every((x) => Number.isInteger(x.mph)), 'all mph are integers');
+  console.log(`       ${w.map((x) => `${x.h}h=${x.mph}`).join(' ')}`);
+});
+check('rounds to the nearest mph', () => {
+  const mk = (h, s) => ({ time: `2026-09-11T${String(h).padStart(2, '0')}:00`, speedMph: s });
+  const day = [mk(0, 5.4), mk(1, 5.5), mk(3, 2.4), mk(6, 7.6)];
+  assert.deepStrictEqual(tickWinds(day, 0, day.length),
+    [{ h: 0, mph: 5 }, { h: 3, mph: 2 }, { h: 6, mph: 8 }]);
+});
+check('missing frame or non-finite speed is skipped (no label)', () => {
+  const mk = (h, s) => ({ time: `2026-09-11T${String(h).padStart(2, '0')}:00`, speedMph: s });
+  const day = [mk(0, 10), mk(3, NaN), mk(6, 20)]; // 09/12/... absent, 03 non-finite
+  assert.deepStrictEqual(tickWinds(day, 0, day.length), [{ h: 0, mph: 10 }, { h: 6, mph: 20 }]);
+});
+check('respects [start, end) so a block never sees a neighbouring day', () => {
+  const mk = (d, h, s) => ({ time: `2026-09-${d}T${String(h).padStart(2, '0')}:00`, speedMph: s });
+  const entries = [mk('11', 0, 10), mk('11', 3, 11), mk('12', 0, 90)];
+  assert.deepStrictEqual(tickWinds(entries, 0, 2).map((x) => [x.h, x.mph]), [[0, 10], [3, 11]]);
+  assert.deepStrictEqual(tickWinds(entries, 2, 3).map((x) => [x.h, x.mph]), [[0, 90]]);
+  assert.deepStrictEqual(tickWinds([], 0, 0), []);
 });
 
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);

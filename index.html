@@ -79,8 +79,8 @@
   #boot.indeterminate #boot-bar { width: 40%; animation: boot-slide 1.1s ease-in-out infinite; }
   @keyframes boot-slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
   body.reduced-motion #boot.indeterminate #boot-bar { animation: none; width: 100%; opacity: .55; }
-  /* Stage 5F: two-row deck — timeline track (48 px) + ribbon (~20 px). */
-  :root { --deck-h: 68px; }
+  /* Stage 5M: single full-height scrolling tape — day header + hour ticks + wind row. */
+  :root { --deck-h: 62px; }
   body { height: 100vh; height: 100dvh; }
   #deck {
     flex: 0 0 auto;
@@ -95,8 +95,7 @@
   }
   .deck-row  { overflow: hidden; }
   .deck-track{ overflow: visible; position: relative; } /* pill floats above; play overlays */
-  .deck-track{ height: 48px; display: flex; align-items: stretch; }
-  .deck-ramp { height: 20px; display: flex; flex-direction: column; gap: 1px; }
+  .deck-track{ height: 62px; display: flex; align-items: stretch; }
   /* Horizon micro-pill: lives in the map corner, clear of the zoom control + wind badge. */
   #horizon { position: absolute; top: 12px; left: 56px; z-index: 1000; display: flex; gap: 4px; }
   #horizon button { height: 28px; min-height: 28px; padding: 0 9px; background: rgba(16,38,58,.85);
@@ -104,7 +103,7 @@
                     font: 11px/1 system-ui, sans-serif; touch-action: manipulation; }
   #horizon button[aria-pressed="true"] { background: #ffd166; color: #10263a; border-color: #ffd166; }
   /* #timeline is the viewing window: the tape scrolls under a fixed centre reticle. */
-  #timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 48px; overflow: hidden;
+  #timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 62px; overflow: hidden;
               border-radius: 4px; background: #262930; }
   /* Wide filmstrip tape; translated by the single writeTape() path in render.js. */
   #track-tape { position: absolute; left: 0; top: 0; height: 100%;
@@ -127,16 +126,35 @@
   #track-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   #track-days, #track-ticks { position: absolute; inset: 0; pointer-events: none; }
   #track-days { overflow: hidden; border-radius: 4px; } /* rounded day ends without clipping the pill */
-  .day-block { position: absolute; top: 0; bottom: 0; background: #262930; overflow: hidden; }
-  .day-block.alt { background: #1e2025; }
-  .day-block + .day-block { border-left: 1px solid #3a3f4a; }
-  .day-head { position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
-              font: 700 11px/1 system-ui, -apple-system, sans-serif; color: #e8f0f7; white-space: nowrap; }
-  .day-sub { position: absolute; top: 30px; transform: translateX(-50%);
-             font: 10px/1 system-ui, -apple-system, sans-serif; color: #9fc3dd; white-space: nowrap;
-             font-variant-numeric: tabular-nums; }
-  #ramp-bar  { flex: 0 0 11px; height: 11px; border-radius: 3px; border: 1px solid #33506b; }
-  #ramp-ticks{ flex: 1 1 auto; line-height: 8px; display: flex; justify-content: space-between; font-size: 8px; color: #9fc3dd; }
+  .day-block { position: absolute; top: 0; bottom: 0; background: #23272e; overflow: hidden; }
+  .day-block.alt { background: #1b1d22; }
+  .day-block + .day-block { border-left: 1px solid #4a5568; }
+  .day-head { position: absolute; top: 3px; left: 50%; transform: translateX(-50%);
+              font: 600 12px/1 system-ui, -apple-system, sans-serif; color: #e8f0f7; white-space: nowrap; }
+  .day-sub { position: absolute; top: 20px; transform: translateX(-50%);
+             font: 11px/1 system-ui, -apple-system, sans-serif; color: #94a3b8; white-space: nowrap;
+             font-variant-numeric: tabular-nums; width: 20px; text-align: center; }
+  .day-sub.edge { color: #e8f0f7; } /* midnight/boundary ticks read stronger than the 3 h row */
+  /* 5P wind numbers: embedded inside the heat ribbon, under each 3 h tick. The 20px
+     line-box vertically centres the 12px type in the 40-60 px band. */
+  .day-wind { position: absolute; top: 40px; transform: translateX(-50%);
+              font: 700 12px/1 system-ui, -apple-system, sans-serif; color: #ffffff;
+              text-shadow: 0 1px 2px rgba(0, 0, 0, .65);
+              white-space: nowrap; font-variant-numeric: tabular-nums;
+              height: 20px; line-height: 20px; width: 20px; text-align: center; }
+  /* 5P wind heat ribbon: one continuous gradient per day block, flush along the bottom,
+     painted behind the numbers (DOM order). */
+  .day-heat { position: absolute; left: 3px; right: 3px; bottom: 2px; height: 20px;
+              border-radius: 3px; }
+  /* Stage 5L/5M: the wave colour bar lives in a non-interactive card at the map's bottom-left.
+     Reid asked for bottom:78px, but the card's 78-111px band crosses the OSM attribution band
+     (74-91px from the map's bottom, x 156-390) in x 156-176. Measured clearance at 98px is
+     ~7px, so the card is docked at 98px. */
+  #legend-card { position: absolute; left: 10px; bottom: 98px; z-index: 500; pointer-events: none;
+                 background: rgba(16,38,58,.85); border-radius: 8px; padding: 6px 8px; }
+  #legend-card-bar { width: 150px; height: 11px; border-radius: 3px; border: 1px solid #33506b; }
+  #legend-card-ticks { width: 150px; margin-top: 2px; display: flex; justify-content: space-between;
+                       font-size: 8px; line-height: 1; color: #9fc3dd; }
   #track:focus-visible { outline: 2px solid #ffd166; outline-offset: -2px; }
   /* Play control pinned to the window's left edge: icon only, no chrome. It overlays the
      tape (no flex space) so the tape scrolls behind it; the faint scrim keeps the glyph legible. */
@@ -157,7 +175,7 @@
           font-size: 13px; align-items: center; gap: 10px; }
   #note-retry { background: #ffd7d7; color: #5a1f1f; border: 0; border-radius: 5px;
                 padding: 6px 10px; font-size: 12px; font-weight: 700; touch-action: manipulation; }
-  #card { position: absolute; left: 10px; bottom: 10px; z-index: 550; min-width: 230px;
+  #card { position: absolute; left: 10px; bottom: 140px; z-index: 550; min-width: 230px;
           background: #ffffff; color: #0d1b2a; border: 1px solid #cbd5e1;
           border-radius: 8px; padding: 8px 46px 8px 10px; font-size: 12px;
           box-shadow: 0 2px 8px rgba(0,0,0,.3); font-variant-numeric: tabular-nums; }
@@ -170,6 +188,8 @@
   /* Muted basemap: CARTO's keyless tiles now stamp "API KEY REQUIRED", so the tile pane
      itself is desaturated instead — kills the green/wetland clash under the wave overlay. */
   .leaflet-tile-pane { filter: grayscale(.9) saturate(.35) brightness(1.04) contrast(.94); }
+  /* Stage 5J: lift Leaflet's attribution clear of the floating amber pill / deck edge. */
+  .leaflet-bottom { bottom: calc(var(--deck-h) + 6px); }
   #field { display: none; }
 </style>
 </head>
@@ -185,6 +205,7 @@
         <div id="verdict-peak"></div>
         <div id="secondary">
           <span id="wind-info"></span>
+          <span class="sep" aria-hidden="true">·</span>
           <span id="frame-info"></span>
         </div>
       </div>
@@ -218,6 +239,10 @@
       </span>
       <span id="wind-badge-text">From NW 315°</span>
     </div>
+    <div id="legend-card" aria-hidden="true">
+      <div id="legend-card-bar"></div>
+      <div id="legend-card-ticks"><span>0</span><span>1</span><span>2</span><span>3.5</span><span>4.5</span><span>6+</span></div>
+    </div>
     <div id="note"><span id="note-msg">wind unavailable — retry</span><button id="note-retry" type="button">Retry</button></div>
     <div id="boot">
       <div id="boot-text">Loading wave map…</div>
@@ -242,11 +267,6 @@
         <svg class="icon icon-play" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><polygon points="6,4 20,12 6,20"></polygon></svg>
         <svg class="icon icon-pause" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
       </button>
-    </div>
-
-    <div class="deck-row deck-ramp">
-      <div id="ramp-bar"></div>
-      <div id="ramp-ticks"><span>0</span><span>1</span><span>2</span><span>3.5</span><span>4.5</span><span>6+</span></div>
     </div>
   </footer>
   <canvas id="field"></canvas>
@@ -287,8 +307,6 @@
         var wave = await load('src/wave-math.js');
         var wind = await load('src/wind.js');
         var ui = await load('src/ui.js');
-        var rampBar = document.getElementById('ramp-bar');
-        if (rampBar) rampBar.style.background = ui.rampGradient();
         var render = await load('src/render.js');
         await render.mount({ tables: tables, wave: wave, wind: wind, render: render, ui: ui });
       } catch (err) {
