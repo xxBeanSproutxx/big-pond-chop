@@ -178,3 +178,91 @@ assertion; verified manually against the spec examples `10 AM`, `12 PM`,
    unchanged).
 6. `#track-label` is retained (required id) but visually clipped, as the day
    blocks now carry the day/horizon text.
+
+---
+
+## 5F.1 — orchestrator review pass (visual fidelity, commits `886d5e7` + `7093b2e`)
+
+The stage-5F work passed every gate, but reading the rendered screenshots against the
+recording frames (`tmp/frames/`, ffmpeg 2 fps from `tmp/recording-2026-09-11.mp4`)
+showed three fidelity gaps. All three are `index.html` / `src/render.js` only —
+no engine, no test, no harness assertion touched.
+
+| # | Change | Why |
+| --- | --- | --- |
+| 1 | `#time-pill` floats **above** the deck edge (`top:-20px`; `#deck`, `.deck-track`, `#timeline` `overflow: visible`; `#deck` `position:relative; z-index:1100`); `#track-days` now carries the 4 px rounded clip | In the reference the badge sits above the bar with the stem dipping into it. Parked inside the bar it covered whichever day header it sat over (visible on the 7-day render). |
+| 2 | Day-header fallback gained a third tier: long → abbreviated → **abbreviated at 10 px** (`.day-head.narrow`) → day number | At 390 px / 7 days the header had fallen all the way to bare numbers (`12`, `13`); the reference label is the `Sat 12` style. Now 7 blocks × `Fri 11 … Thu 17` fit. |
+| 3 | 3 h sub-row: fit by **measured** label width, steps limited to 3 h / 6 h; when neither fits the sub-row is omitted and the header is centred vertically (`.day-head.solo`) | The `{3, 6, 12, 24}` ladder printed two identical `12`s per block at 7 day (midnight + noon) — noise, not a scale. |
+| 4 | New `tools/qa/live_smoke.py` — re-runnable **production** smoke (deployed URL, phone viewport) | 5E's prod numbers were one-off; the deploy step now has a repeatable gate. |
+
+### Verification after 5F.1
+
+Harness re-run in the worktree after each edit, then once more on the **merged main tree**
+(`070d6aa`):
+
+```text
+SUMMARY: 21 ok, 0 FAIL
+screenshots: 24h-360.png, 24h.png, 7d.png, bpc-s5-360.png, bpc-s5-390.png, bpc-s5-card.png,
+bpc-s5-now-fit.png, bpc-s5-now-z13.png, bpc-s5-now-z14.png, bpc-s5-play.png,
+bpc-s5-pre4-fit.png, bpc-s5-pre4-z13.png, bpc-s5-pre4-z14.png, scrub.png
+```
+
+`[15] deck geometry (5F)` after the change — pill rect moves above the bar, everything else holds:
+
+```text
+5F rects: deck h=68.0 play=[8.0,776.0]x48.0x48.0 timeline=[56.0,776.0]-[382.0,824.0]
+          pill=[310.0,756.0] 68.0x20.0 text='9 PM' blocks=1 bg=['rgb(38, 41, 48)']
+          ramp-deck delta=0.0
+[15] deck geometry (5F)  ok   deckH=68.0 absent={'main': True, 'playhead': True, 'rail': True,
+                               'progress': True} pill-visible=True pill-hidden=False pill='9 PM'
+                               play-inside=True timeline-inside=True blocks=1 adjacent-differ=True
+                               ramp-bottom=844.0 deck-bottom=844.0
+```
+
+Four Node suites re-run directly after the edits: `parity 1/0 · wind 1/0 · render 1/0 · ui 1/0`
+(`# pass 1 # fail 0` each).
+
+### Visual review
+
+Screenshots reviewed at 2× phone viewport, deck band cropped and inspected: 24 h shows the
+play glyph embedded in the bar's left edge, `Friday 11` centred and un-covered, the
+`12 03 06 09 12 03 06 09` sub-row, the amber `9 PM` pill floating above the bar with its stem
+on the now hairline, and the ribbon flush at the bottom edge. 7 day shows `Fri 11 … Thu 17`,
+alternating block shades, 1 px midnight dividers, centred headers, no collision with the pill.
+No clipped text, no overlaps, no empty blocks.
+
+## Production deployment (stage 5F)
+
+- **Push.** `git push origin main`: `be29ba2..070d6aa` (4 commits: spec → 5F → 5F.1 → merge),
+  2026-09-12 02:19 UTC. Rollback tag `pre-stage5f` (`be29ba2`, last Stage-5 deploy) pushed to origin.
+- **GitHub Pages build.** `pages/builds/latest`: `status=built`, commit `070d6aa`,
+  `duration=38541 ms`, `error.message = null`.
+- **Assets.** 12/12 HTTP 200 on `https://xxbeansproutxx.github.io/big-pond-chop/`
+  (`index.html`, `src/{tables,wave-math,wind,ui,render}.js`, `public/{meta,warp,spots}.v1.json`,
+  `public/tables.v1.bin`, `public/favicon.svg`, `og-preview.png`); live `index.html` carries the
+  5F markup (`day-head` / `timeline` present).
+- **Live smoke — `tools/qa/live_smoke.py`, 8 ok / 0 FAIL, 0 page errors** (Chromium 390x844 DPR2,
+  deployed URL):
+
+```text
+deck two-row             ok     deckH=68.0 blocks=1 absent=True
+pill permanent           ok     text='9:15 PM' hidden=False above-bar=True
+play embedded            ok     playInside=True timelineAfterPlay=True
+ribbon flush             ok     ramp/deck delta ok=True
+day header               ok     block0 header='Friday 11' subs=['12', '03', '06', '09', '12', '03', '06', '09']
+7 day live               ok     blocks=7 alt=True boot-hidden=True
+       headers: Fri 11 | Sat 12 | Sun 13 | Mon 14 | Tue 15 | Wed 16 | Thu 17
+back to 24 h             ok     aria-valuemax=95
+no page errors           ok     errors=0 []
+SUMMARY: 8 ok, 0 FAIL  (https://xxbeansproutxx.github.io/big-pond-chop/)
+```
+
+- **Live screenshots:** `tmp/review5f/LIVE-24h.png`, `tmp/review5f/LIVE-7d.png` (deployed site, 390x844 DPR2).
+
+### Notes for the next session
+
+- `aria-valuemax` is **static markup** (`"95"` in `index.html`), so it is not a readiness signal —
+  wait for a real pill timestamp / a rendered day block instead (the first `live_smoke.py` version
+  tripped over exactly this and reported an empty day header).
+- `#boot` hides via the **class** `hidden` (`#boot.hidden { display:none }`), not the `hidden`
+  attribute — DOM property `el.hidden` reads the attribute and is always `false` here.
