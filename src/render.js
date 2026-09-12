@@ -17,6 +17,7 @@ const OVERLAY_OPACITY = ui.OVERLAY_OPACITY;
 const PLAY_INTERVAL_MS = 333;
 const FRAME_MINUTES = 15;
 const FRAME_CACHE_MAX = 8;
+const MAP_PAINT_MIN_MS = 72; // ~13.9 fps: drag-time overlay repaint throttle (12-15 fps band)
 
 // ---- affine warp ----
 function gridToLonlat(warp, col, row) {
@@ -80,11 +81,18 @@ function shouldPaintResult(result, current) {
     result.W === current.W && result.H === current.H;
 }
 
+// Drag-time paint gate: open once the interval elapsed and no encode is in flight.
+// Pure so the throttle decision is node-testable (stage 5H).
+function shouldPaintMap(nowMs, lastPaintMs, busy, minIntervalMs) {
+  return !busy && (Number(nowMs) - Number(lastPaintMs)) >= Number(minIntervalMs);
+}
+
 // ---- stage 5G: scrolling tape geometry (pure helpers) ----
-// Tape density: 7 d is a fixed 190 px/day (672 frames -> 1,330 px); a single 24 h day
-// always fills at least the viewing window so the tape can actually scroll.
+// Tape density: 7 d is a fixed 190 px/day (672 frames -> 1,330 px); a single 24 h day is
+// a 550 px/day tape so it has ~176 px of runway at a phone viewport, and still fills at
+// least the viewing window on desktop/tablet (window-fill, as in 5G).
 function pxPerDay(horizon, windowW) {
-  return horizon === '7d' ? 190 : Math.max(190, Math.round(Number(windowW) || 0));
+  return horizon === '7d' ? 190 : Math.max(550, Math.round(Number(windowW) || 0));
 }
 
 function pxPerFrame(horizon, windowW) {
@@ -582,6 +590,15 @@ async function mount(deps) {
   let scrubX = 0;
   let scrubStartX = 0;
   let scrubStartIdx = 0;
+  // Stage 5H: decoupled drag. UI runs every frame; the map paint is throttled.
+  let dragIdx = null;          // newest index the map owes a paint (UI already shows it)
+  let pendingPaintIdx = null;  // newest target stashed while throttled/busy
+  let paintArmed = false;
+  let paintRaf = 0;
+  let lastMapPaintMs = 0;
+  let paintGen = 0;            // bumped per committed paint; stale encodes are dropped
+  let inFlightEncode = 0;      // convertToBlob calls not yet settled
+  let lastOverlayUrl = null;   // overlay URL dedupe (cache hits re-apply the same blob:)
 
   // Cached once per gesture / on layout change; never read in the move path.
   function refreshRailRect() {
@@ -601,6 +618,50 @@ async function mount(deps) {
     const center = viewportW / 2;
     trackTape.style.transform =
       'translateX(' + tapeTranslate(idx, pxPerFrame(horizon, viewportW), center) + 'px)';
+  }
+
+  // Stage 5H §C1: overlay URL dedupe — cache hits re-apply the same blob: URL today.
+  function setOverlayUrl(url) {
+    if (!url || url === lastOverlayUrl) return;
+    lastOverlayUrl = url;
+    overlay.setUrl(url);
+  }
+  // A different W×H is a different image even if the URL string repeats.
+  function resetOverlayDedupe() { lastOverlayUrl = null; }
+
+  // Stage 5H §B1: UI-only drag step. Cheap by construction — text + one transform.
+  function scrubUiTo(idx) {
+    dragIdx = idx;
+    updateScrubUi(idx);
+    scheduleMapPaint(idx);
+  }
+
+  // Stage 5H §B2: throttled map repaint. Newest index always wins; at most one build in
+  // flight (busy skip). Re-arms via rAF until the gate opens or the encode settles.
+  function scheduleMapPaint(idx) {
+    pendingPaintIdx = idx;
+    if (paintArmed) return;
+    paintArmed = true;
+    paintRaf = requestAnimationFrame(() => {
+      paintRaf = 0;
+      paintArmed = false;
+      const target = pendingPaintIdx;
+      pendingPaintIdx = null;
+      if (target == null) return;
+      if (!shouldPaintMap(performance.now(), lastMapPaintMs, inFlightEncode > 0, MAP_PAINT_MIN_MS)) {
+        scheduleMapPaint(target); // gate closed / busy: keep the newest target stashed
+        return;
+      }
+      lastMapPaintMs = performance.now();
+      paintGen++;
+      showFrame(target, paintGen);
+    });
+  }
+
+  function cancelMapPaint() {
+    pendingPaintIdx = null;
+    if (paintRaf) { cancelAnimationFrame(paintRaf); paintRaf = 0; }
+    paintArmed = false;
   }
 
   // Solid segmented day blocks at real width: alternating shades, midnight divider, a centred
@@ -650,7 +711,8 @@ async function mount(deps) {
   // The pill is permanent and fixed: only its text changes; the tape moves underneath.
   function updateScrubUi(idx) {
     if (!frames.length || !viewportW) return;
-    timePill.textContent = ui.formatPillTime(frames[idx].time);
+    const text = ui.formatPillTime(frames[idx].time);
+    if (timePill.textContent !== text) timePill.textContent = text;
     trackEl.setAttribute('aria-valuenow', String(idx));
     trackEl.setAttribute('aria-valuetext',
       `${ui.formatClockLocal(frames[idx].time)}, ${ui.dayLabel(frames[idx].time, true)}`);
@@ -665,6 +727,7 @@ async function mount(deps) {
     refreshRailRect();
     scrubbing = true;
     scrubPointerId = e.pointerId;
+    dragIdx = null;
     const wasPlaying = playing;
     if (wasPlaying) pause(); // capture only; never auto-resume
     deck.setPointerCapture(e.pointerId);
@@ -680,7 +743,8 @@ async function mount(deps) {
       scrubRaf = 0;
       if (!scrubbing) return;
       const pxf = pxPerFrame(horizon, viewportW);
-      requestFrame(idxFromDrag(scrubX - scrubStartX, scrubStartIdx, pxf, frames.length));
+      // 5H: UI-only step (zero drag latency); the map catches up on its own throttle.
+      scrubUiTo(idxFromDrag(scrubX - scrubStartX, scrubStartIdx, pxf, frames.length));
     });
   });
   function endScrub(e) {
@@ -688,6 +752,14 @@ async function mount(deps) {
     scrubbing = false;
     scrubPointerId = null;
     trackTape.style.transition = ''; // restore the playback glide
+    // 5H §B3: snap to the exact final frame, bypassing throttle + busy skip.
+    if (dragIdx != null && frames.length) {
+      cancelMapPaint();
+      paintGen++; // invalidate any drag encode still in flight
+      lastMapPaintMs = performance.now();
+      showFrame(dragIdx, paintGen);
+      dragIdx = null;
+    }
   }
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
     deck.addEventListener(type, endScrub);
@@ -715,7 +787,7 @@ async function mount(deps) {
     return { idx: cur, pinIdx: pinned ? pinned.i : -1, W: canvas.width, H: canvas.height };
   }
 
-  function frameFor(idx) {
+  function frameFor(idx, gen) {
     if (!frames.length) return null;
     const W = canvas.width, H = canvas.height;
     const pinIdx = pinned ? pinned.i : -1;
@@ -749,13 +821,19 @@ async function mount(deps) {
     body.dataset.precomputeMs = builtMs.toFixed(1);
     body.dataset.frameMs = ms.toFixed(1);
     if (pending) {
+      inFlightEncode++;
       const e0 = performance.now();
       pending.then((url) => {
         body.dataset.encodeMs = (performance.now() - e0).toFixed(1);
         if (!frameCache.has(key)) { revokeUrl(url); return; } // evicted while encoding
         entry.url = url;
-        if (shouldPaintResult(meta, currentMeta())) overlay.setUrl(url); // skip a stale result
-      }).catch((err) => { console.error(err); });
+        if (gen != null && gen !== paintGen) return; // 5H §C2: scrubbed past -> drop
+        if (shouldPaintResult(meta, currentMeta())) setOverlayUrl(url); // skip a stale result
+      }).catch((err) => { console.error(err); }).finally(() => {
+        inFlightEncode--;
+        // Busy settled: paint the newest stashed drag target now.
+        if (pendingPaintIdx != null) scheduleMapPaint(pendingPaintIdx);
+      });
     }
     return entry;
   }
@@ -810,13 +888,13 @@ async function mount(deps) {
     card.hidden = true;
   }
 
-  function showFrame(idx) {
+  function showFrame(idx, gen) {
     if (!frames.length) return;
     cur = Math.max(0, Math.min(frames.length - 1, idx));
-    const built = frameFor(cur);
+    const built = frameFor(cur, gen);
     if (!built) return;
     const s = built.stats, e = s.entry;
-    if (built.url) overlay.setUrl(built.url); // null while the async encode is in flight
+    if (built.url) setOverlayUrl(built.url); // null while the async encode is in flight
     if (!bootHidden) { bootHidden = true; hideBoot(); }
     body.dataset.hour = e.time;
     body.dataset.stepMin = String(stepMin);
@@ -826,7 +904,8 @@ async function mount(deps) {
     body.dataset.windMph = e.speedMph.toFixed(1);
     body.dataset.bearingGrid = e.bearingGrid.toFixed(3);
     body.dataset.teffH = e.tEffH.toFixed(2);
-    updateScrubUi(cur);
+    // During a drag the tape UI is owned by scrubUiTo (newest index); only the map paints.
+    updateScrubUi(scrubbing && dragIdx != null ? dragIdx : cur);
     windEl.textContent = ui.windLine(e.speedMph, e.gustMph);
     frameEl.textContent = `H/L ${s.hlMax.toFixed(3)}`;
     const c = ui.compass(e.dirTrueDeg, e.speedMph);
@@ -905,6 +984,7 @@ async function mount(deps) {
     if (d.W === canvas.width && d.H === canvas.height) return;
     canvas.width = d.W;
     canvas.height = d.H;
+    resetOverlayDedupe(); // same URL at a new W×H is a different image
     if (frames.length) showFrame(cur);
   }
   function scheduleRegather() {
@@ -936,7 +1016,9 @@ async function mount(deps) {
     builtMs = 0;
     frameCache.clear();
     const d = desiredDims();
-    if (d.W !== canvas.width || d.H !== canvas.height) { canvas.width = d.W; canvas.height = d.H; }
+    if (d.W !== canvas.width || d.H !== canvas.height) {
+      canvas.width = d.W; canvas.height = d.H; resetOverlayDedupe();
+    }
     console.info(`lazy frames: ${frames.length} @ ${stepMin} min`);
     trackEl.setAttribute('aria-valuemax', String(Math.max(0, frames.length - 1)));
     refreshRailRect();
@@ -1045,6 +1127,6 @@ module.exports = {
   gridToLonlat, lonlatToGrid, displayBounds, pickDisplayDims, targetWidth, playWidth,
   bilinearSample, gatherRaster, hmaxFt, computeFrame, paintRaster,
   landMaskRaster, smoothRaster, cacheKey, frameBytes, createFrameCache, mount,
-  offscreenSupported, revokeUrl, shouldPaintResult, encodeOffscreen,
+  offscreenSupported, revokeUrl, shouldPaintResult, shouldPaintMap, encodeOffscreen,
   pxPerDay, pxPerFrame, tapeTranslate, idxFromDrag, dayPartitions, playStep, nextPlayIdx,
 };
