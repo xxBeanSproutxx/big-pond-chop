@@ -87,12 +87,14 @@
     height: calc(var(--deck-h) + env(safe-area-inset-bottom, 0px));
     padding: 0 8px;
     padding-bottom: env(safe-area-inset-bottom, 0px);
-    background: #10263a; overflow: hidden;
+    background: #10263a; overflow: visible;
+    position: relative; z-index: 1100; /* the amber pill floats above the deck edge (Windy) */
     touch-action: none;
     user-select: none; -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
   }
   .deck-row  { overflow: hidden; }
+  .deck-track{ overflow: visible; } /* the pill sits above this row */
   .deck-track{ height: 48px; display: flex; align-items: stretch; }
   .deck-ramp { height: 20px; display: flex; flex-direction: column; gap: 1px; }
   /* Horizon micro-pill: lives in the map corner, clear of the zoom control + wind badge. */
@@ -101,12 +103,13 @@
                     color: #e8f0f7; border: 1px solid #33506b; border-radius: 14px;
                     font: 11px/1 system-ui, sans-serif; touch-action: manipulation; }
   #horizon button[aria-pressed="true"] { background: #ffd166; color: #10263a; border-color: #ffd166; }
-  #timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 48px; overflow: hidden;
+  #timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 48px; overflow: visible;
               border-radius: 4px; background: #262930; }
   #now-tick       { position: absolute; top: 0; bottom: 0; width: 2px; background: #ffd166;
                     box-shadow: 0 0 0 1px rgba(13,27,42,.6); pointer-events: none; }
-  /* Amber pill cursor IS the permanent time indicator, with a downward stem at the time position. */
-  #time-pill      { position: absolute; top: 0; left: 0; width: 68px; height: 20px; line-height: 20px;
+  /* Amber pill cursor IS the permanent time indicator. It floats ABOVE the timeline
+     edge (Windy reference) so it never covers a day header; the stem dips into the bar. */
+  #time-pill      { position: absolute; top: -20px; left: 0; width: 68px; height: 20px; line-height: 20px;
                     border-radius: 10px; background: #d69e0b; color: #ffffff;
                     font: 700 12px/20px system-ui, -apple-system, sans-serif;
                     font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap;
@@ -118,11 +121,14 @@
   /* Stage 5F timeline: solid segmented day blocks + 3 h sub-row. */
   #track-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   #track-days, #track-ticks { position: absolute; inset: 0; pointer-events: none; }
+  #track-days { overflow: hidden; border-radius: 4px; } /* rounded day ends without clipping the pill */
   .day-block { position: absolute; top: 0; bottom: 0; background: #262930; overflow: hidden; }
   .day-block.alt { background: #1e2025; }
   .day-block + .day-block { border-left: 1px solid #3a3f4a; }
   .day-head { position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
               font: 700 11px/1 system-ui, -apple-system, sans-serif; color: #e8f0f7; white-space: nowrap; }
+  .day-head.narrow { font-size: 10px; }
+  .day-head.solo { top: 50%; transform: translate(-50%, -50%); } /* no sub-row: centre it */
   .day-sub { position: absolute; top: 30px; transform: translateX(-50%);
              font: 10px/1 system-ui, -apple-system, sans-serif; color: #9fc3dd; white-space: nowrap;
              font-variant-numeric: tabular-nums; }
