@@ -523,7 +523,7 @@ def check_touch_ergonomics(page):
 
     m0 = metrics()
     n, horizon = m0["n"], m0["horizon"]
-    pxf = (190.0 if horizon == "7d" else max(190.0, round(m0["tlW"]))) / 96.0
+    pxf = (190.0 if horizon == "7d" else max(550.0, round(m0["tlW"]))) / 96.0
     ty = m0["tlY"] + 24  # inside #timeline, below the floating pill
     cx = m0["tlX"] + m0["tlW"] / 2
 
@@ -738,7 +738,7 @@ def check_tape_architecture(page):
                }""")
 
     def pxf_for(m):
-        return (190.0 if m["horizon"] == "7d" else max(190.0, round(m["tlW"]))) / 96.0
+        return (190.0 if m["horizon"] == "7d" else max(550.0, round(m["tlW"]))) / 96.0
 
     def centred(m):
         return abs(m["pillCx"] - m["tlCx"]) <= 1.0
@@ -752,11 +752,12 @@ def check_tape_architecture(page):
                int(m24["playZ"] or 0) >= 10 and m24["playW"] >= 44)
     ok_centre24 = centred(m24)
     ok_frame24 = frame_under_reticle(m24)
-    ok_tape24 = m24["tapeW"] >= m24["tlW"] - 2
+    ok_tape24 = m24["tapeW"] >= m24["tlW"] - 2 and m24["tapeW"] >= m24["tlW"] + 100
     ok_blocks24 = m24["blockCount"] >= 1
-    print("        24h: tapeW=%.1f (window %.1f, pxf=%.4f) pill-cx=%.1f tl-cx=%.1f "
+    print("        24h: tapeW=%.1f (window %.1f, runway %.1f, pxf=%.4f) pill-cx=%.1f tl-cx=%.1f "
           "frame-cx=%.1f cur=%d transform=%s"
-          % (m24["tapeW"], m24["tlW"], pxf_for(m24), m24["pillCx"], m24["tlCx"],
+          % (m24["tapeW"], m24["tlW"], m24["tapeW"] - m24["tlW"], pxf_for(m24),
+             m24["pillCx"], m24["tlCx"],
              m24["tapeX"] + m24["cur"] * pxf_for(m24), m24["cur"], m24["transform"]))
 
     # scrub mid-window, then re-check the reticle.
@@ -798,10 +799,11 @@ def check_tape_architecture(page):
           ok_alt and ok_blocks7)
     record(16, "tape architecture (5G)", ok,
            "tape-in-timeline=%s now-in-tape=%s play-left=%.1f z=%s | "
-           "24h tape=%.1f/window=%.1f centred=%s frame-under=%s | "
+           "24h tape=%.1f/window=%.1f runway=%.1f centred=%s frame-under=%s | "
            "7d tape=%.1f blocks=%d subs=%s alt=%s centred=%s frame-under=%s"
            % (m24["tapeInTimeline"], m24["nowInTape"], m24["playX"] - m24["trackX"],
-              m24["playZ"], m24["tapeW"], m24["tlW"], ok_centre24, ok_frame24,
+              m24["playZ"], m24["tapeW"], m24["tlW"], m24["tapeW"] - m24["tlW"],
+              ok_centre24, ok_frame24,
               m7["tapeW"], m7["blockCount"], m7["subCounts"], ok_alt, ok_centre7, ok_frame7))
 
     # restore 24 h for the checks that follow.
@@ -810,6 +812,139 @@ def check_tape_architecture(page):
         "() => document.getElementById('track').getAttribute('aria-valuemax') === '95'",
         timeout=60000)
     page.wait_for_timeout(300)
+
+
+# Stage 5H: external instrumentation for the scrub-decoupling group. It must be installed
+# while #track-tape exists. Counts: inline translateX writes, overlay src swaps, long tasks,
+# and delivered pointer moves (capture phase).
+SCRUB_INSTR = r"""
+() => {
+  var tape = document.getElementById('track-tape');
+  window.__sb = { tx: 0, moves: 0, downX: null, lastX: null, swaps: 0, long: [],
+                  txInst: false, srcInst: false, longInst: false };
+  // Chromium has no prototype transform accessor; shadow it on #track-tape's own style.
+  try {
+    if (tape && tape.style) {
+      Object.defineProperty(tape.style, 'transform', {
+        configurable: true,
+        get: function () { return this.getPropertyValue('transform'); },
+        set: function (v) {
+          if (String(v).indexOf('translateX') === 0) window.__sb.tx++;
+          this.setProperty('transform', v);
+        }
+      });
+      window.__sb.txInst = true;
+    }
+  } catch (e) { window.__sb.txInst = false; }
+  try {
+    var img = document.querySelector('.leaflet-image-layer');
+    if (img && window.MutationObserver) {
+      new MutationObserver(function () { window.__sb.swaps++; })
+        .observe(img, { attributes: true, attributeFilter: ['src'] });
+      window.__sb.srcInst = true;
+    }
+  } catch (e) { window.__sb.srcInst = false; }
+  try {
+    new PerformanceObserver(function (l) {
+      l.getEntries().forEach(function (en) { window.__sb.long.push(Math.round(en.duration)); });
+    }).observe({ entryTypes: ['longtask'] });
+    window.__sb.longInst = true;
+  } catch (e) { window.__sb.longInst = false; }
+  window.addEventListener('pointerdown', function (e) { window.__sb.downX = e.clientX; }, true);
+  window.addEventListener('pointermove', function (e) {
+    window.__sb.moves++; window.__sb.lastX = e.clientX;
+  }, true);
+  return { tx: window.__sb.txInst, src: window.__sb.srcInst, long: window.__sb.longInst };
+}
+"""
+
+
+def _js_round(x):
+    """JS Math.round semantics (half up, toward +inf) for the dx -> index check."""
+    return math.floor(x + 0.5)
+
+
+def check_scrub_decoupling(page):
+    """5H: a scripted 30-step drag decouples the tape UI from the map render. The tape
+    transform writes on every delivered move, overlay src swaps stay <= 12, no long task
+    (>50 ms) lands inside the drag, and pointerup snaps to the exact final index/pill."""
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.wait_for_timeout(300)
+    if page.get_attribute("#h-24h", "aria-pressed") != "true":
+        page.click("#h-24h")
+        page.wait_for_function(
+            "() => document.getElementById('track').getAttribute('aria-valuemax') === '95'",
+            timeout=60000)
+        page.wait_for_timeout(300)
+
+    # Known start: Home -> frame 0, then wait out the 320 ms tape glide.
+    page.focus("#track")
+    page.keyboard.press("Home")
+    page.wait_for_timeout(500)
+
+    # Warm-up (throwaway, same as the bench): JIT + a few cache entries so the measured
+    # drag is not dominated by the first cold build.
+    tl = page.evaluate(
+        "() => { var r = document.getElementById('timeline').getBoundingClientRect();"
+        " return { cx: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width }; }")
+    page.mouse.move(tl["cx"], tl["y"])
+    page.mouse.down()
+    for k in range(1, 31):
+        page.mouse.move(tl["cx"] - 8 * k, tl["y"])
+    page.mouse.up()
+    page.wait_for_timeout(300)
+    page.focus("#track")
+    page.keyboard.press("Home")
+    page.wait_for_timeout(500)
+
+    # Instrumentation is installed only after warm-up so its counters cover the drag alone.
+    inst = page.evaluate(SCRUB_INSTR)
+    tl = page.evaluate(
+        "() => { var r = document.getElementById('timeline').getBoundingClientRect();"
+        " return { cx: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width }; }")
+    n = int(page.get_attribute("#track", "aria-valuemax")) + 1
+    pxf = (190.0 if n == 672 else max(550.0, round(tl["w"]))) / 96.0
+    start_idx = int(page.get_attribute("#track", "aria-valuenow"))
+
+    cx, ty = tl["cx"], tl["y"]
+    step = 8  # 30 steps * 8 px = 240 px, dragging LEFT = forward in time
+    page.mouse.move(cx, ty)
+    page.mouse.down()
+    for k in range(1, 31):
+        page.mouse.move(cx - step * k, ty)
+    page.wait_for_timeout(80)
+    during = page.evaluate(
+        "() => ({ tx: window.__sb.tx, moves: window.__sb.moves, swaps: window.__sb.swaps,"
+        " long: window.__sb.long.slice(), downX: window.__sb.downX, lastX: window.__sb.lastX })")
+    page.mouse.up()
+    page.wait_for_timeout(400)
+    after = page.evaluate(
+        "() => ({ idx: parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10),"
+        " pill: document.getElementById('time-pill').textContent,"
+        " hour: document.body.dataset.hour })")
+
+    dx = during["lastX"] - during["downX"]
+    expected = max(0, min(n - 1, _js_round(start_idx - dx / pxf)))
+    a_ok = during["swaps"] <= 12
+    b_ok = during["tx"] >= during["moves"]
+    long_max = max(during["long"]) if during["long"] else 0
+    c_ok = long_max <= 50
+    d_ok = after["idx"] == expected
+    pill_expected = format_chicago_pill(after["hour"]) if after["hour"] else ""
+    e_ok = after["pill"] == pill_expected
+    instruments = bool(inst["tx"]) and bool(inst["src"]) and bool(inst["long"])
+    ok = instruments and a_ok and b_ok and c_ok and d_ok and e_ok
+    print("        drag: moves=%d tx=%d swaps=%d long=%s downX=%.1f lastX=%.1f dx=%.1f"
+          % (during["moves"], during["tx"], during["swaps"], during["long"],
+             during["downX"] or 0.0, during["lastX"] or 0.0, dx))
+    print("        final: idx=%d expected=%d start=%d pxf=%.4f pill='%s' expected='%s' hour=%s"
+          % (after["idx"], expected, start_idx, pxf, after["pill"], pill_expected, after["hour"]))
+    record(17, "scrub decoupling (5H)", ok,
+           "moves=%d tx>=moves=%s swaps=%d<=12=%s long-max=%d<=50=%s "
+           "idx=%d expected=%d=%s pill=%s instruments(tx/src/long)=%s/%s/%s"
+           % (during["moves"], b_ok, during["swaps"], a_ok, long_max, c_ok,
+              after["idx"], expected, d_ok, e_ok,
+              inst["tx"], inst["src"], inst["long"]))
 
 
 def capture_shots(page):
@@ -1091,6 +1226,7 @@ def main():
             safe(1, "boot", check_boot, page, port)
             safe(15, "deck geometry (5F)", check_deck_geometry, page)
             safe(16, "tape architecture (5G)", check_tape_architecture, page)
+            safe(17, "scrub decoupling (5H)", check_scrub_decoupling, page)
             safe(2, "frame base", check_frame_base, page)
             # 5D.2: the boot skeleton hides on every first paint again, so [2b] runs in
             # its spec position ([2], per the 5E spec) and the map-tap group below
