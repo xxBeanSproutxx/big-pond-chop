@@ -223,6 +223,19 @@ function formatClockLocal(isoLocal) {
   }).format(new Date(epoch));
 }
 
+// Compact pill clock: 12-hour, no leading zero, minutes only when non-zero,
+// no timezone suffix. '2026-09-11T10:00' -> '10 AM', '2026-09-11T13:15' -> '1:15 PM'.
+function formatPillTime(isoLocal) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(isoLocal == null ? '' : isoLocal));
+  if (!m) return '';
+  const naive = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  let epoch = naive - tzOffsetMs(naive);
+  epoch = naive - tzOffsetMs(epoch);
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: CHICAGO_TZ, hour: 'numeric', minute: '2-digit', hour12: true,
+  }).format(new Date(epoch)).replace(':00 ', ' ');
+}
+
 // ---- Stage 5D: day label from a local ISO string ----
 // Weekday comes from calendar math alone (Date.UTC noon + getUTCDay); never a
 // TZ-parse of the full string, which would shift the date near midnight.
@@ -246,5 +259,5 @@ module.exports = {
   nameSpot, describePin, sectorPhrase, sectorName, shortPlace, formatHeadline,
   FEATURE_RADIUS_M, SHORE_RADIUS_M,
   CALM_MPH, normalizeDeg, windLine, compass, comfortTier, formatClockLocal,
-  dayLabel,
+  formatPillTime, dayLabel,
 };
