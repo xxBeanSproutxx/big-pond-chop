@@ -759,6 +759,23 @@ async function mount(deps) {
         wind.textContent = String(t.mph);
         block.appendChild(wind);
       }
+      // 5O: one heat stop per hour (24 samples from the 15-min frames), feeding the
+      // per-block ribbon gradient. Same per-block loop as the ticks; no per-frame work.
+      const hourly = [];
+      for (let h = 0; h < 24; h++) {
+        const hh = String(h).padStart(2, '0') + ':00';
+        for (let i = start; i < end; i++) {
+          const e = frames[i];
+          if (!e || String(e.time).slice(11, 16) !== hh) continue;
+          hourly.push(e.speedMph);
+          break;
+        }
+      }
+      const heat = document.createElement('div');
+      heat.className = 'day-heat';
+      heat.setAttribute('aria-hidden', 'true');
+      heat.style.backgroundImage = ui.windHeatGradient(hourly);
+      block.appendChild(heat);
       // Midnight boundary tick, right-anchored, on the 24 h tape's final block only:
       // 7d blocks are too narrow (~5 px to the next day's tick) and would double the label.
       if (horizon === '24h' && k === lastPart) {

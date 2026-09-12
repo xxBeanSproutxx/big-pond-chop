@@ -46,11 +46,11 @@ check('legend breakpoints and overlay opacity are pinned', () => {
   eq(ui.HS_BREAKS, [0, 1, 2, 3.5, 4.5, 6]);
   assert.strictEqual(ui.OVERLAY_OPACITY, 0.68);
 });
-check('stage-5n: HS_STOPS[0] is vibrant cyan #06b6d4', () => {
-  eq(ui.HS_STOPS[0], [0.0, 0x06, 0xb6, 0xd4]);
+check('stage-5o: HS_STOPS[0] is the calm floor #0891b2', () => {
+  eq(ui.HS_STOPS[0], [0.0, 0x08, 0x91, 0xb2]);
 });
-check('stage-5n: CALM_RGBA agrees with the 0 ft stop (single source of truth)', () => {
-  eq(ui.CALM_RGBA, [6, 182, 212, 255]);
+check('stage-5o: CALM_RGBA agrees with the 0 ft stop (single source of truth)', () => {
+  eq(ui.CALM_RGBA, [8, 145, 178, 255]);
   eq(ui.CALM_RGBA, [ui.HS_STOPS[0][1], ui.HS_STOPS[0][2], ui.HS_STOPS[0][3], 255]);
   assert.deepStrictEqual(ui.colorForHs(0), [0, 0, 0, 0], 'colorForHs still transparent at 0');
 });
@@ -232,7 +232,7 @@ console.log('\n== [10] stage-5b rampGradient ==');
 check('ramp gradient contains the six Hs stops in order', () => {
   const g = ui.rampGradient();
   const stops = [
-    ['rgb(6, 182, 212)', '0%'],
+    ['rgb(8, 145, 178)', '0%'],
     ['rgb(6, 182, 212)', '16.7%'],
     ['rgb(245, 158, 11)', '33.3%'],
     ['rgb(234, 88, 12)', '50%'],
@@ -246,10 +246,10 @@ check('ramp gradient contains the six Hs stops in order', () => {
     assert.ok(idx > at, `missing or out of order: ${rgb} ${pct} in ${g}`);
     at = idx;
   }
-  // 5N: the 0 ft floor is now #06b6d4, the same colour as the 1 ft stop — the 0-1 ft band
-  // is intentionally flat cyan, not a missing stop. Assert the duplicate explicitly.
-  assert.ok(g.includes('rgb(6, 182, 212) 0%') && g.includes('rgb(6, 182, 212) 16.7%'),
-    'both 0% and 16.7% must be cyan #06b6d4');
+  // 5O: the 0 ft floor is #0891b2, distinct from the #06b6d4 1 ft stop, so the 0-1 ft
+  // band is a real gradient again; all six stop colours are distinct.
+  assert.ok(g.includes('rgb(8, 145, 178) 0%') && g.includes('rgb(6, 182, 212) 16.7%'),
+    '0% must be #0891b2 and 16.7% #06b6d4');
   console.log(`       ${g}`);
 });
 
@@ -285,6 +285,40 @@ check('calm tier relabels only a green sea under 0.5 ft or under 4 mph', () => {
     'Heavy Rollers');
   assert.strictEqual(ui.comfortTier({ maxHsFt: 2.0, rollerFt: 0, hlMax: 0, windMph: 2 }).label,
     'Walleye Chop');
+});
+
+console.log('\n== [13] stage-5o wind heat ==');
+const CYAN = [8, 145, 178], GREEN = [16, 185, 129], AMBER = [245, 158, 11];
+const ORANGE = [249, 115, 22], CRIMSON = [239, 68, 68];
+check('windHeatColor tier boundaries', () => {
+  eq(ui.windHeatColor(9.9), CYAN, '9.9 -> cyan');
+  eq(ui.windHeatColor(10), GREEN, '10 -> green');
+  eq(ui.windHeatColor(14.9), GREEN, '14.9 -> green');
+  eq(ui.windHeatColor(15), AMBER, '15 -> amber');
+  eq(ui.windHeatColor(19.9), AMBER, '19.9 -> amber');
+  eq(ui.windHeatColor(20), ORANGE, '20 -> orange');
+  eq(ui.windHeatColor(24.9), ORANGE, '24.9 -> orange');
+  eq(ui.windHeatColor(25), CRIMSON, '25 -> crimson');
+  eq(ui.windHeatColor(40), CRIMSON, '40 -> crimson');
+  eq(ui.windHeatColor(NaN), CYAN, 'NaN -> cyan');
+});
+check('windHeatGradient: one stop per sample, endpoints at 0%/100%', () => {
+  const g = ui.windHeatGradient([5, 12, 17, 22, 30]);
+  assert.strictEqual((g.match(/rgb\(/g) || []).length, 5, 'one stop per sample');
+  assert.ok(g.startsWith('linear-gradient(90deg, rgb(8, 145, 178) 0%'), g);
+  assert.ok(g.endsWith('rgb(239, 68, 68) 100%)'), g);
+  for (const rgb of ['rgb(8, 145, 178)', 'rgb(16, 185, 129)', 'rgb(245, 158, 11)',
+    'rgb(249, 115, 22)', 'rgb(239, 68, 68)']) {
+    assert.ok(g.includes(rgb), `missing ${rgb} in ${g}`);
+  }
+  console.log(`       ${g.slice(0, 96)}…`);
+});
+check('windHeatGradient: single sample is a flat gradient; empty never throws', () => {
+  const one = ui.windHeatGradient([18]);
+  assert.strictEqual(one, 'linear-gradient(90deg, rgb(245, 158, 11) 0%, rgb(245, 158, 11) 100%)');
+  const none = ui.windHeatGradient([]);
+  assert.strictEqual((none.match(/rgb\(/g) || []).length, 2, 'empty -> flat two stops');
+  assert.ok(!/NaN/.test(none), none);
 });
 
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);

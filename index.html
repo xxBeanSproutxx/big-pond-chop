@@ -126,21 +126,24 @@
   #track-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   #track-days, #track-ticks { position: absolute; inset: 0; pointer-events: none; }
   #track-days { overflow: hidden; border-radius: 4px; } /* rounded day ends without clipping the pill */
-  .day-block { position: absolute; top: 0; bottom: 0; background: #262930; overflow: hidden; }
-  .day-block.alt { background: #1e2025; }
-  .day-block + .day-block { border-left: 1px solid #3a3f4a; }
-  .day-head { position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
-              font: 700 11px/1 system-ui, -apple-system, sans-serif; color: #e8f0f7; white-space: nowrap; }
-  .day-sub { position: absolute; top: 28px; transform: translateX(-50%);
-             font: 10px/1 system-ui, -apple-system, sans-serif; color: #9fc3dd; white-space: nowrap;
-             font-variant-numeric: tabular-nums; width: 1.5em; text-align: center; }
+  .day-block { position: absolute; top: 0; bottom: 0; background: #23272e; overflow: hidden; }
+  .day-block.alt { background: #1b1d22; }
+  .day-block + .day-block { border-left: 1px solid #4a5568; }
+  .day-head { position: absolute; top: 3px; left: 50%; transform: translateX(-50%);
+              font: 600 12px/1 system-ui, -apple-system, sans-serif; color: #e8f0f7; white-space: nowrap; }
+  .day-sub { position: absolute; top: 19px; transform: translateX(-50%);
+             font: 11px/1 system-ui, -apple-system, sans-serif; color: #94a3b8; white-space: nowrap;
+             font-variant-numeric: tabular-nums; width: 20px; text-align: center; }
   .day-sub.edge { color: #e8f0f7; } /* midnight/boundary ticks read stronger than the 3 h row */
-  /* 5M wind row: mph under each 3 h tick, mirroring the tick's anchor + left offset. The
-     shared 1.5em centred box keeps the h=0 labels aligned even when the wind is one digit. */
-  .day-wind { position: absolute; top: 48px; transform: translateX(-50%);
-              font: 600 10px/1 system-ui, -apple-system, sans-serif; color: #e8f0f7;
+  /* 5O wind row: mph under each 3 h tick, mirroring the tick's anchor + left offset. The
+     shared 20px centred box keeps the h=0 labels aligned despite the different font sizes. */
+  .day-wind { position: absolute; top: 33px; transform: translateX(-50%);
+              font: 700 12px/1 system-ui, -apple-system, sans-serif; color: #f8fafc;
               white-space: nowrap; font-variant-numeric: tabular-nums;
-              width: 1.5em; text-align: center; }
+              width: 20px; text-align: center; }
+  /* 5O wind heat ribbon: one continuous gradient per day block, flush along the bottom. */
+  .day-heat { position: absolute; left: 3px; right: 3px; bottom: 3px; height: 6px;
+              border-radius: 3px; }
   /* Stage 5L/5M: the wave colour bar lives in a non-interactive card at the map's bottom-left.
      Reid asked for bottom:78px, but the card's 78-111px band crosses the OSM attribution band
      (74-91px from the map's bottom, x 156-390) in x 156-176. Measured clearance at 98px is

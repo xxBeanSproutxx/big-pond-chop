@@ -389,7 +389,7 @@ check('paintRaster: calm water -> CALM_RGBA opaque (alpha 255), land -> transpar
   const img = { width: W, height: H, data: new Uint8ClampedArray(W * H * 4) };
   const ctx = { createImageData: () => img, putImageData: () => {} };
   paintRaster(ctx, raster, W, H, landFrac);
-  assert.deepStrictEqual(Array.from(img.data.slice(0, 4)), [6, 182, 212, 255], 'calm water');
+  assert.deepStrictEqual(Array.from(img.data.slice(0, 4)), [8, 145, 178, 255], 'calm water');
   assert.deepStrictEqual(Array.from(img.data.slice(4, 8)), [0, 0, 0, 0], 'land');
 });
 check('paintRaster: positive Hs still uses the colour ramp (opaque), no landFrac needed', () => {
