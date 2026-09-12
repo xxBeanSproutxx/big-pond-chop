@@ -172,7 +172,7 @@ def check_boot(page, port):
 
 
 def check_frame_base(page):
-    max_v = page.get_attribute("#scrub", "max")
+    max_v = page.get_attribute("#track", "aria-valuemax")
     step = page.evaluate("document.body.dataset.stepMin")
     page.click("#play")
     page.wait_for_timeout(120)  # let the play-width regather settle before sampling ticks
@@ -189,7 +189,7 @@ def check_frame_base(page):
     minutes_15 = all(int(h[14:16]) % 15 == 0 for h in hours)
     ok = max_v == "95" and step == "15" and distinct and minutes_15
     record(2, "frame base", ok,
-           "scrub.max=%s data-step-min=%s ticks=%d distinct=%s minutes%%15=%s"
+           "track.aria-valuemax=%s data-step-min=%s ticks=%d distinct=%s minutes%%15=%s"
            % (max_v, step, len(hours), distinct, minutes_15))
     print("        series: %s" % hours)
     return hours
@@ -427,7 +427,7 @@ def check_touch_ergonomics(page):
              return {
                rail: {x: rail.x, y: rail.y, w: rail.width, h: rail.height},
                track: {x: track.x, y: track.y, w: track.width, h: track.height},
-               n: parseInt(document.getElementById('scrub').max, 10) + 1,
+               n: parseInt(document.getElementById('track').getAttribute('aria-valuemax'), 10) + 1,
                play: {w: play.width, h: play.height},
              };
            }""")
@@ -449,19 +449,19 @@ def check_touch_ergonomics(page):
     during = page.evaluate(
         "() => ({ hidden: document.getElementById('time-pill').hidden,"
         " text: document.getElementById('time-pill').textContent,"
-        " idx: parseInt(document.getElementById('scrub').value, 10) })")
+        " idx: parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10) })")
     page.mouse.up()
     page.wait_for_timeout(200)
-    landed = int(page.evaluate("parseInt(document.getElementById('scrub').value, 10)"))
+    landed = int(page.evaluate("parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10)"))
     page.wait_for_timeout(1200)  # >1.2 s after release
     pill_after = page.evaluate("document.getElementById('time-pill').hidden")
     a_ok = abs(landed - expected) <= 1 and landed != start_idx
     b_ok = (during["hidden"] is False and bool(during["text"]) and pill_after is True)
     # (c) clicking #play is ignored by the scrub surface (index does not jump)
-    idx_before = int(page.evaluate("parseInt(document.getElementById('scrub').value, 10)"))
+    idx_before = int(page.evaluate("parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10)"))
     page.click("#play")
     page.wait_for_timeout(80)  # < PLAY_INTERVAL_MS, before the first tick
-    idx_after = int(page.evaluate("parseInt(document.getElementById('scrub').value, 10)"))
+    idx_after = int(page.evaluate("parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10)"))
     page.click("#play")        # back to paused
     page.wait_for_timeout(150)
     c_ok = idx_before == idx_after
@@ -477,7 +477,7 @@ def check_touch_ergonomics(page):
         """() => { var p = document.getElementById('time-pill').getBoundingClientRect();
              var t = document.getElementById('track').getBoundingClientRect();
              return { px: p.x, pw: p.width, tx: t.x, tw: t.width,
-                      idx: parseInt(document.getElementById('scrub').value, 10) }; }""")
+                      idx: parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10) }; }""")
     page.mouse.up()
     page.wait_for_timeout(1200)
     pill_in_track = (right["px"] >= right["tx"] - 0.5 and

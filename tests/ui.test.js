@@ -241,5 +241,22 @@ check('ramp gradient contains the six Hs stops in order', () => {
   console.log(`       ${g}`);
 });
 
+console.log('\n== [11] stage-5d dayLabel ==');
+check('short + long weekday from calendar math (no TZ-parse)', () => {
+  assert.strictEqual(ui.dayLabel('2026-09-11T00:00'), 'Fri 11');
+  assert.strictEqual(ui.dayLabel('2026-09-11T00:00', true), 'Friday 11');
+  assert.strictEqual(ui.dayLabel('2026-09-17T00:00'), 'Thu 17');
+  assert.strictEqual(ui.dayLabel('2026-09-17T00:00', true), 'Thursday 17');
+  assert.strictEqual(ui.dayLabel('2026-09-04T12:00'), 'Fri 4');
+  assert.strictEqual(ui.dayLabel('2026-09-04T12:00', true), 'Friday 4');
+  console.log(`       ${ui.dayLabel('2026-09-11T00:00')} / ${ui.dayLabel('2026-09-11T00:00', true)}`);
+});
+check('bad input -> empty string', () => {
+  for (const bad of ['', 'nonsense', null, undefined, '2026-13-45', '2026-02-30']) {
+    assert.strictEqual(ui.dayLabel(bad), '', `bad ${bad}`);
+    assert.strictEqual(ui.dayLabel(bad, true), '', `bad long ${bad}`);
+  }
+});
+
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);

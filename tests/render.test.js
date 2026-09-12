@@ -12,7 +12,7 @@ const {
   FRAME_MINUTES, targetWidth, landMaskRaster, smoothRaster,
   cacheKey, frameBytes, createFrameCache,
   playWidth, PLAY_MAX_WIDTH, revokeUrl, shouldPaintResult, offscreenSupported,
-  idxFromX, clampPillX,
+  idxFromX, clampPillX, dayPartitions, playStep, nextPlayIdx,
 } = require('../src/render');
 const ui = require('../src/ui');
 
@@ -122,15 +122,15 @@ check('stage-5b deck markup holds the frozen ids, drops the legend', () => {
   assert.ok(footer, 'missing <footer id="deck">');
   const ids = ['play', 'play-label', 'hour-label', 'deck-day', 'horizon', 'h-24h', 'h-7d',
     'track', 'track-label', 'track-days', 'track-ticks', 'track-rail', 'track-progress',
-    'now-tick', 'playhead', 'time-pill', 'scrub', 'ramp-bar', 'ramp-ticks'];
+    'now-tick', 'playhead', 'time-pill', 'ramp-bar', 'ramp-ticks'];
   for (const id of ids) assert.ok(footer[1].includes(`id="${id}"`), `deck missing #${id}`);
-  assert.ok(/\bid="scrub"[^>]*\bhidden/.test(footer[1]), '#scrub must stay as a hidden shim');
+  assert.ok(!footer[1].includes('id="scrub"'), '#scrub shim must be gone (5D)');
   assert.ok(!footer[1].includes('id="legend"'), '#legend must be gone from the deck');
   assert.ok(!footer[1].includes('id="readout"'), '#readout must be out of the deck');
   const ticks = footer[1].match(/id="ramp-ticks">([\s\S]*?)<\/div>/);
   assert.ok(ticks && ['0', '1', '2', '3.5', '4.5', '6+'].every((s) => ticks[1].includes(`<span>${s}</span>`)),
     'ramp ticks must list the six Hs stops');
-  console.log('       deck ids present, #scrub hidden shim, legend/readout out of deck');
+  console.log('       deck ids present, #scrub shim gone, legend/readout out of deck');
 });
 check('frame carries a water-only p10 at or below the lake max', () => {
   const entry = { speedMph: 30, dirTrueDeg: 315, tEffH: 8 };
@@ -292,6 +292,54 @@ check('clampPillX keeps the 64px pill inside the track at both ends', () => {
   assert.strictEqual(clampPillX(0, trackW), 4, 'left clamp');
   assert.strictEqual(clampPillX(trackW, trackW), trackW - 68, 'right clamp');
   console.log(`       frame0=4 last=${trackW - 68} mid=68`);
+});
+
+console.log('\n== [10] stage-5d: day partitions + 7-day cadence ==');
+function std7() {
+  const out = [];
+  for (let d = 0; d < 7; d++) {
+    const date = new Date(Date.UTC(2026, 8, 11 + d)).toISOString().slice(0, 10);
+    for (let i = 0; i < 96; i++) {
+      const h = Math.floor(i / 4), m = (i % 4) * 15;
+      out.push({ time: `${date}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}` });
+    }
+  }
+  return out;
+}
+const std = std7();
+check('standard 672-frame shape -> 7 partitions at 0..576', () => {
+  const p = dayPartitions(std);
+  assert.strictEqual(p.length, 7);
+  assert.deepStrictEqual(p.map((x) => x.index), [0, 96, 192, 288, 384, 480, 576]);
+  assert.deepStrictEqual(p.map((x) => x.date),
+    ['2026-09-11', '2026-09-12', '2026-09-13', '2026-09-14', '2026-09-15', '2026-09-16', '2026-09-17']);
+  console.log(`       ${p.map((x) => `${x.date}@${x.index}`).join(' ')}`);
+});
+check('uneven day lengths 5/4/6 -> indices [0,5,9] (string-derived, not /96)', () => {
+  const mk = (date, k) => Array.from({ length: k }, (_, i) => ({
+    time: `${date}T${String(i).padStart(2, '0')}:00`,
+  }));
+  const entries = [...mk('2026-09-11', 5), ...mk('2026-09-12', 4), ...mk('2026-09-13', 6)];
+  assert.deepStrictEqual(dayPartitions(entries).map((x) => x.index), [0, 5, 9]);
+});
+check('single 96-frame day -> one partition', () => {
+  const p = dayPartitions(std.slice(0, 96));
+  assert.strictEqual(p.length, 1);
+  assert.strictEqual(p[0].index, 0);
+});
+check('playStep + nextPlayIdx wrap cleanly at the 7-day boundary', () => {
+  assert.strictEqual(playStep('7d'), 4);
+  assert.strictEqual(playStep('24h'), 1);
+  assert.strictEqual(nextPlayIdx(671, 4, 672), 3);
+  assert.strictEqual(nextPlayIdx(668, 4, 672), 0);
+  assert.strictEqual(nextPlayIdx(95, 1, 96), 0);
+});
+check('#scrub shim is gone; timeline containers present', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  assert.ok(!/\bid="scrub"/.test(html), '#scrub must be gone');
+  for (const id of ['track-days', 'track-ticks', 'track-label', 'deck-day', 'h-24h', 'h-7d']) {
+    assert.ok(html.includes(`id="${id}"`), `missing #${id}`);
+  }
 });
 
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);
