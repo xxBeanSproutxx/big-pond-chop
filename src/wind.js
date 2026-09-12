@@ -187,6 +187,17 @@ function selectDay(series, dateStr) {
   return day;
 }
 
+// Stage 5D: the head run of entries sharing the first entry's local date. Lets the
+// 7d->24h narrow slice the in-memory series with zero refetch. Empty in -> empty out.
+function firstDaySlice(entries) {
+  const list = entries || [];
+  if (!list.length) return [];
+  const date = list[0].time.slice(0, 10);
+  let k = 1;
+  while (k < list.length && list[k].time.slice(0, 10) === date) k++;
+  return list.slice(0, k);
+}
+
 // Calendar-day arithmetic on a 'YYYY-MM-DD' (America/Chicago local) date string.
 function addDays(dateStr, n) {
   const ms = Date.parse(`${dateStr}T00:00:00Z`) + n * 86400000;
@@ -294,4 +305,5 @@ module.exports = {
   DEFAULT_POINT, API, gammaToGrid, bearingDelta, lerpAngle, computeTeff, seedTeff,
   buildSeries, buildSeriesFrom, interpolate15, expandHourlyVector,
   chicagoNow, selectDay, selectRange, currentIndex, buildUrl, fetchWind, pointFromQuery, ingest,
+  firstDaySlice,
 };

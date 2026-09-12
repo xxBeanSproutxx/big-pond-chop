@@ -92,6 +92,29 @@ function clampPillX(xLocal, trackW, pillW = 64, pad = 4) {
   return Math.min(Math.max(xLocal - pillW / 2, pad), trackW - pad - pillW);
 }
 
+// ---- stage 5D: timeline partitions + 7-day playback cadence (pure helpers) ----
+// One entry per maximal run of equal local date, index = first frame of the run.
+// Derived from the date strings only — never floor(i / framesPerDay).
+function dayPartitions(entries) {
+  const list = entries || [];
+  const parts = [];
+  let prev = null;
+  for (let i = 0; i < list.length; i++) {
+    const date = String(list[i].time).slice(0, 10);
+    if (date !== prev) { parts.push({ date, index: i }); prev = date; }
+  }
+  return parts;
+}
+
+// 7-day horizon steps 4 frames (1 h) per play tick; 24 h steps 1.
+function playStep(horizon) {
+  return horizon === '7d' ? 4 : 1;
+}
+
+function nextPlayIdx(cur, step, n) {
+  return n > 0 ? (cur + step) % n : 0;
+}
+
 function bilinearSample(field, cols, rows, colF, rowF) {
   const cx = colF < 0 ? 0 : colF > cols - 1 ? cols - 1 : colF;
   const ry = rowF < 0 ? 0 : rowF > rows - 1 ? rows - 1 : rowF;
@@ -301,14 +324,19 @@ async function mount(deps) {
   const body = document.body;
   const canvas = document.getElementById('field');
   const cctx = canvas.getContext('2d');
-  const scrub = document.getElementById('scrub');
   const deck = document.getElementById('deck');
   const trackEl = document.getElementById('track');
   const trackRail = document.getElementById('track-rail');
   const trackProgress = document.getElementById('track-progress');
+  const trackDays = document.getElementById('track-days');
+  const trackTicks = document.getElementById('track-ticks');
+  const trackLabel = document.getElementById('track-label');
+  const deckDay = document.getElementById('deck-day');
   const playhead = document.getElementById('playhead');
   const timePill = document.getElementById('time-pill');
   const nowTick = document.getElementById('now-tick');
+  const h24Btn = document.getElementById('h-24h');
+  const h7Btn = document.getElementById('h-7d');
   const label = document.getElementById('hour-label');
   const windEl = document.getElementById('wind-info');
   const frameEl = document.getElementById('frame-info');
@@ -332,6 +360,35 @@ async function mount(deps) {
   const q = new URLSearchParams(location.search);
   const point = wind.pointFromQuery(location.search);
   const DEFAULT_HINT = 'tap the lake for a local readout';
+
+  // ---- stage 5D: horizon state (never let storage throw-crash boot) ----
+  const HORIZON_KEY = 'bpc.horizon';
+  function readStoredHorizon() {
+    try {
+      const v = localStorage.getItem(HORIZON_KEY);
+      return v === '7d' || v === '24h' ? v : null;
+    } catch (err) { return null; }
+  }
+  function storeHorizon(h) {
+    try { localStorage.setItem(HORIZON_KEY, h); } catch (err) { /* private mode */ }
+  }
+  function queryHorizon() {
+    const v = q.get('h');
+    return v === '7d' || v === '24h' ? v : null;
+  }
+  let horizon = queryHorizon() || readStoredHorizon() || '24h';
+  // Resolved horizon is written to both the store and the URL, ?h= merged over existing params.
+  function persistHorizon(h) {
+    horizon = h;
+    storeHorizon(h);
+    const params = new URLSearchParams(location.search);
+    params.set('h', h);
+    history.replaceState(null, '', `${location.pathname}?${params.toString()}${location.hash}`);
+  }
+  function setHorizonPressed(h) {
+    h24Btn.setAttribute('aria-pressed', h === '24h' ? 'true' : 'false');
+    h7Btn.setAttribute('aria-pressed', h === '7d' ? 'true' : 'false');
+  }
 
   const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   if (reducedMotion) body.classList.add('reduced-motion');
@@ -440,6 +497,9 @@ async function mount(deps) {
   let frames = [];
   let stepMin = 15;
   let cur = 0;
+  let full7d = null;      // cached '7d' ingest result for the zero-fetch narrow
+  let widening = false;   // re-entry guard while the 7-day fetch is in flight
+  let applied = false;    // true after the first successful applyWindData (boot overrides)
   let pinned = null;
   let pin = null;
   let playing = false;
@@ -520,6 +580,55 @@ async function mount(deps) {
     trackW = trackEl.getBoundingClientRect().width;
   }
 
+  // ---- stage 5D: timeline DOM ----
+  function isLongLabel() { return window.innerWidth >= 414; }
+  // Same rail mapping as the playhead: 11 px inset each side of the track.
+  function railXFor(index, n) { return 11 + (n > 1 ? index / (n - 1) : 0) * (trackW - 22); }
+
+  function renderTimeline() {
+    trackDays.textContent = '';
+    trackTicks.textContent = '';
+    trackLabel.textContent = horizon === '7d' ? '7 day · hourly → 15 min' : '24 h · 15 min';
+    if (!frames.length || !trackW) return;
+    const n = frames.length;
+    const long = isLongLabel();
+    const parts = dayPartitions(frames);
+    for (const p of parts) {
+      const wrap = document.createElement('div');
+      wrap.className = 'day-div';
+      wrap.style.left = `${railXFor(p.index, n)}px`;
+      const lab = document.createElement('span');
+      lab.className = 'day-lab';
+      lab.textContent = ui.dayLabel(frames[p.index].time, long);
+      wrap.appendChild(lab);
+      trackDays.appendChild(wrap);
+    }
+    if (window.innerWidth >= 768) {
+      for (let i = 0; i < n; i++) {
+        if (frames[i].time.slice(14, 16) !== '00') continue;
+        const tick = document.createElement('div');
+        tick.className = 'hour-tick';
+        tick.style.left = `${railXFor(i, n)}px`;
+        trackTicks.appendChild(tick);
+      }
+    } else if (horizon === '7d' && parts.length >= 3) {
+      const left = railXFor(parts[2].index, n);
+      const hatch = document.createElement('div');
+      hatch.className = 'blend-hatch';
+      hatch.setAttribute('aria-hidden', 'true');
+      hatch.style.left = `${left}px`;
+      hatch.style.width = `${railXFor(n - 1, n) - left}px`;
+      trackTicks.appendChild(hatch);
+    }
+  }
+
+  // Re-render on resize (debounced); the rail rect is refreshed by the caller first.
+  let timelineTimer = null;
+  function scheduleTimeline() {
+    if (timelineTimer) clearTimeout(timelineTimer);
+    timelineTimer = setTimeout(() => { timelineTimer = null; renderTimeline(); }, 100);
+  }
+
   function schedulePillHide() {
     if (pillHideTimer) clearTimeout(pillHideTimer);
     pillHideTimer = setTimeout(() => {
@@ -543,7 +652,8 @@ async function mount(deps) {
     if (scrubbing || playing || pillHideTimer) timePill.hidden = false;
     else timePill.hidden = true;
     trackEl.setAttribute('aria-valuenow', String(idx));
-    trackEl.setAttribute('aria-valuetext', ui.formatClockLocal(frames[idx].time));
+    trackEl.setAttribute('aria-valuetext',
+      `${ui.formatClockLocal(frames[idx].time)}, ${ui.dayLabel(frames[idx].time, true)}`);
   }
 
   function scrubTo(clientX) {
@@ -721,9 +831,9 @@ async function mount(deps) {
     body.dataset.windMph = e.speedMph.toFixed(1);
     body.dataset.bearingGrid = e.bearingGrid.toFixed(3);
     body.dataset.teffH = e.tEffH.toFixed(2);
-    scrub.value = String(cur);
     updateScrubUi(cur);
     label.textContent = ui.formatClockLocal(e.time);
+    deckDay.textContent = ui.dayLabel(e.time, isLongLabel());
     windEl.textContent = ui.windLine(e.speedMph, e.gustMph);
     frameEl.textContent = `H/L ${s.hlMax.toFixed(3)}`;
     const c = ui.compass(e.dirTrueDeg, e.speedMph);
@@ -749,7 +859,7 @@ async function mount(deps) {
     verdictRange.textContent = headline.range;
     verdictPeak.textContent = headline.peak;
     if (pinned) updatePinned();
-    if (playing && frames.length > 1) prefetch((cur + 1) % frames.length);
+    if (playing && frames.length > 1) prefetch(nextPlayIdx(cur, playStep(horizon), frames.length));
   }
 
   // Warm the next play frame during idle time so the 3 fps loop never waits on a cold build.
@@ -784,7 +894,7 @@ async function mount(deps) {
       regather(); // switch to the play-width class before the first tick
       timer = setInterval(() => {
         if (!frames.length) return;
-        requestFrame((cur + 1) % frames.length);
+        requestFrame(nextPlayIdx(cur, playStep(horizon), frames.length));
       }, PLAY_INTERVAL_MS);
     } else if (timer) {
       clearInterval(timer);
@@ -815,15 +925,11 @@ async function mount(deps) {
     if (readoutTimer) clearTimeout(readoutTimer);
     readoutTimer = setTimeout(() => { readout.textContent = DEFAULT_HINT; }, 2000);
   }
-  scrub.addEventListener('input', () => {
-    pause();
-    requestFrame(parseInt(scrub.value, 10));
-  });
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
   playBtn.addEventListener('click', () => setPlaying(!playing));
   document.getElementById('card-close').addEventListener('click', dismissPin);
-  window.addEventListener('resize', () => { refreshRailRect(); scheduleRegather(); });
-  window.addEventListener('orientationchange', refreshRailRect);
+  window.addEventListener('resize', () => { refreshRailRect(); scheduleRegather(); scheduleTimeline(); });
+  window.addEventListener('orientationchange', () => { refreshRailRect(); scheduleTimeline(); });
   // test hook: same handler the map click uses
   window.__bpcTap = (lat, lon) => placePin(L.latLng(lat, lon));
 
@@ -835,27 +941,29 @@ async function mount(deps) {
     const d = desiredDims();
     if (d.W !== canvas.width || d.H !== canvas.height) { canvas.width = d.W; canvas.height = d.H; }
     console.info(`lazy frames: ${frames.length} @ ${stepMin} min`);
-    scrub.min = '0';
-    scrub.max = String(Math.max(0, frames.length - 1));
     trackEl.setAttribute('aria-valuemax', String(Math.max(0, frames.length - 1)));
     refreshRailRect();
+    renderTimeline();
+    // Query overrides apply only to the first (boot) ingest; toggles/refresh snap to now.
+    const bootOverride = !applied && (q.has('hour') || q.has('frame'));
+    applied = true;
+    const nowIdx = Number.isFinite(data.currentIndex) ? data.currentIndex : 0;
     // The now-tick marks the real "now"; an explicit ?hour=/?frame= override hides it.
     if (!q.has('hour') && !q.has('frame') && frames.length) {
-      const nowIdx = Number.isFinite(data.currentIndex) ? data.currentIndex : 0;
-      const pct = frames.length > 1 ? (nowIdx / (frames.length - 1)) * 100 : 0;
-      nowTick.style.left = `${pct}%`;
+      nowTick.style.left = `${railXFor(nowIdx, frames.length)}px`;
+      nowTick.style.transform = 'translateX(-50%)';
       nowTick.hidden = false;
     } else {
       nowTick.hidden = true;
     }
     let start;
-    if (q.has('hour')) {
+    if (bootOverride && q.has('hour')) {
       const hh = String(parseInt(q.get('hour'), 10)).padStart(2, '0');
       start = frames.findIndex((e) => e.time.slice(11, 13) === hh);
-    } else if (q.has('frame')) {
+    } else if (bootOverride && q.has('frame')) {
       start = parseInt(q.get('frame'), 10);
     } else {
-      start = data.currentIndex;
+      start = nowIdx;
     }
     showFrame(Number.isFinite(start) && start >= 0 ? start : 0);
   }
@@ -865,7 +973,8 @@ async function mount(deps) {
     hideNote();
     boot('Loading wind…', null);
     try {
-      const data = await wind.ingest({ point, gamma });
+      const data = await wind.ingest({ point, gamma, horizon });
+      if (horizon === '7d') full7d = data;
       applyWindData(data);
     } catch (err) {
       console.error(err);
@@ -873,6 +982,45 @@ async function mount(deps) {
       showNote('wind unavailable — retry', refreshWind);
     }
   }
+
+  // 24h -> 7d: fetch the wide window once, cache it, then apply.
+  async function widenHorizon() {
+    if (widening || horizon === '7d') return;
+    widening = true;
+    pause();
+    hideNote();
+    boot('Loading 7-day wind…', null);
+    try {
+      const data = await wind.ingest({ point, gamma, horizon: '7d' });
+      full7d = data;
+      persistHorizon('7d');
+      setHorizonPressed('7d');
+      applyWindData(data);
+    } catch (err) {
+      console.error(err);
+      hideBoot();
+      showNote('wind unavailable — retry', widenHorizon);
+    } finally {
+      widening = false;
+    }
+  }
+
+  // 7d -> 24h: slice the in-memory 7-day series; ZERO network on this path.
+  function narrowHorizon() {
+    if (horizon !== '7d' || !full7d) return;
+    pause();
+    const data = Object.assign({}, full7d, {
+      day: wind.firstDaySlice(full7d.day), horizon: '24h',
+    });
+    persistHorizon('24h');
+    setHorizonPressed('24h');
+    applyWindData(data);
+  }
+
+  h24Btn.addEventListener('click', () => { if (horizon !== '24h') narrowHorizon(); });
+  h7Btn.addEventListener('click', () => { if (horizon !== '7d') widenHorizon(); });
+  setHorizonPressed(horizon);
+  persistHorizon(horizon); // resolved horizon -> storage + URL (replaceState)
 
   // Full boot: map data first (streamed), then wind. Each step retries itself.
   async function bootMap() {
@@ -900,5 +1048,5 @@ module.exports = {
   bilinearSample, gatherRaster, hmaxFt, computeFrame, paintRaster,
   landMaskRaster, smoothRaster, cacheKey, frameBytes, createFrameCache, mount,
   offscreenSupported, revokeUrl, shouldPaintResult, encodeOffscreen,
-  idxFromX, clampPillX,
+  idxFromX, clampPillX, dayPartitions, playStep, nextPlayIdx,
 };

@@ -223,6 +223,22 @@ function formatClockLocal(isoLocal) {
   }).format(new Date(epoch));
 }
 
+// ---- Stage 5D: day label from a local ISO string ----
+// Weekday comes from calendar math alone (Date.UTC noon + getUTCDay); never a
+// TZ-parse of the full string, which would shift the date near midnight.
+const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DOW_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// '2026-09-11T00:00' -> 'Fri 11' (long = false) / 'Friday 11' (long = true). '' on bad input.
+function dayLabel(isoLocal, long) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(isoLocal == null ? '' : isoLocal));
+  if (!m) return '';
+  const y = +m[1], mo = +m[2], d = +m[3];
+  const dt = new Date(Date.UTC(y, mo - 1, d, 12));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return '';
+  return `${(long ? DOW_LONG : DOW_SHORT)[dt.getUTCDay()]} ${d}`;
+}
+
 module.exports = {
   HS_STOPS, HS_BREAKS, OVERLAY_OPACITY,
   colorForHs, rgbForHs, rampGradient, percentile, p10,
@@ -230,4 +246,5 @@ module.exports = {
   nameSpot, describePin, sectorPhrase, sectorName, shortPlace, formatHeadline,
   FEATURE_RADIUS_M, SHORE_RADIUS_M,
   CALM_MPH, normalizeDeg, windLine, compass, comfortTier, formatClockLocal,
+  dayLabel,
 };

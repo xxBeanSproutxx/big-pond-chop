@@ -122,6 +122,18 @@
   #time-pill::after { content: ""; position: absolute; left: 50%; top: 100%; width: 2px; height: 12px;
                       margin-left: -1px; background: #ffd166; }
   #track-label, #track-days, #track-ticks { position: absolute; pointer-events: none; }
+  /* Stage 5D timeline: dividers + day labels, hourly ticks (>=768) or blend hatch (<768). */
+  #track-label { top: 3px; left: 11px; font-size: 9px; line-height: 1; color: #6f93b0;
+                 letter-spacing: .2px; }
+  #track-days, #track-ticks { inset: 0; }
+  .day-div { position: absolute; top: 26px; height: 26px; width: 1px; background: #33506b;
+             pointer-events: none; }
+  .day-div .day-lab { position: absolute; left: 0; bottom: 0; transform: translateX(-50%);
+                      font-size: 9px; line-height: 1; color: #6f93b0; white-space: nowrap; }
+  .hour-tick { position: absolute; top: 27px; width: 1px; height: 3px; background: #5b7a97;
+               opacity: .7; pointer-events: none; }
+  .blend-hatch { position: absolute; top: 3px; bottom: 3px; pointer-events: none; opacity: .45;
+                 background: repeating-linear-gradient(45deg, transparent 0 3px, #33506b 3px 4px); }
   #ramp-bar  { flex: 0 0 12px; height: 12px; border-radius: 3px; border: 1px solid #33506b; }
   #ramp-ticks{ flex: 0 0 13px; line-height: 13px; display: flex; justify-content: space-between; font-size: 10px; color: #9fc3dd; }
   #track:focus-visible { outline: 2px solid #ffd166; outline-offset: -2px; }
@@ -231,7 +243,6 @@
       <div id="now-tick" hidden></div>
       <div id="playhead"></div>
       <div id="time-pill" hidden>—</div>
-      <input id="scrub" type="range" min="0" max="23" step="1" hidden>
     </div>
 
     <div class="deck-row deck-ramp">
