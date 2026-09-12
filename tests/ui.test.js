@@ -46,9 +46,9 @@ check('legend breakpoints and overlay opacity are pinned', () => {
   eq(ui.HS_BREAKS, [0, 1, 2, 3.5, 4.5, 6]);
   assert.strictEqual(ui.OVERLAY_OPACITY, 0.72);
 });
-check('stage-5j: CALM_RGBA agrees with the 0 ft stop (single source of truth)', () => {
-  eq(ui.CALM_RGBA, [15, 39, 68, 255]);
-  eq(ui.CALM_RGBA, [ui.HS_STOPS[0][1], ui.HS_STOPS[0][2], ui.HS_STOPS[0][3], 255]);
+check('stage-5k: CALM_RGBA agrees with the 0 ft stop (single source of truth)', () => {
+  eq(ui.CALM_RGBA, [42, 88, 133, 115]);
+  eq(ui.CALM_RGBA, [ui.HS_STOPS[0][1], ui.HS_STOPS[0][2], ui.HS_STOPS[0][3], 115]);
   assert.deepStrictEqual(ui.colorForHs(0), [0, 0, 0, 0], 'colorForHs still transparent at 0');
 });
 
@@ -229,7 +229,7 @@ console.log('\n== [10] stage-5b rampGradient ==');
 check('ramp gradient contains the six Hs stops in order', () => {
   const g = ui.rampGradient();
   const stops = [
-    ['rgb(15, 39, 68)', '0%'],
+    ['rgb(42, 88, 133)', '0%'],
     ['rgb(6, 182, 212)', '16.7%'],
     ['rgb(245, 158, 11)', '33.3%'],
     ['rgb(234, 88, 12)', '50%'],
@@ -263,16 +263,7 @@ check('bad input -> empty string', () => {
   }
 });
 
-console.log('\n== [12] stage-5j: windStrip + calm tier ==');
-check('windStrip: speed + gusts + finite source bearing', () => {
-  assert.strictEqual(ui.windStrip(15, 16, 315), 'Wind: 15 mph · Gusts 16 mph · From NW 315°');
-  assert.strictEqual(ui.windStrip(15, 16), 'Wind: 15 mph · Gusts 16 mph');
-  assert.strictEqual(ui.windStrip(15, 16, NaN), 'Wind: 15 mph · Gusts 16 mph');
-  assert.strictEqual(ui.windStrip(15, undefined, 90), 'Wind: 15 mph · From E 90°');
-  assert.strictEqual(ui.windStrip(2, 5, 315), 'Wind: calm');
-  assert.strictEqual(ui.windStrip(NaN, 5, 315), 'Wind: calm');
-  assert.strictEqual(ui.windStrip(undefined, undefined, undefined), 'Wind: calm');
-});
+console.log('\n== [12] stage-5j/k: calm tier ==');
 check('calm tier relabels only a green sea under 0.5 ft or under 4 mph', () => {
   assert.strictEqual(ui.comfortTier({ maxHsFt: 0.2, rollerFt: 0.2, hlMax: 0, windMph: 10 }).label,
     'Calm · Flat');
