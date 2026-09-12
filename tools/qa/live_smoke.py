@@ -58,9 +58,12 @@ def main():
                     pillText: pill.textContent, pillHidden: pill.hasAttribute('hidden'),
                     pillVisible: pr.width > 0 && pr.height > 0,
                     pillAboveBar: pr.bottom <= tl.top + 12,
-                    playInside: play.x >= track.x - 1 && play.x - track.x <= 2 &&
-                                play.right <= track.right + 1,
-                    tlStartsAfterPlay: tl.x >= play.right - 1,
+                    pillCentred: Math.abs((pr.x + pr.width / 2) - (tl.x + tl.width / 2)) <= 1,
+                    playOverlay: play.x >= track.x - 1 && (play.x - track.x) <= 56 &&
+                                 Number(getComputedStyle(document.getElementById('play')).zIndex) >= 10,
+                    tapeW: document.getElementById('track-tape').getBoundingClientRect().width,
+                    tapeInTimeline: document.getElementById('track-tape').parentElement
+                                    === document.getElementById('timeline'),
                     rampFlush: Math.abs(ramp.bottom - deck.bottom) <= 2,
                     blocks: blocks.length,
                     header: blocks.length ? blocks[0].querySelector('.day-head').textContent : '',
@@ -75,8 +78,10 @@ def main():
             "deckH=%.1f blocks=%d absent=%s" % (v["deckH"], v["blocks"], v["absent"]))
         rec("pill permanent", v["pillVisible"] and not v["pillHidden"] and bool(v["pillText"].strip()),
             "text='%s' hidden=%s above-bar=%s" % (v["pillText"], v["pillHidden"], v["pillAboveBar"]))
-        rec("play embedded", v["playInside"] and v["tlStartsAfterPlay"],
-            "playInside=%s timelineAfterPlay=%s" % (v["playInside"], v["tlStartsAfterPlay"]))
+        rec("reticle centred", v["pillCentred"], "pill centre == timeline centre (<=1px)")
+        rec("play pinned", v["playOverlay"], "play overlays the window's left edge, z-index>=10")
+        rec("tape wired", v["tapeInTimeline"] and v["tapeW"] >= 300,
+            "tape=%.0f px inside #timeline=%s" % (v["tapeW"], v["tapeInTimeline"]))
         rec("ribbon flush", v["rampFlush"], "ramp/deck delta ok=%s" % v["rampFlush"])
         rec("day header", bool(v["header"].strip()), "block0 header='%s' subs=%s" % (v["header"], v["subs"]))
 
@@ -91,10 +96,14 @@ def main():
             return {n: blocks.length,
                     headers: blocks.map(b => b.querySelector('.day-head').textContent),
                     alternating: bgs.every((c, i) => i === 0 || c !== bgs[i - 1]),
+                    subs: blocks.map(b => b.querySelectorAll('.day-sub').length),
+                    tapeW: document.getElementById('track-tape').getBoundingClientRect().width,
                     boot: document.getElementById('boot').classList.contains('hidden')};
         }""")
-        rec("7 day live", w["n"] == 7 and w["alternating"] and w["boot"],
-            "blocks=%d alt=%s boot-hidden=%s" % (w["n"], w["alternating"], w["boot"]))
+        rec("7 day live", w["n"] == 7 and w["alternating"] and w["boot"] and 1100 <= w["tapeW"] <= 1400
+            and all(c == 8 for c in w["subs"]),
+            "blocks=%d alt=%s boot-hidden=%s tape=%.0f sub-labels=%s"
+            % (w["n"], w["alternating"], w["boot"], w["tapeW"], w["subs"]))
         print("       headers: %s" % " | ".join(w["headers"]))
 
         page.click("#h-24h")

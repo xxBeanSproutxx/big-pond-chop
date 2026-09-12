@@ -194,3 +194,77 @@ All under `tmp/s5g-shots/`:
  tools/qa/stage5_check.py | 380 ++++++++++++++++++++++++++++++++---------------
  4 files changed, 383 insertions(+), 242 deletions(-)
 ```
+
+---
+
+## Orchestrator verification (independent of the build agent)
+
+Re-run on the **merged main tree** after `git merge --no-ff stage5g` (merge commit `a88cac4`):
+
+```
+SUMMARY: 22 ok, 0 FAIL
+page errors: 0 []
+```
+
+Four Node suites re-run directly: `parity`, `wind`, `render`, `ui` — `ALL TESTS PASSED` each.
+Engine files (`src/wave-math.js`, `src/wind.js`, `src/tables.js`, `src/ui.js`, `public/*`) — **zero diff**.
+
+### Frame audit — `tools/qa/tape_audit.py` (new; records video + samples the geometry 10×/s)
+
+The point of this stage is *motion*, so the gate is a recording, not a still. The audit drives
+playback → forward drag → rewind drag → 7-day widen → mid-tape scrub, records the session and
+samples `window centre / pill centre / tape left` throughout.
+
+Run against the **deployed site** (`https://xxbeansproutxx.github.io/big-pond-chop/`):
+
+```
+video: tmp/live-audit-5g/tape.webm (1.1 MB)
+mp4:   tmp/live-audit-5g/tape.mp4 (0.3 MB)
+frames: 21 PNGs at 2 fps
+reticle fixed              ok     pill minus window centre spread=0.00 px over 52 samples
+tape moves on play         ok     tape left moved -132.5 px, idx 86 -> 94 during playback
+drag left advances         ok     idx 31 -> 70 on -150 px drag
+drag right rewinds         ok     idx 70 -> 44 on +100 px drag
+7d tape wide               ok     tape width 1330 px at 7 day
+SUMMARY: 5 ok, 0 FAIL
+```
+
+`0.00 px` over 52 samples is the whole claim: **the reticle does not move; the tape does.**
+Drag arithmetic checks out exactly — 150 px ÷ 3.8958 px/frame = 38.5 frames (31 → 70),
+100 px ÷ 3.8958 = 25.7 frames (70 → 44).
+
+Frame-by-frame read of the recording (vision audit of extracted frames): the pill sits centred in
+the bar in both horizons; at 7 day the tape scrolls `Friday 11 | Saturday 12 …` past the reticle
+with the full `12 03 06 09` sub-row on every day; the NOW hairline is visible inside the tape; the
+play glyph stays pinned on the left edge (pause bars during playback, with a dark scrim behind it)
+while the day header passes underneath. No clipped or overlapping labels.
+
+## Production deployment (stage 5G)
+
+- **Push.** `git push origin main`: `809d84d..6d6f13e` (spec → 5G → merge → audit tool),
+  2026-09-12 02:5x UTC. Rollback tag `pre-stage5g` (`809d84d`, last 5F.1 deploy) pushed to origin.
+- **GitHub Pages build.** `pages/builds/latest`: `status=built`, commit `6d6f13e`,
+  `duration=37592 ms`, `error.message = null`; 10/10 spot-checked assets HTTP 200.
+- **Live smoke — `tools/qa/live_smoke.py` (updated to the 5G contract), 10 ok / 0 FAIL:**
+
+```text
+deck two-row             ok     deckH=68.0 blocks=1 absent=True
+pill permanent           ok     text='9:30 PM' hidden=False above-bar=True
+reticle centred          ok     pill centre == timeline centre (<=1px)
+play pinned              ok     play overlays the window's left edge, z-index>=10
+tape wired               ok     tape=374 px inside #timeline=True
+ribbon flush             ok     ramp/deck delta ok=True
+day header               ok     block0 header='Friday 11' subs=['12', '03', '06', '09', '12', '03', '06', '09']
+7 day live               ok     blocks=7 alt=True boot-hidden=True tape=1330 sub-labels=[8, 8, 8, 8, 8, 8, 8]
+back to 24 h             ok     aria-valuemax=95
+no page errors           ok     errors=0 []
+SUMMARY: 10 ok, 0 FAIL  (https://xxbeansproutxx.github.io/big-pond-chop/)
+```
+
+### Notes for the next session
+
+- `live_smoke.py`'s old "play embedded" assertion (`#timeline` starts after the play button) is
+  **invalid from 5G on**: the play button overlays the window. It now asserts the overlay geometry
+  (`0 ≤ playX − trackX ≤ 56`, `z-index ≥ 10`).
+- The 24 h tape ends at the "now" frame. Any audit that wants a forward drag must rewind first,
+  or it starts clamped at the last frame (this bit the first run of `tape_audit.py`).
