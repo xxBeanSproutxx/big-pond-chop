@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Big Pond Chop | Mille Lacs Lake Wave Forecast</title>
 <meta property="og:title" content="Big Pond Chop | Mille Lacs Lake Wave Forecast" />
 <meta property="og:description" content="Live depth-aware wave heights, peak rollers, and hourly forecast loop for Mille Lacs Lake." />
@@ -79,28 +79,53 @@
   #boot.indeterminate #boot-bar { width: 40%; animation: boot-slide 1.1s ease-in-out infinite; }
   @keyframes boot-slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
   body.reduced-motion #boot.indeterminate #boot-bar { animation: none; width: 100%; opacity: .55; }
-  /* Legend lives in the footer strip: it must never cover lake water (the north shore
-     takes the biggest rollers on south winds, and that is exactly where it used to sit). */
-  #legend { padding: 0 0 6px; }
-  #legend .bar { width: 100%; height: 10px; border-radius: 3px; margin: 0 0 2px;
-                 border: 1px solid #33506b; }
-  #legend .row { display: flex; justify-content: space-between; font-size: 10px;
-                 color: #9fc3dd; font-variant-numeric: tabular-nums; }
-  footer { padding: 8px 12px 12px; background: #10263a; }
-  #hour-label { font-size: 12px; color: #9fc3dd; font-variant-numeric: tabular-nums; }
-  #controls { display: flex; align-items: center; gap: 8px; margin: 6px 0; touch-action: none; }
-  #scrub-wrap { position: relative; flex: 1 1 auto; display: flex; align-items: center; min-width: 0; }
-  #scrub { width: 100%; height: 48px; margin: 0; background: transparent;
-           -webkit-appearance: none; appearance: none; touch-action: none; }
-  #scrub::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: #33506b; }
-  #scrub::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 28px;
-           height: 28px; margin-top: -11px; border-radius: 50%; background: #ffd166;
-           border: 2px solid #10263a; }
-  #scrub::-moz-range-track { height: 6px; border-radius: 3px; background: #33506b; }
-  #scrub::-moz-range-thumb { width: 28px; height: 28px; border: 2px solid #10263a;
-           border-radius: 50%; background: #ffd166; }
-  #now-tick { position: absolute; top: 50%; left: 0; width: 2px; height: 28px; margin-top: -14px;
-              background: #ffd166; pointer-events: none; z-index: 2; box-shadow: 0 0 0 1px rgba(13,27,42,.6); }
+  /* Unified playback deck (stage 5B): static geometry only — pointer events, timeline
+     population and horizon logic arrive in 5C/5D. 48 + 52 + 22 px rows + 8 px vertical
+     padding = 130 px. The ramp row replaces the old legend strip (same 6 Hs stops). */
+  :root { --deck-h: 130px; }
+  body { height: 100vh; height: 100dvh; }
+  #deck {
+    flex: 0 0 auto;
+    height: calc(var(--deck-h) + env(safe-area-inset-bottom, 0px));
+    padding: 4px 8px;
+    padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
+    background: #10263a; overflow: hidden;
+    touch-action: none;
+    user-select: none; -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
+  }
+  .deck-row  { overflow: hidden; }
+  .deck-main { height: 48px; display: flex; align-items: center; gap: 8px; }
+  .deck-track{ height: 52px; position: relative; }
+  .deck-ramp { height: 22px; display: flex; flex-direction: column; gap: 2px; }
+  #horizon { display: flex; gap: 8px; margin-left: auto; }
+  #horizon button { min-height: 44px; min-width: 56px; background: #1d4e6f; color: #e8f0f7;
+                    border: 0; border-radius: 6px; font: inherit; touch-action: manipulation; }
+  #horizon button[aria-pressed="true"] { background: #ffd166; color: #10263a; }
+  .deck-status { display: flex; flex-direction: column; min-width: 0; }
+  #hour-label { font-size: 12px; color: #9fc3dd; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #deck-day   { font-size: 10px; color: #6f93b0; white-space: nowrap; }
+  #track-rail     { position: absolute; left: 11px; right: 11px; top: 30px; height: 6px;
+                    border-radius: 3px; background: #33506b; }
+  #track-progress { position: absolute; left: 11px; right: 11px; top: 30px; height: 6px;
+                    border-radius: 3px; background: #1d4e6f;
+                    transform-origin: left center; transform: scaleX(0); }
+  #now-tick       { position: absolute; top: 12px; height: 28px; width: 2px; background: #ffd166;
+                    box-shadow: 0 0 0 1px rgba(13,27,42,.6); pointer-events: none; }
+  #playhead       { position: absolute; top: 22px; width: 22px; height: 22px; border-radius: 50%;
+                    background: #ffd166; border: 2px solid #10263a; pointer-events: none; }
+  #time-pill      { position: absolute; top: 0; width: 64px; height: 20px; line-height: 20px;
+                    border-radius: 10px; background: #ffd166; color: #10263a;
+                    font: 600 12px/20px system-ui, -apple-system, sans-serif;
+                    font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap;
+                    pointer-events: none; box-shadow: 0 2px 6px rgba(0,0,0,.45); }
+  #time-pill::after { content: ""; position: absolute; left: 50%; top: 100%; width: 2px; height: 12px;
+                      margin-left: -1px; background: #ffd166; }
+  #track-label, #track-days, #track-ticks { position: absolute; pointer-events: none; }
+  #ramp-bar  { height: 12px; border-radius: 3px; border: 1px solid #33506b; }
+  #ramp-ticks{ display: flex; justify-content: space-between; font-size: 10px; color: #9fc3dd; }
+  #track:focus-visible { outline: 2px solid #ffd166; outline-offset: -2px; }
+  body.reduced-motion #time-pill { transition: none !important; }
   #play { min-width: 48px; min-height: 48px; display: inline-flex; align-items: center;
           justify-content: center; gap: 6px; background: #1d4e6f; color: #e8f0f7;
           border: 0; border-radius: 6px; font-size: 12px; padding: 0 12px;
@@ -175,26 +200,44 @@
     <div id="boot">
       <div id="boot-text">Loading wave map…</div>
       <div id="boot-track"><div id="boot-bar"></div></div>
+      <div id="readout">tap the lake for a local readout</div>
     </div>
   </div>
-  <footer>
-    <div id="legend">
-      <div id="legend-bar" class="bar"></div>
-      <div class="row"><span>hs ft · 0</span><span>1</span><span>2</span><span>3.5</span><span>4.5</span><span>6+</span></div>
-    </div>
-    <div id="hour-label">loading…</div>
-    <div id="controls">
+  <footer id="deck">
+    <div class="deck-row deck-main">
       <button id="play" type="button" aria-pressed="false" aria-label="Play radar loop">
         <svg class="icon icon-play" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><polygon points="6,4 20,12 6,20"></polygon></svg>
         <svg class="icon icon-pause" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
         <span id="play-label">Play</span>
       </button>
-      <div id="scrub-wrap">
-        <span id="now-tick" hidden></span>
-        <input id="scrub" type="range" min="0" max="23" step="1" value="0">
+      <div class="deck-status">
+        <span id="hour-label">loading…</span>
+        <span id="deck-day">—</span>
+      </div>
+      <div id="horizon" role="group" aria-label="Forecast horizon">
+        <button id="h-24h" type="button" data-horizon="24h" aria-pressed="true">24 h</button>
+        <button id="h-7d"  type="button" data-horizon="7d"  aria-pressed="false">7 day</button>
       </div>
     </div>
-    <div id="readout">tap the lake for a local readout</div>
+
+    <div class="deck-row deck-track" id="track"
+         role="slider" tabindex="0" aria-label="Time scrubber"
+         aria-valuemin="0" aria-valuemax="95" aria-valuenow="0" aria-valuetext="—">
+      <div id="track-label">—</div>
+      <div id="track-days"></div>
+      <div id="track-ticks"></div>
+      <div id="track-rail"></div>
+      <div id="track-progress"></div>
+      <div id="now-tick" hidden></div>
+      <div id="playhead"></div>
+      <div id="time-pill" hidden>—</div>
+      <input id="scrub" type="range" min="0" max="23" step="1" hidden>
+    </div>
+
+    <div class="deck-row deck-ramp">
+      <div id="ramp-bar"></div>
+      <div id="ramp-ticks"><span>0</span><span>1</span><span>2</span><span>3.5</span><span>4.5</span><span>6+</span></div>
+    </div>
   </footer>
   <canvas id="field"></canvas>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -234,6 +277,8 @@
         var wave = await load('src/wave-math.js');
         var wind = await load('src/wind.js');
         var ui = await load('src/ui.js');
+        var rampBar = document.getElementById('ramp-bar');
+        if (rampBar) rampBar.style.background = ui.rampGradient();
         var render = await load('src/render.js');
         await render.mount({ tables: tables, wave: wave, wind: wind, render: render, ui: ui });
       } catch (err) {
