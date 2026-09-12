@@ -196,8 +196,20 @@ def check_frame_base(page):
     return hours
 
 
+def _wait_boot_hidden(page, timeout=5000):
+    """5D.2: a skeleton shown by a transition must hide again on the next painted frame."""
+    try:
+        page.wait_for_function(
+            "() => document.getElementById('boot').classList.contains('hidden')",
+            timeout=timeout)
+        return True
+    except Exception:
+        return False
+
+
 def check_horizon_ceiling(page):
-    """5D: the frame ceiling tracks the horizon (24 h = 96 frames, 7 day = 672)."""
+    """5D/5E: the frame ceiling tracks the horizon (24 h = 96 frames, 7 day = 672) and
+    each transition's first paint hides the boot skeleton again (5D.2 fix)."""
     page.click("#h-7d")
     page.wait_for_function(
         "() => document.getElementById('track').getAttribute('aria-valuemax') === '671'",
@@ -205,6 +217,7 @@ def check_horizon_ceiling(page):
     max7 = page.get_attribute("#track", "aria-valuemax")
     p24_when7 = page.get_attribute("#h-24h", "aria-pressed")
     p7_when7 = page.get_attribute("#h-7d", "aria-pressed")
+    boot7 = _wait_boot_hidden(page)
     page.click("#h-24h")
     page.wait_for_function(
         "() => document.getElementById('track').getAttribute('aria-valuemax') === '95'",
@@ -212,12 +225,14 @@ def check_horizon_ceiling(page):
     max24 = page.get_attribute("#track", "aria-valuemax")
     p24_when24 = page.get_attribute("#h-24h", "aria-pressed")
     p7_when24 = page.get_attribute("#h-7d", "aria-pressed")
+    boot24 = _wait_boot_hidden(page, 1000)
     ok = (max7 == "671" and max24 == "95" and
           p7_when7 == "true" and p24_when7 == "false" and
-          p24_when24 == "true" and p7_when24 == "false")
+          p24_when24 == "true" and p7_when24 == "false" and boot7 and boot24)
     record("2b", "horizon ceiling", ok,
-           "7d max=%s pressed 7d/24h=%s/%s | 24h max=%s pressed 24h/7d=%s/%s"
-           % (max7, p7_when7, p24_when7, max24, p24_when24, p7_when24))
+           "7d max=%s pressed 7d/24h=%s/%s boot-hidden=%s | "
+           "24h max=%s pressed 24h/7d=%s/%s boot-hidden=%s"
+           % (max7, p7_when7, p24_when7, boot7, max24, p24_when24, p7_when24, boot24))
 
 
 def check_lazy_7d(page):
@@ -824,6 +839,10 @@ def main():
         try:
             safe(1, "boot", check_boot, page, port)
             safe(2, "frame base", check_frame_base, page)
+            # 5D.2: the boot skeleton hides on every first paint again, so [2b] runs in
+            # its spec position ([2], per the 5E spec) and the map-tap group below
+            # regression-tests the fix (it would deadlock on a stuck skeleton).
+            safe("2b", "horizon ceiling", check_horizon_ceiling, page)
             safe(3, "header layout", check_header, page, names)
             safe(4, "tier chip", check_tier, page)
             safe(5, "clock", check_clock, page)
@@ -835,11 +854,6 @@ def main():
             now_ups = safe(10, "radar smoothing", check_smoothing, page, meta, warp)
             if now_ups:
                 safe(11, "before/after", check_before_after, pw, now_ups, warp)
-            # Stage-5 browser gates run LAST: a widen leaves the app's boot skeleton
-            # visible (observed 5D defect, render.js:835/1009 — out of scope here), so
-            # running them after the pre-existing interaction groups keeps those groups
-            # byte-identical to stage 4. See docs/STAGE-5-RECEIPTS.md.
-            safe("2b", "horizon ceiling", check_horizon_ceiling, page)
             safe(13, "lazy 7d compute", check_lazy_7d, page)
         finally:
             print("page errors: %d %s" % (len(errors), errors[:3]))
