@@ -220,5 +220,26 @@ check('winter is CST; the fall-back DST day does not throw', () => {
   console.log(`       ${before} / ${after}`);
 });
 
+console.log('\n== [10] stage-5b rampGradient ==');
+check('ramp gradient contains the six Hs stops in order', () => {
+  const g = ui.rampGradient();
+  const stops = [
+    ['rgb(30, 64, 175)', '0%'],
+    ['rgb(6, 182, 212)', '16.7%'],
+    ['rgb(245, 158, 11)', '33.3%'],
+    ['rgb(234, 88, 12)', '50%'],
+    ['rgb(220, 38, 38)', '66.7%'],
+    ['rgb(190, 24, 93)', '100%'],
+  ];
+  assert.ok(g.startsWith('linear-gradient(90deg, '), g);
+  let at = -1;
+  for (const [rgb, pct] of stops) {
+    const idx = g.indexOf(`${rgb} ${pct}`);
+    assert.ok(idx > at, `missing or out of order: ${rgb} ${pct} in ${g}`);
+    at = idx;
+  }
+  console.log(`       ${g}`);
+});
+
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);
