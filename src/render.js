@@ -80,16 +80,26 @@ function shouldPaintResult(result, current) {
     result.W === current.W && result.H === current.H;
 }
 
-// ---- stage 5C: deck scrub geometry (pure helpers) ----
-// Viewport x -> frame index against the rail rect, clamped to the ends.
-function idxFromX(px, railLeft, railWidth, n) {
-  const t = Math.max(0, Math.min(1, (px - railLeft) / railWidth));
-  return Math.round(t * (n - 1));
+// ---- stage 5G: scrolling tape geometry (pure helpers) ----
+// Tape density: 7 d is a fixed 190 px/day (672 frames -> 1,330 px); a single 24 h day
+// always fills at least the viewing window so the tape can actually scroll.
+function pxPerDay(horizon, windowW) {
+  return horizon === '7d' ? 190 : Math.max(190, Math.round(Number(windowW) || 0));
 }
 
-// Left offset that keeps the fixed-width pill inside the track at both ends.
-function clampPillX(xLocal, trackW, pillW = 68, pad = 4) {
-  return Math.min(Math.max(xLocal - pillW / 2, pad), trackW - pad - pillW);
+function pxPerFrame(horizon, windowW) {
+  return pxPerDay(horizon, windowW) / 96;
+}
+
+// Reticle identity: the active frame's centre lands exactly on the window centre.
+function tapeTranslate(idx, pxf, viewportCenterPx) {
+  return viewportCenterPx - idx * pxf;
+}
+
+// Drag dx -> frame index. Dragging LEFT (dx < 0) advances into the future.
+function idxFromDrag(dxPx, startIdx, pxf, n) {
+  const raw = Math.round(startIdx - dxPx / pxf);
+  return Math.max(0, Math.min(n - 1, raw));
 }
 
 // ---- stage 5D: timeline partitions + 7-day playback cadence (pure helpers) ----
@@ -327,6 +337,7 @@ async function mount(deps) {
   const deck = document.getElementById('deck');
   const trackEl = document.getElementById('track');
   const timeline = document.getElementById('timeline');
+  const trackTape = document.getElementById('track-tape');
   const trackDays = document.getElementById('track-days');
   const trackTicks = document.getElementById('track-ticks');
   const trackLabel = document.getElementById('track-label');
@@ -563,91 +574,68 @@ async function mount(deps) {
     onEvict: (key, entry) => { if (entry) revokeUrl(entry.url); },
   });
 
-  // ---- stage 5C: deck-wide scrub surface + feedback ----
-  let railRect = null;
-  let trackW = 0;
+  // ---- stage 5G: deck-wide scrub surface + scrolling tape ----
+  let viewportW = 0;      // #timeline width = the viewing window
   let scrubbing = false;
   let scrubPointerId = null;
   let scrubRaf = 0;
   let scrubX = 0;
+  let scrubStartX = 0;
+  let scrubStartIdx = 0;
 
   // Cached once per gesture / on layout change; never read in the move path.
-  // All x-geometry maps into #timeline (the #track row also holds the play button).
   function refreshRailRect() {
-    railRect = timeline.getBoundingClientRect();
-    trackW = railRect.width;
-  }
-
-  // ---- stage 5F: timeline DOM ----
-  function timelineXFor(index, n) {
-    return n > 1 ? (index / (n - 1)) * trackW : 0;
+    viewportW = timeline.getBoundingClientRect().width;
   }
 
   // Re-place the now hairline from the stored now-index (safe to call after width changes).
+  // The hairline lives INSIDE the tape, so it scrolls in and out of view naturally.
   function placeNowTick() {
-    if (nowTickIdx == null || !frames.length || !trackW) return;
-    nowTick.style.left = `${timelineXFor(nowTickIdx, frames.length)}px`;
-    nowTick.style.transform = 'translateX(-50%)';
+    if (nowTickIdx == null || !frames.length || !viewportW) return;
+    nowTick.style.left = `${nowTickIdx * pxPerFrame(horizon, viewportW)}px`;
   }
 
-  // Solid segmented day blocks: alternating shades, midnight divider, a centred day header
-  // (long -> abbreviated -> number as the block narrows) and a thinned 3 h sub-row.
+  // Single writer for the tape transform: centre the active frame under the fixed reticle.
+  function writeTape(idx) {
+    if (!viewportW) return;
+    const center = viewportW / 2;
+    trackTape.style.transform =
+      'translateX(' + tapeTranslate(idx, pxPerFrame(horizon, viewportW), center) + 'px)';
+  }
+
+  // Solid segmented day blocks at real width: alternating shades, midnight divider, a centred
+  // day header and the full 3 h sub-row. Blocks are date-string derived; each is sized from
+  // its own frame run, so uneven days still tile exactly.
   function renderTimeline() {
     trackDays.textContent = '';
     trackTicks.textContent = '';
     trackLabel.textContent = horizon === '7d' ? '7 day' : '24 h';
-    if (!frames.length || !trackW) return;
+    if (!frames.length || !viewportW) return;
     const n = frames.length;
+    const pxf = pxPerFrame(horizon, viewportW);
+    trackTape.style.width = `${n * pxf}px`;
     const parts = dayPartitions(frames);
-    // Decide the header form from the WIDEST label of each form so every full-width
-    // block picks the same form (per-block text widths differ enough to flip otherwise).
-    const measure = document.createElement('canvas').getContext('2d');
-    const FONT_LONG = '700 11px system-ui, -apple-system, sans-serif';
-    const FONT_NARROW = '700 10px system-ui, -apple-system, sans-serif';
-    let longW = 0, shortW = 0, narrowW = 0;
-    for (const p of parts) {
-      measure.font = FONT_LONG;
-      longW = Math.max(longW, measure.measureText(ui.dayLabel(p.date, true)).width);
-      shortW = Math.max(shortW, measure.measureText(ui.dayLabel(p.date, false)).width);
-      measure.font = FONT_NARROW;
-      narrowW = Math.max(narrowW, measure.measureText(ui.dayLabel(p.date, false)).width);
-    }
-    // 3 h sub-row: fit by MEASURED label width, and only ever 3 h or 6 h — a 12 h step would
-    // print two identical "12"s per day block, which reads as noise rather than a scale.
-    measure.font = '10px system-ui, -apple-system, sans-serif';
-    let subLabelW = 0;
-    for (const s of ['03', '06', '09', '12']) {
-      subLabelW = Math.max(subLabelW, measure.measureText(s).width);
-    }
     for (let k = 0; k < parts.length; k++) {
       const start = parts[k].index;
-      const end = k + 1 < parts.length ? parts[k + 1].index : n - 1;
-      const left = timelineXFor(start, n);
-      const w = Math.max(1, timelineXFor(end, n) - left);
+      const end = k + 1 < parts.length ? parts[k + 1].index : n;
+      const left = start * pxf;
+      const w = Math.max(1, (end - start) * pxf);
       const block = document.createElement('div');
       block.className = 'day-block' + (k % 2 ? ' alt' : '');
       block.style.left = `${left}px`;
       block.style.width = `${w}px`;
       const head = document.createElement('span');
       head.className = 'day-head';
-      const fitsLong = longW <= w - 4, fitsShort = shortW <= w - 4, fitsNarrow = narrowW <= w - 4;
-      if (fitsLong) head.textContent = ui.dayLabel(parts[k].date, true);
-      else if (fitsShort) head.textContent = ui.dayLabel(parts[k].date, false);
-      else if (fitsNarrow) {
-        head.textContent = ui.dayLabel(parts[k].date, false);
-        head.classList.add('narrow');
-      } else head.textContent = String(+parts[k].date.slice(8, 10));
+      head.textContent = ui.dayLabel(parts[k].date, true);
       block.appendChild(head);
-      trackDays.appendChild(block);
-      const step = [3, 6].find((h) => (h / 24) * w >= subLabelW + 2) || 0;
-      if (!step) head.classList.add('solo');
-      for (let h = 0; step && h < 24; h += step) {
+      for (let h = 0; h < 24; h += 3) {
         const sub = document.createElement('span');
         sub.className = 'day-sub';
         sub.style.left = `${Math.max(6, Math.min(w - 6, (h / 24) * w))}px`;
         sub.textContent = String((h % 12) || 12).padStart(2, '0');
         block.appendChild(sub);
       }
+      trackDays.appendChild(block);
     }
   }
 
@@ -659,22 +647,14 @@ async function mount(deps) {
   }
 
   // Single feedback helper, called by showFrame (play + programmatic) and by scrub.
-  // The pill is permanent: no hidden toggling, it just moves + updates its text.
+  // The pill is permanent and fixed: only its text changes; the tape moves underneath.
   function updateScrubUi(idx) {
-    if (!frames.length || !trackW) return;
-    const x = timelineXFor(idx, frames.length);
+    if (!frames.length || !viewportW) return;
     timePill.textContent = ui.formatPillTime(frames[idx].time);
-    timePill.style.left = `${clampPillX(x, trackW)}px`;
     trackEl.setAttribute('aria-valuenow', String(idx));
     trackEl.setAttribute('aria-valuetext',
       `${ui.formatClockLocal(frames[idx].time)}, ${ui.dayLabel(frames[idx].time, true)}`);
-  }
-
-  function scrubTo(clientX) {
-    if (!railRect || !frames.length) return;
-    const idx = idxFromX(clientX, railRect.left, railRect.width, frames.length);
-    requestFrame(idx);
-    updateScrubUi(idx);
+    writeTape(idx);
   }
 
   deck.addEventListener('pointerdown', (e) => {
@@ -688,8 +668,9 @@ async function mount(deps) {
     const wasPlaying = playing;
     if (wasPlaying) pause(); // capture only; never auto-resume
     deck.setPointerCapture(e.pointerId);
-    scrubX = e.clientX;
-    scrubTo(scrubX);
+    scrubStartX = e.clientX;
+    scrubStartIdx = cur;
+    trackTape.style.transition = 'none'; // drag follows the finger 1:1
   });
   deck.addEventListener('pointermove', (e) => {
     if (!scrubbing || e.pointerId !== scrubPointerId) return;
@@ -697,13 +678,16 @@ async function mount(deps) {
     if (scrubRaf) return;
     scrubRaf = requestAnimationFrame(() => {
       scrubRaf = 0;
-      if (scrubbing) scrubTo(scrubX);
+      if (!scrubbing) return;
+      const pxf = pxPerFrame(horizon, viewportW);
+      requestFrame(idxFromDrag(scrubX - scrubStartX, scrubStartIdx, pxf, frames.length));
     });
   });
   function endScrub(e) {
     if (!scrubbing || (e && e.pointerId !== scrubPointerId)) return;
     scrubbing = false;
     scrubPointerId = null;
+    trackTape.style.transition = ''; // restore the playback glide
   }
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
     deck.addEventListener(type, endScrub);
@@ -1062,5 +1046,5 @@ module.exports = {
   bilinearSample, gatherRaster, hmaxFt, computeFrame, paintRaster,
   landMaskRaster, smoothRaster, cacheKey, frameBytes, createFrameCache, mount,
   offscreenSupported, revokeUrl, shouldPaintResult, encodeOffscreen,
-  idxFromX, clampPillX, dayPartitions, playStep, nextPlayIdx,
+  pxPerDay, pxPerFrame, tapeTranslate, idxFromDrag, dayPartitions, playStep, nextPlayIdx,
 };

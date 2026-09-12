@@ -36,7 +36,7 @@ except ImportError:  # pragma: no cover
 ROOT = Path(__file__).resolve().parents[2]
 PRE_TAG = "pre-stage4"
 PRE_WT = Path("/tmp/bpc-pre4")
-SHOTS = ROOT / "tmp" / "s5f-shots"
+SHOTS = ROOT / "tmp" / "s5g-shots"
 SHOTS.mkdir(parents=True, exist_ok=True)
 CHICAGO = ZoneInfo("America/Chicago")
 DEFAULT_HINT = "tap the lake for a local readout"
@@ -484,138 +484,147 @@ def check_card_and_touch(page, warp):
 
 
 def check_touch_ergonomics(page):
-    """5C/5E/5F: a real mouse drag on #deck seeks through vertical wander (pointer capture),
-    the amber pill stays visible during AND after the drift, buttons are not swallowed by the
-    scrub surface, and the pill stays clamped inside #timeline at BOTH ends. A second drift
-    presses inside the .deck-ramp row (non-interactive) to prove capture is deck-wide."""
+    """5G: #track is a scrolling tape with a fixed centre reticle. A real mouse drag on
+    #deck scrolls the tape: LEFT advances into the future, RIGHT rewinds, the amber pill
+    never moves, a click on #play does not scrub, and a drag starting in the .deck-ramp
+    row still scrubs (deck-wide pointer capture)."""
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_timeout(300)
+    # Pin the 24 h horizon so the far-left/right clamp drags are guaranteed to clamp.
+    if page.get_attribute("#h-24h", "aria-pressed") != "true":
+        page.click("#h-24h")
+        page.wait_for_function(
+            "() => document.getElementById('track').getAttribute('aria-valuemax') === '95'",
+            timeout=60000)
+        page.wait_for_timeout(300)
     g = page.evaluate(
         """() => {
-             var timeline = document.getElementById('timeline').getBoundingClientRect();
-             var track = document.getElementById('track').getBoundingClientRect();
              var deck = document.getElementById('deck').getBoundingClientRect();
              var play = document.getElementById('play').getBoundingClientRect();
-             return {
-               rail: {x: timeline.x, y: timeline.y, w: timeline.width, h: timeline.height},
-               track: {x: track.x, y: track.y, w: track.width, h: track.height},
-               deck: {x: deck.x, y: deck.y, w: deck.width, h: deck.height},
-               n: parseInt(document.getElementById('track').getAttribute('aria-valuemax'), 10) + 1,
-               play: {w: play.width, h: play.height},
-             };
+             return { deck: {x: deck.x, y: deck.y, w: deck.width, h: deck.height},
+                      play: {w: play.width, h: play.height} };
            }""")
-    rail, track, deck, n = g["rail"], g["track"], g["deck"], g["n"]
-    y = rail["y"] + 2  # inside #timeline, clear of the embedded play button
-    x20 = rail["x"] + 0.20 * rail["w"]
-    x70 = rail["x"] + 0.70 * rail["w"]
-    half_up = lambda v: int(math.floor(v + 0.5))
-    start_idx = half_up(0.20 * (n - 1))
-    expected = half_up(0.70 * (n - 1))
 
-    # (a)/(b) press at 20%, wander +/-80px vertically, land at 70%, release.
-    page.mouse.move(x20, y)
-    page.mouse.down()
-    page.mouse.move(x20, y - 80, steps=4)                      # wander up onto the map
-    page.mouse.move(x20 + 0.25 * rail["w"], y + 80, steps=4)   # wander down across the deck
-    page.mouse.move(x70, y, steps=6)                           # land on target
-    page.wait_for_timeout(80)
-    during = page.evaluate(
-        "() => ({ hidden: document.getElementById('time-pill').hidden,"
-        " text: document.getElementById('time-pill').textContent,"
-        " idx: parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10) })")
-    page.mouse.up()
-    page.wait_for_timeout(200)
-    landed = int(page.evaluate("parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10)"))
-    page.wait_for_timeout(1200)  # >1.2 s after release
-    pill_after = page.evaluate("document.getElementById('time-pill').hidden")
-    a_ok = abs(landed - expected) <= 1 and landed != start_idx
-    # 5F: the pill never hides — visible during AND after the drift, with a real timestamp.
-    b_ok = (during["hidden"] is False and bool(during["text"]) and pill_after is False)
-    # (c) clicking #play is ignored by the scrub surface (index does not jump)
-    idx_before = int(page.evaluate("parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10)"))
+    def metrics():
+        return page.evaluate(
+            """() => {
+                 var t = document.getElementById('track-tape').getBoundingClientRect();
+                 var p = document.getElementById('time-pill').getBoundingClientRect();
+                 var tl = document.getElementById('timeline').getBoundingClientRect();
+                 var max = parseInt(document.getElementById('track').getAttribute('aria-valuemax'), 10);
+                 return {
+                   idx: parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10),
+                   n: max + 1, horizon: max === 671 ? '7d' : '24h',
+                   tapeX: t.x, pillCx: p.x + p.width / 2,
+                   tlCx: tl.x + tl.width / 2, tlX: tl.x, tlW: tl.width, tlY: tl.y,
+                   transform: getComputedStyle(document.getElementById('track-tape')).transform,
+                 };
+               }""")
+
+    m0 = metrics()
+    n, horizon = m0["n"], m0["horizon"]
+    pxf = (190.0 if horizon == "7d" else max(190.0, round(m0["tlW"]))) / 96.0
+    ty = m0["tlY"] + 24  # inside #timeline, below the floating pill
+    cx = m0["tlX"] + m0["tlW"] / 2
+
+    # Known start: Home -> frame 0 so the left/right deltas are unambiguous.
+    # Wait out the 320 ms tape glide so the baseline is a settled transform.
+    page.focus("#track")
+    page.keyboard.press("Home")
+    page.wait_for_timeout(500)
+
+    def drag(x_to):
+        page.mouse.move(cx, ty)
+        page.mouse.down()
+        page.mouse.move(x_to, ty, steps=6)
+        page.wait_for_timeout(120)
+        during = metrics()
+        page.mouse.up()
+        page.wait_for_timeout(150)
+        return during
+
+    # (a) drag LEFT ~120px -> advance ~120/pxf, pill fixed, tape edge moves ~-120px.
+    before = metrics()
+    d_left = drag(cx - 120)
+    adv = d_left["idx"] - before["idx"]
+    a_ok = abs(adv - 120.0 / pxf) <= 1.0
+    pill_ok = abs(d_left["pillCx"] - before["pillCx"]) <= 0.5
+    tape_moved = d_left["tapeX"] - before["tapeX"]
+    tape_ok = abs(tape_moved + 120.0) <= 3.0
+
+    # (b) drag RIGHT ~60px -> rewind ~60/pxf, pill still fixed.
+    before2 = metrics()
+    d_right = drag(cx + 60)
+    rew = before2["idx"] - d_right["idx"]
+    b_ok = abs(rew - 60.0 / pxf) <= 1.0 and abs(d_right["pillCx"] - before2["pillCx"]) <= 0.5
+
+    # (c) clamp far LEFT (window left edge minus 2x width) -> n-1, pill centred.
+    d_hi = drag(m0["tlX"] - 2 * m0["tlW"])
+    c_ok = d_hi["idx"] == n - 1 and abs(d_hi["pillCx"] - d_hi["tlCx"]) <= 0.5
+
+    # (d) clamp far RIGHT -> 0, pill centred.
+    d_lo = drag(m0["tlX"] + 3 * m0["tlW"])
+    d_ok = d_lo["idx"] == 0 and abs(d_lo["pillCx"] - d_lo["tlCx"]) <= 0.5
+
+    # (e) clicking #play must not scrub the tape.
+    idx_before = metrics()["idx"]
     page.click("#play")
     page.wait_for_timeout(80)  # < PLAY_INTERVAL_MS, before the first tick
-    idx_after = int(page.evaluate("parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10)"))
+    idx_after = metrics()["idx"]
     page.click("#play")        # back to paused
     page.wait_for_timeout(150)
-    c_ok = idx_before == idx_after
-    # (d) play button still meets the 44px touch target
-    d_ok = g["play"]["w"] >= 44 and g["play"]["h"] >= 44
+    e_ok = idx_before == idx_after
 
-    # focused drift helper: press in the track row, drag to target_x, keep the pill
-    # inside #timeline. Returns the raw pill/timeline rects + the landed index.
-    def pill_clamp(target_x):
-        page.mouse.move(x20, y)
-        page.mouse.down()
-        page.mouse.move(target_x, y, steps=6)
-        page.wait_for_timeout(80)
-        r = page.evaluate(
-            """() => { var p = document.getElementById('time-pill').getBoundingClientRect();
-                 var t = document.getElementById('timeline').getBoundingClientRect();
-                 return { px: p.x, pw: p.width, tx: t.x, tw: t.width,
-                          idx: parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10) }; }""")
-        page.mouse.up()
-        page.wait_for_timeout(1200)
-        inside = (r["px"] >= r["tx"] - 0.5 and
-                  r["px"] + r["pw"] <= r["tx"] + r["tw"] + 0.5)
-        return r, inside
-
-    # pill clamp at BOTH ends: far right -> last frame, far left -> frame 0.
-    right, right_inside = pill_clamp(rail["x"] + rail["w"] - 0.5)
-    right_ok = right["idx"] == n - 1 and right_inside
-    left, left_inside = pill_clamp(rail["x"] + 0.5)
-    left_ok = left["idx"] == 0 and left_inside
-
-    # second drift: press INSIDE the .deck-ramp row (non-interactive), wander +/-80 px,
-    # land at 70% of the timeline. Deck-wide pointer capture makes the drag seek.
-    dcx = deck["x"] + deck["w"] / 2
-    dcy = deck["y"] + deck["h"] - 6  # inside the bottom .deck-ramp row
+    # (f) a drag starting in the non-interactive .deck-ramp row still scrubs (deck-wide capture).
+    dcx = g["deck"]["x"] + g["deck"]["w"] / 2
+    dcy = g["deck"]["y"] + g["deck"]["h"] - 6
     hit = page.evaluate(
         "(p) => { var e = document.elementFromPoint(p[0], p[1]);"
         " return { tag: e ? e.tagName : 'none', cls: e ? (e.className || '') : '',"
         "   interactive: !!(e && e.closest && e.closest('button, [role=button], a, input')) }; }",
         [dcx, dcy])
+    ramp_before = metrics()
     page.mouse.move(dcx, dcy)
     page.mouse.down()
-    page.mouse.move(dcx, dcy - 80, steps=4)
-    page.mouse.move(x20, dcy + 80, steps=4)
-    page.mouse.move(x70, y, steps=6)
-    page.wait_for_timeout(80)
-    during2 = page.evaluate(
-        "() => ({ hidden: document.getElementById('time-pill').hidden,"
-        " idx: parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10) })")
+    page.mouse.move(dcx + 0.25 * m0["tlW"], dcy - 80, steps=4)
+    page.mouse.move(cx - 120, ty, steps=6)
+    page.wait_for_timeout(120)
+    ramp_during = metrics()
     page.mouse.up()
-    page.wait_for_timeout(200)
-    landed2 = int(page.evaluate("parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10)"))
-    page.wait_for_timeout(1200)
-    pill_after2 = page.evaluate("document.getElementById('time-pill').hidden")
-    e_ok = (not hit["interactive"] and abs(landed2 - expected) <= 1 and
-            during2["hidden"] is False and pill_after2 is False)
+    page.wait_for_timeout(150)
+    ramp_adv = ramp_during["idx"] - ramp_before["idx"]
+    f_ok = not hit["interactive"] and abs(ramp_adv - 120.0 / pxf) <= 1.0
 
-    ok = a_ok and b_ok and c_ok and d_ok and right_ok and left_ok and e_ok
-    print("        drift: start=%d landed=%d expected=%d (+/-1) during-pill=%s text='%s' "
-          "after-pill-hidden=%s" % (start_idx, landed, expected, not during["hidden"],
-                                    during["text"], pill_after))
+    # (g) play button still meets the 44px touch target.
+    h_ok = g["play"]["w"] >= 44 and g["play"]["h"] >= 44
+
+    ok = a_ok and pill_ok and tape_ok and b_ok and c_ok and d_ok and e_ok and f_ok and h_ok
+    print("        left  drag: idx %d->%d (+%.1f/~%.1f) pill dx=%.2f tape dx=%.1f "
+          "transform %s -> %s"
+          % (before["idx"], d_left["idx"], adv, 120.0 / pxf,
+             d_left["pillCx"] - before["pillCx"], tape_moved,
+             before["transform"], d_left["transform"]))
+    print("        right drag: idx %d->%d (-%.1f/~%.1f) pill dx=%.2f transform %s -> %s"
+          % (before2["idx"], d_right["idx"], rew, 60.0 / pxf,
+             d_right["pillCx"] - before2["pillCx"],
+             before2["transform"], d_right["transform"]))
+    print("        clamp: far-left idx=%d/%d pill-cx=%.1f tl-cx=%.1f | "
+          "far-right idx=%d/0 pill-cx=%.1f tl-cx=%.1f"
+          % (d_hi["idx"], n - 1, d_hi["pillCx"], d_hi["tlCx"],
+             d_lo["idx"], d_lo["pillCx"], d_lo["tlCx"]))
     print("        play-click: before=%d after=%d unchanged=%s play=%dx%d"
-          % (idx_before, idx_after, c_ok, round(g["play"]["w"]), round(g["play"]["h"])))
-    print("        pill right: idx=%d/%d pill=[%.1f,%.1f] timeline=[%.1f,%.1f] inside=%s"
-          % (right["idx"], n - 1, right["px"], right["px"] + right["pw"],
-             right["tx"], right["tx"] + right["tw"], right_inside))
-    print("        pill left:  idx=%d/0 pill=[%.1f,%.1f] timeline=[%.1f,%.1f] inside=%s"
-          % (left["idx"], left["px"], left["px"] + left["pw"],
-             left["tx"], left["tx"] + left["tw"], left_inside))
+          % (idx_before, idx_after, e_ok, round(g["play"]["w"]), round(g["play"]["h"])))
     print("        deck-ramp drift: press=(%.1f,%.1f) target=%s.%s interactive=%s "
-          "landed=%d expected=%d (+/-1) pill-during=%s hidden-after=%s"
-          % (dcx, dcy, hit["tag"], hit["cls"], hit["interactive"], landed2, expected,
-             not during2["hidden"], pill_after2))
+          "idx=%d->%d (+%.1f)"
+          % (dcx, dcy, hit["tag"], hit["cls"], hit["interactive"], ramp_before["idx"],
+             ramp_during["idx"], ramp_adv))
     record("7b", "touch ergonomics", ok,
-           "wander±80 landed=%d/%d pill-during=%s pill-after=%s play-unchanged=%s "
-           "play=%dx%d right=%d/%d inside=%s left=%d/0 inside=%s "
-           "deck-press=%s.%s noninteractive=%s deck-landed=%d/%d"
-           % (landed, expected, not during["hidden"], pill_after, c_ok,
-              round(g["play"]["w"]), round(g["play"]["h"]), right["idx"], n - 1, right_inside,
-              left["idx"], left_inside, hit["tag"], hit["cls"], not hit["interactive"],
-              landed2, expected))
+           "pxf=%.4f left-adv=%.1f right-rew=%.1f clamp=[%d/%d, %d/0] pill-fixed=%.2fpx "
+           "tape-dx=%.1f play-unchanged=%s play=%dx%d deck-press=%s.%s noninteractive=%s "
+           "ramp-adv=%.1f"
+           % (pxf, adv, rew, d_hi["idx"], n - 1, d_lo["idx"], pill_ok and b_ok,
+              tape_moved, e_ok, round(g["play"]["w"]), round(g["play"]["h"]),
+              hit["tag"], hit["cls"], not hit["interactive"], ramp_adv))
 
 
 def check_deck_geometry(page):
@@ -660,26 +669,147 @@ def check_deck_geometry(page):
     play_inside = (p["x"] >= t["x"] - 0.5 and p["r"] <= t["r"] + 0.5 and
                    p["y"] >= t["y"] - 0.5 and p["b"] <= t["b"] + 0.5 and
                    p["x"] - t["x"] <= 2)
-    timeline_inside = (tl["x"] >= p["r"] - 1 and tl["r"] <= t["r"] + 0.5 and
+    # 5G: the play button overlays the window, so #timeline fills the whole track row.
+    timeline_inside = (abs(tl["x"] - t["x"]) <= 1 and abs(tl["r"] - t["r"]) <= 1 and
                        tl["y"] >= t["y"] - 0.5 and tl["b"] <= t["b"] + 0.5)
+    tl_cx = tl["x"] + (tl["r"] - tl["x"]) / 2
+    pill_cx = v["pillRect"]["x"] + v["pillRect"]["w"] / 2
+    pill_centred = abs(pill_cx - tl_cx) <= 1  # 5G: pill is anchored to the window centre
     bgs = v["blockBg"]
     adjacent_ok = all(bgs[i] != bgs[i + 1] for i in range(len(bgs) - 1))
     ok = (v["deckH"] <= 72 and all(v["absent"].values()) and v["pillVisible"] and
-          not v["pillHidden"] and bool(v["pillText"].strip()) and play_inside and
-          timeline_inside and v["blockCount"] >= 1 and adjacent_ok and
+          not v["pillHidden"] and bool(v["pillText"].strip()) and pill_centred and
+          play_inside and timeline_inside and v["blockCount"] >= 1 and adjacent_ok and
           abs(v["rampBottom"] - v["deckBottom"]) <= 2)
     print("        5F rects: deck h=%.1f play=[%.1f,%.1f]x%.1fx%.1f "
           "timeline=[%.1f,%.1f]-[%.1f,%.1f] pill=[%.1f,%.1f] %.1fx%.1f text='%s' "
-          "blocks=%d bg=%s ramp-deck delta=%.1f"
+          "pill-cx=%.1f timeline-cx=%.1f blocks=%d bg=%s ramp-deck delta=%.1f"
           % (v["deckH"], p["x"], p["y"], p["w"], p["h"], tl["x"], tl["y"], tl["r"], tl["b"],
              v["pillRect"]["x"], v["pillRect"]["y"], v["pillRect"]["w"], v["pillRect"]["h"],
-             v["pillText"], v["blockCount"], bgs, v["rampBottom"] - v["deckBottom"]))
+             v["pillText"], pill_cx, tl_cx, v["blockCount"], bgs,
+             v["rampBottom"] - v["deckBottom"]))
     record(15, "deck geometry (5F)", ok,
-           "deckH=%.1f absent=%s pill-visible=%s pill-hidden=%s pill='%s' play-inside=%s "
-           "timeline-inside=%s blocks=%d adjacent-differ=%s ramp-bottom=%.1f deck-bottom=%.1f"
+           "deckH=%.1f absent=%s pill-visible=%s pill-hidden=%s pill='%s' pill-centred=%s "
+           "(cx=%.1f timeline-cx=%.1f) play-inside=%s timeline-fills=%s blocks=%d "
+           "adjacent-differ=%s ramp-bottom=%.1f deck-bottom=%.1f"
            % (v["deckH"], v["absent"], v["pillVisible"], v["pillHidden"], v["pillText"],
-              play_inside, timeline_inside, v["blockCount"], adjacent_ok,
-              v["rampBottom"], v["deckBottom"]))
+              pill_centred, pill_cx, tl_cx, play_inside, timeline_inside, v["blockCount"],
+              adjacent_ok, v["rampBottom"], v["deckBottom"]))
+
+
+def check_tape_architecture(page):
+    """5G: fixed centre reticle + wide scrolling tape. Asserts the reticle is centred in
+    #timeline, #track-tape is a #timeline child holding #now-tick, the 24 h tape fills the
+    window while 7 d is 1,100-1,400 px, the active frame sits under the reticle, #play
+    overlays the window's left edge with z-index >= 10, and day blocks alternate with the
+    full 8-label 3 h sub-row in the 7-day view. Restores 24 h when done."""
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.wait_for_timeout(400)
+
+    def metrics():
+        return page.evaluate(
+            """() => {
+                 var tlEl = document.getElementById('timeline');
+                 var tlr = tlEl.getBoundingClientRect();
+                 var tape = document.getElementById('track-tape');
+                 var tr = tape.getBoundingClientRect();
+                 var pill = document.getElementById('time-pill').getBoundingClientRect();
+                 var play = document.getElementById('play');
+                 var pr = play.getBoundingClientRect();
+                 var track = document.getElementById('track').getBoundingClientRect();
+                 var blocks = Array.from(document.getElementById('track-days').children);
+                 var max = parseInt(document.getElementById('track').getAttribute('aria-valuemax'), 10);
+                 var cur = parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10);
+                 var now = document.getElementById('now-tick');
+                 return {
+                   tlCx: tlr.x + tlr.width / 2, tlW: tlr.width,
+                   tapeX: tr.x, tapeW: tr.width,
+                   pillCx: pill.x + pill.width / 2,
+                   tapeInTimeline: tape.parentElement === tlEl,
+                   nowInTape: !!(now && now.parentElement === tape),
+                   cur: cur, n: max + 1, horizon: max === 671 ? '7d' : '24h',
+                   playX: pr.x, playW: pr.width, playZ: getComputedStyle(play).zIndex,
+                   trackX: track.x,
+                   blockCount: blocks.length,
+                   blockBg: blocks.map(function (b) { return getComputedStyle(b).backgroundColor; }),
+                   subCounts: blocks.map(function (b) { return b.querySelectorAll('.day-sub').length; }),
+                   transform: getComputedStyle(tape).transform,
+                 };
+               }""")
+
+    def pxf_for(m):
+        return (190.0 if m["horizon"] == "7d" else max(190.0, round(m["tlW"]))) / 96.0
+
+    def centred(m):
+        return abs(m["pillCx"] - m["tlCx"]) <= 1.0
+
+    def frame_under_reticle(m):
+        return abs((m["tapeX"] + m["cur"] * pxf_for(m)) - m["pillCx"]) <= 1.0
+
+    m24 = metrics()
+    ok_parent = m24["tapeInTimeline"] and m24["nowInTape"]
+    ok_play = (0 <= (m24["playX"] - m24["trackX"]) <= 56 and
+               int(m24["playZ"] or 0) >= 10 and m24["playW"] >= 44)
+    ok_centre24 = centred(m24)
+    ok_frame24 = frame_under_reticle(m24)
+    ok_tape24 = m24["tapeW"] >= m24["tlW"] - 2
+    ok_blocks24 = m24["blockCount"] >= 1
+    print("        24h: tapeW=%.1f (window %.1f, pxf=%.4f) pill-cx=%.1f tl-cx=%.1f "
+          "frame-cx=%.1f cur=%d transform=%s"
+          % (m24["tapeW"], m24["tlW"], pxf_for(m24), m24["pillCx"], m24["tlCx"],
+             m24["tapeX"] + m24["cur"] * pxf_for(m24), m24["cur"], m24["transform"]))
+
+    # scrub mid-window, then re-check the reticle.
+    tl = page.evaluate(
+        "() => { var r = document.getElementById('timeline').getBoundingClientRect();"
+        " return {cx: r.x + r.width / 2, y: r.y + r.height / 2}; }")
+    page.mouse.move(tl["cx"], tl["y"])
+    page.mouse.down()
+    page.mouse.move(tl["cx"] - 140, tl["y"], steps=8)
+    page.mouse.up()
+    page.wait_for_timeout(500)
+    m_scrub = metrics()
+    ok_scrub = centred(m_scrub) and frame_under_reticle(m_scrub)
+    print("        scrub@24h: cur=%d pill-cx=%.1f tl-cx=%.1f frame-cx=%.1f"
+          % (m_scrub["cur"], m_scrub["pillCx"], m_scrub["tlCx"],
+             m_scrub["tapeX"] + m_scrub["cur"] * pxf_for(m_scrub)))
+
+    # widen to 7 days.
+    page.click("#h-7d")
+    page.wait_for_function(
+        "() => document.getElementById('track').getAttribute('aria-valuemax') === '671'",
+        timeout=60000)
+    page.wait_for_timeout(700)
+    m7 = metrics()
+    ok_centre7 = centred(m7)
+    ok_frame7 = frame_under_reticle(m7)
+    ok_tape7 = 1100 <= m7["tapeW"] <= 1400
+    bgs = m7["blockBg"]
+    ok_alt = len(bgs) >= 2 and all(bgs[i] != bgs[i + 1] for i in range(len(bgs) - 1))
+    ok_blocks7 = m7["blockCount"] == 7 and all(c == 8 for c in m7["subCounts"])
+    print("        7d:  tapeW=%.1f (window %.1f, pxf=%.4f) pill-cx=%.1f tl-cx=%.1f "
+          "frame-cx=%.1f cur=%d blocks=%d subs=%s transform=%s"
+          % (m7["tapeW"], m7["tlW"], pxf_for(m7), m7["pillCx"], m7["tlCx"],
+             m7["tapeX"] + m7["cur"] * pxf_for(m7), m7["cur"], m7["blockCount"],
+             m7["subCounts"], m7["transform"]))
+
+    ok = (ok_parent and ok_play and ok_centre24 and ok_frame24 and ok_tape24 and
+          ok_blocks24 and ok_scrub and ok_centre7 and ok_frame7 and ok_tape7 and
+          ok_alt and ok_blocks7)
+    record(16, "tape architecture (5G)", ok,
+           "tape-in-timeline=%s now-in-tape=%s play-left=%.1f z=%s | "
+           "24h tape=%.1f/window=%.1f centred=%s frame-under=%s | "
+           "7d tape=%.1f blocks=%d subs=%s alt=%s centred=%s frame-under=%s"
+           % (m24["tapeInTimeline"], m24["nowInTape"], m24["playX"] - m24["trackX"],
+              m24["playZ"], m24["tapeW"], m24["tlW"], ok_centre24, ok_frame24,
+              m7["tapeW"], m7["blockCount"], m7["subCounts"], ok_alt, ok_centre7, ok_frame7))
+
+    # restore 24 h for the checks that follow.
+    page.click("#h-24h")
+    page.wait_for_function(
+        "() => document.getElementById('track').getAttribute('aria-valuemax') === '95'",
+        timeout=60000)
+    page.wait_for_timeout(300)
 
 
 def capture_shots(page):
@@ -701,6 +831,19 @@ def capture_shots(page):
         timeout=60000)
     page.wait_for_timeout(700)
     shot("7d.png")
+    # 5G: scrub to the middle of the 7-day tape so the sheet shows it scrolled with the
+    # reticle still centred (two full-width drags left = forward in time).
+    tl7 = page.evaluate(
+        "() => { var r = document.getElementById('timeline').getBoundingClientRect();"
+        " return {x: r.x, w: r.width, y: r.y + r.height / 2}; }")
+    for _ in range(2):
+        page.mouse.move(tl7["x"] + tl7["w"] - 6, tl7["y"])
+        page.mouse.down()
+        page.mouse.move(tl7["x"] + 6, tl7["y"], steps=10)
+        page.mouse.up()
+        page.wait_for_timeout(100)
+    page.wait_for_timeout(400)
+    shot("tape-7d.png")
     page.click("#h-24h")
     page.wait_for_function(
         "() => document.getElementById('track').getAttribute('aria-valuemax') === '95'",
@@ -947,6 +1090,7 @@ def main():
         try:
             safe(1, "boot", check_boot, page, port)
             safe(15, "deck geometry (5F)", check_deck_geometry, page)
+            safe(16, "tape architecture (5G)", check_tape_architecture, page)
             safe(2, "frame base", check_frame_base, page)
             # 5D.2: the boot skeleton hides on every first paint again, so [2b] runs in
             # its spec position ([2], per the 5E spec) and the map-tap group below

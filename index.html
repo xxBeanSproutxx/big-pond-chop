@@ -94,7 +94,7 @@
     -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
   }
   .deck-row  { overflow: hidden; }
-  .deck-track{ overflow: visible; } /* the pill sits above this row */
+  .deck-track{ overflow: visible; position: relative; } /* pill floats above; play overlays */
   .deck-track{ height: 48px; display: flex; align-items: stretch; }
   .deck-ramp { height: 20px; display: flex; flex-direction: column; gap: 1px; }
   /* Horizon micro-pill: lives in the map corner, clear of the zoom control + wind badge. */
@@ -103,18 +103,23 @@
                     color: #e8f0f7; border: 1px solid #33506b; border-radius: 14px;
                     font: 11px/1 system-ui, sans-serif; touch-action: manipulation; }
   #horizon button[aria-pressed="true"] { background: #ffd166; color: #10263a; border-color: #ffd166; }
-  #timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 48px; overflow: visible;
+  /* #timeline is the viewing window: the tape scrolls under a fixed centre reticle. */
+  #timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 48px; overflow: hidden;
               border-radius: 4px; background: #262930; }
+  /* Wide filmstrip tape; translated by the single writeTape() path in render.js. */
+  #track-tape { position: absolute; left: 0; top: 0; height: 100%;
+                transition: transform .32s linear; }
   #now-tick       { position: absolute; top: 0; bottom: 0; width: 2px; background: #ffd166;
                     box-shadow: 0 0 0 1px rgba(13,27,42,.6); pointer-events: none; }
-  /* Amber pill cursor IS the permanent time indicator. It floats ABOVE the timeline
-     edge (Windy reference) so it never covers a day header; the stem dips into the bar. */
-  #time-pill      { position: absolute; top: -20px; left: 0; width: 68px; height: 20px; line-height: 20px;
+  /* Amber pill cursor IS the permanent time indicator, anchored to the centre of the
+     viewing window. It floats ABOVE the timeline edge (Windy reference) so it never
+     covers a day header; the stem dips into the bar. The element never moves. */
+  #time-pill      { position: absolute; top: -20px; left: 50%; width: 68px; height: 20px; line-height: 20px;
                     border-radius: 10px; background: #d69e0b; color: #ffffff;
                     font: 700 12px/20px system-ui, -apple-system, sans-serif;
                     font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap;
                     pointer-events: none; box-shadow: 0 2px 6px rgba(0,0,0,.45);
-                    transition: left .12s linear; }
+                    transform: translateX(-50%); }
   #time-pill::after { content: ""; position: absolute; left: 50%; top: 100%; margin-left: -5px;
                       border-left: 5px solid transparent; border-right: 5px solid transparent;
                       border-top: 9px solid #d69e0b; }
@@ -127,18 +132,19 @@
   .day-block + .day-block { border-left: 1px solid #3a3f4a; }
   .day-head { position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
               font: 700 11px/1 system-ui, -apple-system, sans-serif; color: #e8f0f7; white-space: nowrap; }
-  .day-head.narrow { font-size: 10px; }
-  .day-head.solo { top: 50%; transform: translate(-50%, -50%); } /* no sub-row: centre it */
   .day-sub { position: absolute; top: 30px; transform: translateX(-50%);
              font: 10px/1 system-ui, -apple-system, sans-serif; color: #9fc3dd; white-space: nowrap;
              font-variant-numeric: tabular-nums; }
   #ramp-bar  { flex: 0 0 11px; height: 11px; border-radius: 3px; border: 1px solid #33506b; }
   #ramp-ticks{ flex: 1 1 auto; line-height: 8px; display: flex; justify-content: space-between; font-size: 8px; color: #9fc3dd; }
   #track:focus-visible { outline: 2px solid #ffd166; outline-offset: -2px; }
-  body.reduced-motion #time-pill { transition: none !important; }
-  /* Play control embedded in the far-left of the track: icon only, no chrome. */
-  #play { flex: 0 0 48px; width: 48px; height: 48px; display: inline-flex; align-items: center;
-          justify-content: center; background: transparent; color: #e8f0f7;
+  /* Play control pinned to the window's left edge: icon only, no chrome. It overlays the
+     tape (no flex space) so the tape scrolls behind it; the faint scrim keeps the glyph legible. */
+  #play { position: absolute; left: 0; top: 0; z-index: 10;
+          width: 48px; height: 48px; display: inline-flex; align-items: center;
+          justify-content: center;
+          background: linear-gradient(90deg, rgba(16,38,58,.85), rgba(16,38,58,0));
+          color: #e8f0f7;
           border: 0; border-radius: 0; font-size: 12px; padding: 0;
           touch-action: manipulation; }
   #play .icon { fill: currentColor; display: block; width: 20px; height: 20px; }
@@ -222,17 +228,19 @@
     <div class="deck-row deck-track" id="track"
          role="slider" tabindex="0" aria-label="Time scrubber"
          aria-valuemin="0" aria-valuemax="95" aria-valuenow="0" aria-valuetext="—">
+      <div id="timeline">
+        <div id="track-tape">
+          <div id="track-days"></div>
+          <div id="track-ticks"></div>
+          <div id="now-tick" hidden></div>
+        </div>
+        <div id="track-label">—</div>
+      </div>
+      <div id="time-pill">—</div>
       <button id="play" type="button" aria-pressed="false" aria-label="Play radar loop">
         <svg class="icon icon-play" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><polygon points="6,4 20,12 6,20"></polygon></svg>
         <svg class="icon icon-pause" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
       </button>
-      <div id="timeline">
-        <div id="track-days"></div>
-        <div id="track-ticks"></div>
-        <div id="track-label">—</div>
-        <div id="now-tick" hidden></div>
-        <div id="time-pill">—</div>
-      </div>
     </div>
 
     <div class="deck-row deck-ramp">
