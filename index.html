@@ -80,9 +80,9 @@
   @keyframes boot-slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
   body.reduced-motion #boot.indeterminate #boot-bar { animation: none; width: 100%; opacity: .55; }
   /* Unified playback deck (stage 5B): static geometry only — pointer events, timeline
-     population and horizon logic arrive in 5C/5D. 48 + 52 + 22 px rows + 8 px vertical
-     padding = 130 px. The ramp row replaces the old legend strip (same 6 Hs stops). */
-  :root { --deck-h: 130px; }
+     population and horizon logic arrive in 5C/5D. 48 + 52 + 27 px rows + 8 px vertical
+     padding = 135 px (27 px ramp row: 12 px ribbon + 2 gap + 13 px tick line). */
+  :root { --deck-h: 135px; }
   body { height: 100vh; height: 100dvh; }
   #deck {
     flex: 0 0 auto;
@@ -97,7 +97,7 @@
   .deck-row  { overflow: hidden; }
   .deck-main { height: 48px; display: flex; align-items: center; gap: 8px; }
   .deck-track{ height: 52px; position: relative; }
-  .deck-ramp { height: 22px; display: flex; flex-direction: column; gap: 2px; }
+  .deck-ramp { height: 27px; display: flex; flex-direction: column; gap: 2px; }
   #horizon { display: flex; gap: 8px; margin-left: auto; }
   #horizon button { min-height: 44px; min-width: 56px; background: #1d4e6f; color: #e8f0f7;
                     border: 0; border-radius: 6px; font: inherit; touch-action: manipulation; }
@@ -122,8 +122,8 @@
   #time-pill::after { content: ""; position: absolute; left: 50%; top: 100%; width: 2px; height: 12px;
                       margin-left: -1px; background: #ffd166; }
   #track-label, #track-days, #track-ticks { position: absolute; pointer-events: none; }
-  #ramp-bar  { height: 12px; border-radius: 3px; border: 1px solid #33506b; }
-  #ramp-ticks{ display: flex; justify-content: space-between; font-size: 10px; color: #9fc3dd; }
+  #ramp-bar  { flex: 0 0 12px; height: 12px; border-radius: 3px; border: 1px solid #33506b; }
+  #ramp-ticks{ flex: 0 0 13px; line-height: 13px; display: flex; justify-content: space-between; font-size: 10px; color: #9fc3dd; }
   #track:focus-visible { outline: 2px solid #ffd166; outline-offset: -2px; }
   body.reduced-motion #time-pill { transition: none !important; }
   #play { min-width: 48px; min-height: 48px; display: inline-flex; align-items: center;
