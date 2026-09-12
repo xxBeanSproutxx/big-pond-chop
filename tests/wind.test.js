@@ -9,6 +9,7 @@ const { performance } = require('perf_hooks');
 const { decodeTables, BATHY_CELLS } = require('../src/tables');
 const {
   gammaToGrid, computeTeff, seedTeff, interpolate15, buildSeriesFrom,
+  expandHourlyVector, selectRange, buildUrl, bearingDelta,
   ingest, chicagoNow, currentIndex,
 } = require('../src/wind');
 const { computeFrame } = require('../src/render');
@@ -118,6 +119,97 @@ check('gamma applied and dtH honored', () => {
   assert.strictEqual(s[1].tEffH, 0.75);
 });
 
+console.log('\n== [1e] expandHourlyVector: Cartesian vector interpolation ==');
+function hourEntry(i, speedMph, dirTrueDeg) {
+  return {
+    time: new Date(Date.parse('2026-09-13T00:00:00Z') + i * 3600000).toISOString().slice(0, 16),
+    speedMph, dirTrueDeg, gustMph: speedMph + 8,
+  };
+}
+check('round-trips every hourly anchor bit-for-bit to <=1e-9', () => {
+  const src = [[20, 350], [15, 10], [7.5, 180], [1, 0]].map(([s, d], i) => hourEntry(i, s, d));
+  const out = expandHourlyVector(src, meta.gamma_deg);
+  assert.strictEqual(out.length, src.length * 4);
+  for (let i = 0; i < src.length; i++) {
+    const a = out[i * 4];
+    assert.ok(Math.abs(a.speedMph - src[i].speedMph) < 1e-9, `speed anchor ${i}: ${a.speedMph}`);
+    assert.ok(Math.abs(a.dirTrueDeg - src[i].dirTrueDeg) < 1e-9, `dir anchor ${i}: ${a.dirTrueDeg}`);
+    assert.ok(Math.abs(a.bearingGrid - gammaToGrid(src[i].dirTrueDeg, meta.gamma_deg)) < 1e-9, `grid anchor ${i}`);
+  }
+});
+check('crossing 20@350 -> 20@10: midpoint 20*cos(10), bearing 0 not 180', () => {
+  const out = expandHourlyVector([hourEntry(0, 20, 350), hourEntry(1, 20, 10)], 0);
+  const mid = out[2];
+  const expect = 20 * Math.cos(10 * Math.PI / 180);
+  assert.ok(Math.abs(mid.speedMph - expect) < 1e-9, `mid speed ${mid.speedMph} want ${expect}`);
+  const brg = Math.min(Math.abs(mid.dirTrueDeg), Math.abs(mid.dirTrueDeg - 360));
+  assert.ok(brg < 1e-9, `mid bearing ${mid.dirTrueDeg}`);
+  assert.ok(bearingDelta(mid.dirTrueDeg, 180) > 90,
+    `naive angle-lerp South-sweep regression: midpoint ${mid.dirTrueDeg}`);
+});
+check('unequal speeds 10@350 -> 30@10: midpoint ~19.7726 @ ~5.038', () => {
+  const out = expandHourlyVector([hourEntry(0, 10, 350), hourEntry(1, 30, 10)], 0);
+  const mid = out[2];
+  assert.ok(Math.abs(mid.speedMph - 19.7726) < 1e-3, `speed ${mid.speedMph}`);
+  assert.ok(Math.abs(mid.dirTrueDeg - 5.038) < 1e-3, `dir ${mid.dirTrueDeg}`);
+});
+check('hour anchors bit-equal across a blended day', () => {
+  const src = [];
+  for (let i = 0; i < 25; i++) src.push(hourEntry(i, 12 + (i % 5), (315 + 3 * i) % 360));
+  const out = expandHourlyVector(src, 1.5);
+  for (let i = 0; i < src.length; i++) {
+    assert.strictEqual(out[i * 4].speedMph, src[i].speedMph, `speed anchor ${i}`);
+    assert.strictEqual(out[i * 4].dirTrueDeg, src[i].dirTrueDeg, `dir anchor ${i}`);
+  }
+});
+check('buildUrl: default and 24h are 2 days, 7d is 7 days', () => {
+  assert.ok(buildUrl(1, 2).endsWith('forecast_days=2'));
+  assert.ok(buildUrl(1, 2, '24h').endsWith('forecast_days=2'));
+  assert.ok(buildUrl(1, 2, '7d').endsWith('forecast_days=7'));
+  assert.strictEqual(buildUrl(1, 2), buildUrl(1, 2, '24h'));
+});
+
+console.log('\n== [1f] selectRange window ==');
+check('picks [start, start+days) with correct first/last', () => {
+  const series = [];
+  const t0 = Date.parse('2026-09-10T00:00:00Z');
+  for (let i = 0; i < 5 * 96; i++) {
+    series.push({
+      time: new Date(t0 + i * 15 * 60000).toISOString().slice(0, 16),
+      speedMph: 10, gustMph: 12, dirTrueDeg: 0, bearingGrid: 0, tEffH: 0.5,
+    });
+  }
+  const win = selectRange(series, '2026-09-11', 2);
+  assert.strictEqual(win.length, 192, 'two full local days');
+  assert.strictEqual(win[0].time, '2026-09-11T00:00');
+  assert.strictEqual(win[win.length - 1].time, '2026-09-12T23:45');
+  assert.strictEqual(selectRange(series, '2026-09-13', 7).length, 192, 'clamps at series end');
+});
+
+console.log('\n== [1g] blended-series t_eff continuity (dtH 0.25, no +1.0 jumps) ==');
+check('steady bearing accumulates +0.25 per 15-min frame', () => {
+  const src = [];
+  for (let i = 0; i < 40; i++) src.push(hourEntry(i, 12, 315));
+  const out = expandHourlyVector(src, 0);
+  for (let k = 0; k < out.length; k++) {
+    const want = Math.min(6, 0.5 + 0.25 * k);
+    assert.ok(Math.abs(out[k].tEffH - want) < 1e-9, `tEff[${k}] ${out[k].tEffH} want ${want}`);
+    if (k > 0) {
+      const jump = out[k].tEffH - out[k - 1].tEffH;
+      assert.ok(jump <= 0.25 + 1e-9, `+1.0 jump at ${k}: ${jump}`);
+    }
+  }
+});
+check('>30 deg between consecutive blended frames resets t_eff to 0.5', () => {
+  const out = expandHourlyVector([hourEntry(0, 20, 0), hourEntry(1, 20, 120)], 0);
+  const deltas = [];
+  for (let k = 1; k < out.length; k++) deltas.push(bearingDelta(out[k].bearingGrid, out[k - 1].bearingGrid));
+  const reset = deltas.findIndex((d) => d > 30);
+  assert.ok(reset >= 0, `expected a >30 deg blended turn, deltas ${deltas.join(', ')}`);
+  assert.strictEqual(out[reset + 1].tEffH, 0.5, `reset at frame ${reset + 1}`);
+  console.log(`       frame deltas ${deltas.map((d) => d.toFixed(1)).join(', ')}`);
+});
+
 function synthMinutely(date) {
   const time = [], sp = [], dr = [], gu = [];
   for (let i = 0; i < 96; i++) {
@@ -182,6 +274,49 @@ function synthHourly(date) {
     assert.strictEqual(fb.day.length, 96);
     assert.strictEqual(fb.stepMin, 15);
     assert.strictEqual(currentIndex(fb.day, at1712), 68);
+  });
+
+  console.log('\n== [3b] horizon window lengths on an 8-day synthetic ==');
+  function pad2(n) { return String(n).padStart(2, '0'); }
+  function dayAdd(date, n) {
+    return new Date(Date.parse(`${date}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+  }
+  // Mirrors the real past_days=1 + forecast_days=7 response: 8 local days (D-1..D6).
+  function synth8(date) {
+    const mins = { time: [], wind_speed_10m: [], wind_direction_10m: [], wind_gusts_10m: [] };
+    const hrs = { time: [], wind_speed_10m: [], wind_direction_10m: [], wind_gusts_10m: [] };
+    for (let d = -1; d <= 6; d++) {
+      const day = dayAdd(date, d);
+      for (let h = 0; h < 24; h++) {
+        const sp = 12 + 4 * Math.sin((d * 24 + h) / 6);
+        const dr = (315 + 5 * Math.sin((d * 24 + h) / 5) + 360) % 360;
+        hrs.time.push(`${day}T${pad2(h)}:00`);
+        hrs.wind_speed_10m.push(sp); hrs.wind_direction_10m.push(dr); hrs.wind_gusts_10m.push(18);
+        for (let k = 0; k < 4; k++) {
+          mins.time.push(`${day}T${pad2(h)}:${pad2(k * 15)}`);
+          mins.wind_speed_10m.push(sp); mins.wind_direction_10m.push(dr); mins.wind_gusts_10m.push(18);
+        }
+      }
+    }
+    return { hourly: hrs, minutely_15: mins };
+  }
+  const eight = synth8(DATE);
+  const h24 = await ingest({ json: eight, gamma: meta.gamma_deg, now: at1712, horizon: '24h' });
+  const h7 = await ingest({ json: eight, gamma: meta.gamma_deg, now: at1712, horizon: '7d' });
+  console.log(`  '24h' day ${h24.day.length}, '7d' day ${h7.day.length}, ` +
+    `assembled series ${h7.series.length}, horizon ${h7.horizon}`);
+  check("'24h' window is 96 entries", () => assert.strictEqual(h24.day.length, 96));
+  check("'7d' window is 672 entries", () => assert.strictEqual(h7.day.length, 672));
+  check("'7d' spans today..day+6 at 15 min, no gaps", () => {
+    assert.strictEqual(h7.day[0].time, `${DATE}T00:00`);
+    assert.strictEqual(h7.day[671].time, `${dayAdd(DATE, 6)}T23:45`);
+    assert.strictEqual(h7.day[672 - 1].time.slice(0, 10), dayAdd(DATE, 6));
+  });
+  check("'7d' keeps cross-midnight t_eff history (first frame not reset)", () => {
+    assert.ok(h7.day[0].tEffH > 0.5, `first frame tEff ${h7.day[0].tEffH}`);
+    assert.ok(Math.abs(h7.day[192].tEffH - h7.day[191].tEffH) <= 0.25 + 1e-9,
+      `native->blended boundary reset: ${h7.day[191].tEffH} -> ${h7.day[192].tEffH}`);
+    assert.strictEqual(h7.day[192].time.slice(0, 10), dayAdd(DATE, 2), 'blended starts day 3');
   });
 
   console.log('\n== [4] live Open-Meteo ingest + 96-frame field table ==');
