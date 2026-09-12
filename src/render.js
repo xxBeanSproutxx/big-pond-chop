@@ -602,11 +602,22 @@ async function mount(deps) {
     // Decide the header form from the WIDEST label of each form so every full-width
     // block picks the same form (per-block text widths differ enough to flip otherwise).
     const measure = document.createElement('canvas').getContext('2d');
-    measure.font = '700 11px system-ui, -apple-system, sans-serif';
-    let longW = 0, shortW = 0;
+    const FONT_LONG = '700 11px system-ui, -apple-system, sans-serif';
+    const FONT_NARROW = '700 10px system-ui, -apple-system, sans-serif';
+    let longW = 0, shortW = 0, narrowW = 0;
     for (const p of parts) {
+      measure.font = FONT_LONG;
       longW = Math.max(longW, measure.measureText(ui.dayLabel(p.date, true)).width);
       shortW = Math.max(shortW, measure.measureText(ui.dayLabel(p.date, false)).width);
+      measure.font = FONT_NARROW;
+      narrowW = Math.max(narrowW, measure.measureText(ui.dayLabel(p.date, false)).width);
+    }
+    // 3 h sub-row: fit by MEASURED label width, and only ever 3 h or 6 h — a 12 h step would
+    // print two identical "12"s per day block, which reads as noise rather than a scale.
+    measure.font = '10px system-ui, -apple-system, sans-serif';
+    let subLabelW = 0;
+    for (const s of ['03', '06', '09', '12']) {
+      subLabelW = Math.max(subLabelW, measure.measureText(s).width);
     }
     for (let k = 0; k < parts.length; k++) {
       const start = parts[k].index;
@@ -619,14 +630,18 @@ async function mount(deps) {
       block.style.width = `${w}px`;
       const head = document.createElement('span');
       head.className = 'day-head';
-      const fitsLong = longW <= w - 4, fitsShort = shortW <= w - 4;
-      head.textContent = fitsLong ? ui.dayLabel(parts[k].date, true)
-        : fitsShort ? ui.dayLabel(parts[k].date, false)
-          : String(+parts[k].date.slice(8, 10));
+      const fitsLong = longW <= w - 4, fitsShort = shortW <= w - 4, fitsNarrow = narrowW <= w - 4;
+      if (fitsLong) head.textContent = ui.dayLabel(parts[k].date, true);
+      else if (fitsShort) head.textContent = ui.dayLabel(parts[k].date, false);
+      else if (fitsNarrow) {
+        head.textContent = ui.dayLabel(parts[k].date, false);
+        head.classList.add('narrow');
+      } else head.textContent = String(+parts[k].date.slice(8, 10));
       block.appendChild(head);
       trackDays.appendChild(block);
-      const step = [3, 6, 12, 24].find((h) => (h / 24) * w >= 12) || 24;
-      for (let h = 0; h < 24; h += step) {
+      const step = [3, 6].find((h) => (h / 24) * w >= subLabelW + 2) || 0;
+      if (!step) head.classList.add('solo');
+      for (let h = 0; step && h < 24; h += step) {
         const sub = document.createElement('span');
         sub.className = 'day-sub';
         sub.style.left = `${Math.max(6, Math.min(w - 6, (h / 24) * w))}px`;
