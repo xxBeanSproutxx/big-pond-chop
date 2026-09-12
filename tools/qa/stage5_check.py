@@ -490,10 +490,10 @@ def check_card_and_touch(page, warp):
 
 
 def check_touch_ergonomics(page):
-    """5G: #track is a scrolling tape with a fixed centre reticle. A real mouse drag on
+    """5G/5M: #track is a scrolling tape with a fixed centre reticle. A real mouse drag on
     #deck scrolls the tape: LEFT advances into the future, RIGHT rewinds, the amber pill
-    never moves, a click on #play does not scrub, and a drag starting in the .deck-wind
-    row (#wind-strip) still scrubs (deck-wide pointer capture)."""
+    never moves, a click on #play does not scrub, and a drag starting in the deck's bottom
+    band (the 5M wind row, no second deck row) still scrubs (deck-wide pointer capture)."""
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_timeout(300)
     # Pin the 24 h horizon so the far-left/right clamp drags are guaranteed to clamp.
@@ -581,14 +581,15 @@ def check_touch_ergonomics(page):
     page.wait_for_timeout(150)
     e_ok = idx_before == idx_after
 
-    # (f) a drag starting in the non-interactive .deck-wind row still scrubs (deck-wide capture).
+    # (f) a drag starting in the deck's bottom band (the new 5M wind row, no second row
+    # anymore) still scrubs (deck-wide capture).
     dcx = g["deck"]["x"] + g["deck"]["w"] / 2
     dcy = g["deck"]["y"] + g["deck"]["h"] - 6
     hit = page.evaluate(
         "(p) => { var e = document.elementFromPoint(p[0], p[1]);"
-        " var strip = document.getElementById('wind-strip');"
+        " var tl = document.getElementById('timeline');"
         " return { tag: e ? e.tagName : 'none', cls: e ? (e.className || '') : '',"
-        "   strip: !!(e && strip && (e === strip || strip.contains(e))),"
+        "   inTape: !!(e && tl && (e === tl || tl.contains(e))),"
         "   interactive: !!(e && e.closest && e.closest('button, [role=button], a, input')) }; }",
         [dcx, dcy])
     ramp_before = metrics()
@@ -601,7 +602,7 @@ def check_touch_ergonomics(page):
     page.mouse.up()
     page.wait_for_timeout(150)
     ramp_adv = ramp_during["idx"] - ramp_before["idx"]
-    f_ok = hit["strip"] and not hit["interactive"] and abs(ramp_adv - 120.0 / pxf) <= 1.0
+    f_ok = hit["inTape"] and not hit["interactive"] and abs(ramp_adv - 120.0 / pxf) <= 1.0
 
     # (g) play button still meets the 44px touch target.
     h_ok = g["play"]["w"] >= 44 and g["play"]["h"] >= 44
@@ -622,17 +623,17 @@ def check_touch_ergonomics(page):
              d_lo["idx"], d_lo["pillCx"], d_lo["tlCx"]))
     print("        play-click: before=%d after=%d unchanged=%s play=%dx%d"
           % (idx_before, idx_after, e_ok, round(g["play"]["w"]), round(g["play"]["h"])))
-    print("        deck-wind drift: press=(%.1f,%.1f) target=%s.%s strip=%s interactive=%s "
+    print("        deck-wind drift: press=(%.1f,%.1f) target=%s.%s in-tape=%s interactive=%s "
           "idx=%d->%d (+%.1f)"
-          % (dcx, dcy, hit["tag"], hit["cls"], hit["strip"], hit["interactive"],
+          % (dcx, dcy, hit["tag"], hit["cls"], hit["inTape"], hit["interactive"],
              ramp_before["idx"], ramp_during["idx"], ramp_adv))
     record("7b", "touch ergonomics", ok,
            "pxf=%.4f left-adv=%.1f right-rew=%.1f clamp=[%d/%d, %d/0] pill-fixed=%.2fpx "
-           "tape-dx=%.1f play-unchanged=%s play=%dx%d deck-press=%s.%s noninteractive=%s "
-           "strip-adv=%.1f"
+           "tape-dx=%.1f play-unchanged=%s play=%dx%d deck-press=%s.%s in-tape=%s "
+           "noninteractive=%s strip-adv=%.1f"
            % (pxf, adv, rew, d_hi["idx"], n - 1, d_lo["idx"], pill_ok and b_ok,
               tape_moved, e_ok, round(g["play"]["w"]), round(g["play"]["h"]),
-              hit["tag"], hit["cls"], not hit["interactive"], ramp_adv))
+              hit["tag"], hit["cls"], hit["inTape"], not hit["interactive"], ramp_adv))
 
 
 def check_timeline_labels(page):
@@ -698,7 +699,46 @@ def check_timeline_labels(page):
                    max: parseInt(document.getElementById('track').getAttribute('aria-valuemax'), 10),
                    now: parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10),
                  };
-               }""", [])
+                 }""", [])
+
+    def wind_alignment():
+        """5M: per block, pair each 3-hourly tick with its wind label and measure the centre
+        delta; also flag the boundary tick (right-anchored, left:auto) and its wind count."""
+        return page.evaluate(
+            """() => {
+                 var blocks = Array.from(document.getElementById('track-days').children);
+                 function cx(el) { var r = el.getBoundingClientRect(); return r.x + r.width / 2; }
+                 return blocks.map(function (b) {
+                   var subs = Array.from(b.querySelectorAll('.day-sub'));
+                   var winds = Array.from(b.querySelectorAll('.day-wind'));
+                   var dots = subs.map(function (s) {
+                     return { text: s.textContent, cx: cx(s),
+                              boundary: s.style.right !== '' };
+                   });
+                   var deltas = [];
+                   for (var i = 0; i < winds.length; i++) {
+                     if (dots[i]) deltas.push({ h: dots[i].text,
+                       d: Math.abs(cx(winds[i]) - dots[i].cx) });
+                   }
+                   return {
+                     subCount: subs.length, windCount: winds.length,
+                     windTexts: winds.map(function (w) { return w.textContent; }),
+                     boundaryCount: dots.filter(function (d) { return d.boundary; }).length,
+                     deltas: deltas,
+                   };
+                 });
+               }""")
+
+    def summarize_winds(blocks):
+        counts = [b["windCount"] for b in blocks]
+        texts_ok = bool(blocks) and all(re.fullmatch(r"\d+", t)
+                                        for b in blocks for t in b["windTexts"])
+        deltas = [d["d"] for b in blocks for d in b["deltas"]]
+        paired = all(b["windCount"] == len(b["deltas"]) for b in blocks)
+        boundary = sum(b["boundaryCount"] for b in blocks)
+        return {"counts": counts, "texts_ok": texts_ok, "paired": paired,
+                "boundary": boundary, "worst": max(deltas) if deltas else 0.0,
+                "blocks": blocks}
 
     heads = {}
     head_x = {}
@@ -753,6 +793,13 @@ def check_timeline_labels(page):
         ["03", "03", "06", "06", "09", "09"]
     inside_ok = all(t["inside"] for t in first) and all(t["inside"] for t in last)
 
+    # 5M: wind row at 24 h — one block, 8 three-hourly labels, no boundary sibling.
+    w24 = summarize_winds(wind_alignment())
+    eight24_ok = len(w24["counts"]) >= 1 and all(c == 8 for c in w24["counts"])
+    boundary_no_wind = w24["boundary"] == 1
+    wind24_ok = (eight24_ok and w24["texts_ok"] and w24["paired"] and
+                 w24["worst"] <= 1.5 and boundary_no_wind)
+
     # 7 day: 8 ticks per block and no two '12's within 20 px at a day join.
     page.click("#h-7d")
     page.wait_for_function(
@@ -779,6 +826,10 @@ def check_timeline_labels(page):
              return { counts: counts, minGap: minGap, twelves: twelves.length };
            }""")
     seven_ok = seven["counts"] == [8, 8, 8, 8, 8, 8, 8] and seven["minGap"] >= 20
+    # 5M: wind row at 7 d — 7 blocks, 8 labels each, all aligned, no boundary tick.
+    w7 = summarize_winds(wind_alignment())
+    wind7_ok = (w7["counts"] == [8, 8, 8, 8, 8, 8, 8] and w7["texts_ok"] and
+                w7["paired"] and w7["worst"] <= 1.5 and w7["boundary"] == 0)
 
     page.click("#h-24h")
     page.wait_for_function(
@@ -788,26 +839,39 @@ def check_timeline_labels(page):
 
     ok = (indices_ok and head_count_ok and one_head and head_pinned and no_repeat and
           sticky_window_ok and sticky_block_ok and sticky_engages and
-          left_edge_ok and boundary_ok and ticks_ok and labels_ok and inside_ok and seven_ok)
+          left_edge_ok and boundary_ok and ticks_ok and labels_ok and inside_ok and seven_ok and
+          wind24_ok and wind7_ok)
     print("        heads/idx=%s headCount=%d pinned-offset=%.1f text='%s' "
           "sticky x0=%.0f x95=%.0f shift=%.0f window-ok=%s block-ok=%s sub-ticks/24h=%d "
           "(last block) left-edge=%s boundary=%s inside=%s labels=%s"
           % (heads, m24["headCount"], head.get("leftOffset", float("nan")), head.get("text", ""),
              head_x[0], head_x[95], sticky_shift, sticky_window_ok, sticky_block_ok,
              len(last), left_edge_ok, boundary_ok, inside_ok, labels_ok))
+    print("        5M wind 24h: counts=%s worst-delta=%.2fpx nums=%s boundary-no-wind=%s list=%s"
+          % (w24["counts"], w24["worst"], w24["texts_ok"], boundary_no_wind,
+             w24["blocks"][0]["windTexts"] if w24["blocks"] else []))
+    print("        5M wind 7d:  counts=%s worst-delta=%.2fpx nums=%s list(block0)=%s"
+          % (w7["counts"], w7["worst"], w7["texts_ok"],
+             w7["blocks"][0]["windTexts"] if w7["blocks"] else []))
     record(18, "timeline labels (5L)", ok,
            "indices=%s heads=%s one-head=%s pinned=%s no-repeat=%s sticky-window=%s "
            "sticky-block=%s head-x0=%.0f head-x95=%.0f shift=%.0f>50=%s "
            "left-edge-12=%s last-boundary-12=%s ticks=9=%s labels-3h=%s all-inside=%s | "
-           "7d counts=%s min-12-gap=%.1f>=20=%s"
+           "7d counts=%s min-12-gap=%.1f>=20=%s | 5m wind 24h counts=%s worst=%.2fpx nums=%s "
+           "boundary-no-wind=%s list=%s | 7d counts=%s worst=%.2fpx nums=%s list0=%s"
            % (indices_ok, heads, one_head, head_pinned, no_repeat, sticky_window_ok,
               sticky_block_ok, head_x[0], head_x[95], sticky_shift, sticky_engages,
               left_edge_ok, boundary_ok, ticks_ok, labels_ok, inside_ok, seven["counts"],
-              seven["minGap"] if math.isfinite(seven["minGap"]) else -1.0, seven_ok))
+              seven["minGap"] if math.isfinite(seven["minGap"]) else -1.0, seven_ok,
+              w24["counts"], w24["worst"], w24["texts_ok"], boundary_no_wind,
+              w24["blocks"][0]["windTexts"] if w24["blocks"] else [],
+              w7["counts"], w7["worst"], w7["texts_ok"],
+              w7["blocks"][0]["windTexts"] if w7["blocks"] else []))
 
 
 def check_deck_geometry(page):
-    """5F/5L: two-row deck, timeline geometry, permanent amber pill, embedded play, flush strip."""
+    """5F/5L/5M: single full-height tape, timeline geometry, permanent amber pill, embedded
+    play, wind strip gone."""
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_timeout(400)
     v = page.evaluate(
@@ -817,13 +881,16 @@ def check_deck_geometry(page):
              var timelineEl = document.getElementById('timeline');
              var timeline = timelineEl.getBoundingClientRect();
              var play = document.getElementById('play').getBoundingClientRect();
-             var ramp = document.getElementById('wind-strip').getBoundingClientRect();
+             var strip = document.getElementById('wind-strip');
              var pill = document.getElementById('time-pill');
              var pr = pill.getBoundingClientRect();
              var days = document.getElementById('track-days');
              var blocks = Array.from(days.children);
              return {
                deckH: deck.height,
+               stripAbsent: !strip,
+               trackH: track.height,
+               timelineH: timeline.height,
                absent: {
                  main: !document.querySelector('.deck-main'),
                  playhead: !document.getElementById('playhead'),
@@ -839,7 +906,6 @@ def check_deck_geometry(page):
                track: {x: track.x, y: track.y, r: track.x + track.width, b: track.y + track.height},
                timeline: {x: timeline.x, y: timeline.y, r: timeline.x + timeline.width,
                           b: timeline.y + timeline.height},
-               rampBottom: ramp.bottom, deckBottom: deck.bottom,
                blockCount: blocks.length,
                blockBg: blocks.map(function (b) { return getComputedStyle(b).backgroundColor; }),
              };
@@ -856,24 +922,26 @@ def check_deck_geometry(page):
     pill_centred = abs(pill_cx - tl_cx) <= 1  # 5G: pill is anchored to the window centre
     bgs = v["blockBg"]
     adjacent_ok = all(bgs[i] != bgs[i + 1] for i in range(len(bgs) - 1))
-    ok = (v["deckH"] <= 72 and all(v["absent"].values()) and v["pillVisible"] and
-          not v["pillHidden"] and bool(v["pillText"].strip()) and pill_centred and
-          play_inside and timeline_inside and v["blockCount"] >= 1 and adjacent_ok and
-          abs(v["rampBottom"] - v["deckBottom"]) <= 2)
-    print("        5F rects: deck h=%.1f play=[%.1f,%.1f]x%.1fx%.1f "
-          "timeline=[%.1f,%.1f]-[%.1f,%.1f] pill=[%.1f,%.1f] %.1fx%.1f text='%s' "
-          "pill-cx=%.1f timeline-cx=%.1f blocks=%d bg=%s wind-strip-deck delta=%.1f"
-          % (v["deckH"], p["x"], p["y"], p["w"], p["h"], tl["x"], tl["y"], tl["r"], tl["b"],
+    # 5M: the wind strip is gone and the freed row is tape space: #track/#timeline are 68 px.
+    tape_68 = abs(v["trackH"] - 68) <= 1 and abs(v["timelineH"] - 68) <= 1
+    ok = (v["deckH"] <= 72 and v["stripAbsent"] and tape_68 and all(v["absent"].values()) and
+          v["pillVisible"] and not v["pillHidden"] and bool(v["pillText"].strip()) and
+          pill_centred and play_inside and timeline_inside and v["blockCount"] >= 1 and adjacent_ok)
+    print("        5F/5M rects: deck h=%.1f wind-strip-absent=%s track h=%.1f timeline h=%.1f "
+          "play=[%.1f,%.1f]x%.1fx%.1f timeline=[%.1f,%.1f]-[%.1f,%.1f] pill=[%.1f,%.1f] %.1fx%.1f "
+          "text='%s' pill-cx=%.1f timeline-cx=%.1f blocks=%d bg=%s"
+          % (v["deckH"], v["stripAbsent"], v["trackH"], v["timelineH"],
+             p["x"], p["y"], p["w"], p["h"], tl["x"], tl["y"], tl["r"], tl["b"],
              v["pillRect"]["x"], v["pillRect"]["y"], v["pillRect"]["w"], v["pillRect"]["h"],
-             v["pillText"], pill_cx, tl_cx, v["blockCount"], bgs,
-             v["rampBottom"] - v["deckBottom"]))
+             v["pillText"], pill_cx, tl_cx, v["blockCount"], bgs))
     record(15, "deck geometry (5F)", ok,
-           "deckH=%.1f absent=%s pill-visible=%s pill-hidden=%s pill='%s' pill-centred=%s "
-           "(cx=%.1f timeline-cx=%.1f) play-inside=%s timeline-fills=%s blocks=%d "
-           "adjacent-differ=%s wind-strip-bottom=%.1f deck-bottom=%.1f"
-           % (v["deckH"], v["absent"], v["pillVisible"], v["pillHidden"], v["pillText"],
+           "deckH=%.1f absent=%s strip-absent=%s trackH=%.1f timelineH=%.1f pill-visible=%s "
+           "pill-hidden=%s pill='%s' pill-centred=%s (cx=%.1f timeline-cx=%.1f) play-inside=%s "
+           "timeline-fills=%s blocks=%d adjacent-differ=%s"
+           % (v["deckH"], v["absent"], v["stripAbsent"], v["trackH"], v["timelineH"],
+              v["pillVisible"], v["pillHidden"], v["pillText"],
               pill_centred, pill_cx, tl_cx, play_inside, timeline_inside, v["blockCount"],
-              adjacent_ok, v["rampBottom"], v["deckBottom"]))
+              adjacent_ok))
 
 
 def check_tape_architecture(page):
