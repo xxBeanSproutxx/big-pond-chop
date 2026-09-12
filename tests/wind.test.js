@@ -10,7 +10,7 @@ const { decodeTables, BATHY_CELLS } = require('../src/tables');
 const {
   gammaToGrid, computeTeff, seedTeff, interpolate15, buildSeriesFrom,
   expandHourlyVector, selectRange, buildUrl, bearingDelta,
-  ingest, chicagoNow, currentIndex,
+  ingest, chicagoNow, currentIndex, firstDaySlice, selectDay,
 } = require('../src/wind');
 const { computeFrame } = require('../src/render');
 
@@ -317,6 +317,19 @@ function synthHourly(date) {
     assert.ok(Math.abs(h7.day[192].tEffH - h7.day[191].tEffH) <= 0.25 + 1e-9,
       `native->blended boundary reset: ${h7.day[191].tEffH} -> ${h7.day[192].tEffH}`);
     assert.strictEqual(h7.day[192].time.slice(0, 10), dayAdd(DATE, 2), 'blended starts day 3');
+  });
+
+  console.log('\n== [3c] firstDaySlice: 7d -> 24h narrow (zero refetch) ==');
+  const firstDay = firstDaySlice(h7.day);
+  console.log(`  firstDaySlice ${firstDay.length} entries, first date ${firstDay[0].time.slice(0, 10)}`);
+  check('firstDaySlice of the 7-day day -> 96 entries, all first date', () => {
+    assert.strictEqual(firstDay.length, 96);
+    assert.ok(firstDay.every((e) => e.time.slice(0, 10) === firstDay[0].time.slice(0, 10)));
+  });
+  check('equivalent to selectDay on the same series (count + times)', () => {
+    const ref = selectDay(h7.series, firstDay[0].time.slice(0, 10));
+    assert.strictEqual(firstDay.length, ref.length);
+    assert.deepStrictEqual(firstDay.map((e) => e.time), ref.map((e) => e.time));
   });
 
   console.log('\n== [4] live Open-Meteo ingest + 96-frame field table ==');
