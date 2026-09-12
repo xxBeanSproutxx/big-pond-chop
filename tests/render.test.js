@@ -113,6 +113,24 @@ check('basemap is muted + keyless (no watermarked provider)', () => {
   assert.strictEqual(PLAY_INTERVAL_MS, 333);
   console.log(`       ${TILE_URL} @ opacity ${OVERLAY_OPACITY}`);
 });
+check('stage-5b deck markup holds the frozen ids, drops the legend', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  assert.ok(/<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">/.test(html),
+    'viewport meta must drop maximum-scale/user-scalable and add viewport-fit=cover');
+  const footer = /<footer id="deck">([\s\S]*?)<\/footer>/.exec(html);
+  assert.ok(footer, 'missing <footer id="deck">');
+  const ids = ['play', 'play-label', 'hour-label', 'deck-day', 'horizon', 'h-24h', 'h-7d',
+    'track', 'track-label', 'track-days', 'track-ticks', 'track-rail', 'track-progress',
+    'now-tick', 'playhead', 'time-pill', 'scrub', 'ramp-bar', 'ramp-ticks'];
+  for (const id of ids) assert.ok(footer[1].includes(`id="${id}"`), `deck missing #${id}`);
+  assert.ok(/\bid="scrub"[^>]*\bhidden/.test(footer[1]), '#scrub must stay as a hidden shim');
+  assert.ok(!footer[1].includes('id="legend"'), '#legend must be gone from the deck');
+  assert.ok(!footer[1].includes('id="readout"'), '#readout must be out of the deck');
+  const ticks = footer[1].match(/id="ramp-ticks">([\s\S]*?)<\/div>/);
+  assert.ok(ticks && ['0', '1', '2', '3.5', '4.5', '6+'].every((s) => ticks[1].includes(`<span>${s}</span>`)),
+    'ramp ticks must list the six Hs stops');
+  console.log('       deck ids present, #scrub hidden shim, legend/readout out of deck');
+});
 check('frame carries a water-only p10 at or below the lake max', () => {
   const entry = { speedMph: 30, dirTrueDeg: 315, tEffH: 8 };
   const f = computeFrame(tables, entry, { gamma: -0.474 });

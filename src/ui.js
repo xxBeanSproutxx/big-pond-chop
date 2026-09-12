@@ -37,6 +37,14 @@ function rgbForHs(hsFt) {
   return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
 }
 
+// Single source of truth for the deck ramp gradient: the six Hs stop colours, evenly
+// spaced. index.html applies it to #ramp-bar at mount.
+const RAMP_PCT = ['0%', '16.7%', '33.3%', '50%', '66.7%', '100%'];
+function rampGradient() {
+  const stops = HS_STOPS.map(([, r, g, b], i) => `rgb(${r}, ${g}, ${b}) ${RAMP_PCT[i]}`);
+  return `linear-gradient(90deg, ${stops.join(', ')})`;
+}
+
 // ---- stats ----
 function percentile(values, p) {
   const v = [];
@@ -217,7 +225,7 @@ function formatClockLocal(isoLocal) {
 
 module.exports = {
   HS_STOPS, HS_BREAKS, OVERLAY_OPACITY,
-  colorForHs, rgbForHs, percentile, p10,
+  colorForHs, rgbForHs, rampGradient, percentile, p10,
   SECTORS, haversineM, bearing8, centroidOfCorners, sectorFor,
   nameSpot, describePin, sectorPhrase, sectorName, shortPlace, formatHeadline,
   FEATURE_RADIUS_M, SHORE_RADIUS_M,
