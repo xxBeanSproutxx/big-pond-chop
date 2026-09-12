@@ -96,8 +96,10 @@
   .deck-row  { overflow: hidden; }
   .deck-track{ overflow: visible; position: relative; } /* pill floats above; play overlays */
   .deck-track{ height: 48px; display: flex; align-items: stretch; }
-  /* Stage 5K: the wave ramp is docked back at the deck base (5J had floated it in #map). */
-  .deck-ramp { height: 20px; display: flex; flex-direction: column; gap: 1px; }
+  /* Stage 5L: deck footer is the live wind status strip (the ramp lives in the map legend). */
+  .deck-wind { height: 20px; display: flex; align-items: center; font-size: 11px; color: #cfe3f2;
+               font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden;
+               text-overflow: ellipsis; }
   /* Horizon micro-pill: lives in the map corner, clear of the zoom control + wind badge. */
   #horizon { position: absolute; top: 12px; left: 56px; z-index: 1000; display: flex; gap: 4px; }
   #horizon button { height: 28px; min-height: 28px; padding: 0 9px; background: rgba(16,38,58,.85);
@@ -137,8 +139,12 @@
              font: 10px/1 system-ui, -apple-system, sans-serif; color: #9fc3dd; white-space: nowrap;
              font-variant-numeric: tabular-nums; }
   .day-sub.edge { color: #e8f0f7; } /* midnight/boundary ticks read stronger than the 3 h row */
-  #ramp-bar  { flex: 0 0 11px; height: 11px; border-radius: 3px; border: 1px solid #33506b; }
-  #ramp-ticks{ flex: 1 1 auto; line-height: 8px; display: flex; justify-content: space-between; font-size: 8px; color: #9fc3dd; }
+  /* Stage 5L: the wave colour bar lives in a non-interactive card at the map's bottom-left. */
+  #legend-card { position: absolute; left: 10px; bottom: 10px; z-index: 500; pointer-events: none;
+                 background: rgba(16,38,58,.85); border-radius: 8px; padding: 6px 8px; }
+  #legend-card-bar { width: 150px; height: 11px; border-radius: 3px; border: 1px solid #33506b; }
+  #legend-card-ticks { width: 150px; margin-top: 2px; display: flex; justify-content: space-between;
+                       font-size: 8px; line-height: 1; color: #9fc3dd; }
   #track:focus-visible { outline: 2px solid #ffd166; outline-offset: -2px; }
   /* Play control pinned to the window's left edge: icon only, no chrome. It overlays the
      tape (no flex space) so the tape scrolls behind it; the faint scrim keeps the glyph legible. */
@@ -159,7 +165,7 @@
           font-size: 13px; align-items: center; gap: 10px; }
   #note-retry { background: #ffd7d7; color: #5a1f1f; border: 0; border-radius: 5px;
                 padding: 6px 10px; font-size: 12px; font-weight: 700; touch-action: manipulation; }
-  #card { position: absolute; left: 10px; bottom: 10px; z-index: 550; min-width: 230px;
+  #card { position: absolute; left: 10px; bottom: 54px; z-index: 550; min-width: 230px;
           background: #ffffff; color: #0d1b2a; border: 1px solid #cbd5e1;
           border-radius: 8px; padding: 8px 46px 8px 10px; font-size: 12px;
           box-shadow: 0 2px 8px rgba(0,0,0,.3); font-variant-numeric: tabular-nums; }
@@ -223,6 +229,10 @@
       </span>
       <span id="wind-badge-text">From NW 315°</span>
     </div>
+    <div id="legend-card" aria-hidden="true">
+      <div id="legend-card-bar"></div>
+      <div id="legend-card-ticks"><span>0</span><span>1</span><span>2</span><span>3.5</span><span>4.5</span><span>6+</span></div>
+    </div>
     <div id="note"><span id="note-msg">wind unavailable — retry</span><button id="note-retry" type="button">Retry</button></div>
     <div id="boot">
       <div id="boot-text">Loading wave map…</div>
@@ -249,10 +259,9 @@
       </button>
     </div>
 
-    <div class="deck-row deck-ramp">
-      <div id="ramp-bar"></div>
-      <div id="ramp-ticks"><span>0</span><span>1</span><span>2</span><span>3.5</span><span>4.5</span><span>6+</span></div>
-    </div>
+    <!-- aria-live off: the strip rewrites every frame during playback; a polite live
+         region would queue an announcement per frame. role=status keeps the semantics. -->
+    <div class="deck-row deck-wind" id="wind-strip" role="status" aria-live="off">Wind: —</div>
   </footer>
   <canvas id="field"></canvas>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
