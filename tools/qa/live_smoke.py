@@ -37,10 +37,13 @@ def main():
         page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
 
         page.goto(args.url, wait_until="load", timeout=60000)
+        # `aria-valuemax="95"` is static markup, so it is NOT a readiness signal —
+        # wait for rendered data: a real pill timestamp and at least one day block.
         page.wait_for_function(
-            "() => document.getElementById('track') &&"
-            " document.getElementById('track').getAttribute('aria-valuemax') === '95'",
-            timeout=60000)
+            "() => { var p = document.getElementById('time-pill');"
+            " return !!p && p.textContent.trim() !== '\u2014' &&"
+            " document.getElementById('track-days').children.length >= 1; }",
+            timeout=120000)
 
         v = page.evaluate("""() => {
             const deck = document.getElementById('deck').getBoundingClientRect();
@@ -88,7 +91,7 @@ def main():
             return {n: blocks.length,
                     headers: blocks.map(b => b.querySelector('.day-head').textContent),
                     alternating: bgs.every((c, i) => i === 0 || c !== bgs[i - 1]),
-                    boot: document.getElementById('boot').hidden};
+                    boot: document.getElementById('boot').classList.contains('hidden')};
         }""")
         rec("7 day live", w["n"] == 7 and w["alternating"] and w["boot"],
             "blocks=%d alt=%s boot-hidden=%s" % (w["n"], w["alternating"], w["boot"]))
