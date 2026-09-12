@@ -370,14 +370,17 @@ def check_compass(page, gamma):
         record(6, "compass badge", ok,
                "calm wind speed=%s text='%s' aria='%s'" % (v["speed"], v["text"], v["aria"]))
         return
-    text_ok = bool(re.match(r"^[NSEW]{1,2} \d{1,3}°$", v["text"]))
-    m = re.match(r"matrix\(([^)]+)\)", v["transform"])
+    from_deg = (v["grid"] + gamma) % 360      # source bearing shown in the text
+    expected_arrow = (from_deg + 180) % 360   # flow vector: arrow points DOWNWIND
+    text_ok = bool(re.match(r"^From [NSEW]{1,2} \d{1,3}°$", v["text"]))
+    m = re.match(r"^From [NSEW]{1,2} (\d{1,3})°$", v["text"])
+    text_deg_ok = bool(m) and abs(int(m.group(1)) - round(from_deg)) <= 0.5
+    mm = re.match(r"matrix\(([^)]+)\)", v["transform"])
     angle = None
-    if m:
-        parts = [float(x) for x in m.group(1).split(",")]
+    if mm:
+        parts = [float(x) for x in mm.group(1).split(",")]
         angle = (math.degrees(math.atan2(parts[1], parts[0]))) % 360
-    expected = (v["grid"] + gamma) % 360
-    delta = min(abs(angle - expected), 360 - abs(angle - expected)) if angle is not None else 999
+    delta = min(abs(angle - expected_arrow), 360 - abs(angle - expected_arrow)) if angle is not None else 999
     b, mp = v["badge"], v["map"]
     bcx, bcy = b["x"] + b["w"] / 2, b["y"] + b["h"] / 2
     in_quadrant = (bcx > mp["x"] + mp["w"] / 2 and bcy < mp["y"] + mp["h"] / 2 and
@@ -389,13 +392,16 @@ def check_compass(page, gamma):
         z = v["zoom"]
         clear_zoom = not (b["x"] < z["x"] + z["w"] and z["x"] < b["x"] + b["w"] and
                           b["y"] < z["y"] + z["h"] and z["y"] < b["y"] + b["h"])
-    aria_ok = bool(v["aria"]) and re.match(r"^Wind from [NSEW]{1,2} at \d+ degrees$", v["aria"]) is not None
-    ok = text_ok and angle is not None and delta <= 1.5 and in_quadrant and clear_zoom and aria_ok
+    aria_ok = bool(v["aria"]) and re.match(
+        r"^Wind from [NSEW]{1,2} at \d+ degrees, blowing toward \d+ degrees$",
+        v["aria"]) is not None
+    ok = text_ok and text_deg_ok and angle is not None and delta <= 1.5 and in_quadrant \
+         and clear_zoom and aria_ok
     record(6, "compass badge", ok,
-           "text='%s' arrow=%.2f° expected=%.2f° delta=%.2f (into-wind) "
+           "text='%s' from=%.2f° arrow=%.2f° expected=%.2f° (downwind) delta=%.2f "
            "top-right=%s clear-zoom=%s aria='%s'"
-           % (v["text"], angle if angle is not None else float("nan"), expected, delta,
-              in_quadrant, clear_zoom, v["aria"]))
+           % (v["text"], from_deg, angle if angle is not None else float("nan"),
+              expected_arrow, delta, in_quadrant, clear_zoom, v["aria"]))
 
 
 def check_ramp_location(page):

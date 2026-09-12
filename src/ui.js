@@ -171,17 +171,24 @@ function windLine(speedMph, gustMph) {
     : `Wind: ${Math.round(s)} mph`;
 }
 
-// Compass metadata. arrowDeg points INTO the wind (at the source). Calm (< 3 mph)
-// or a non-finite bearing -> { sector:'Calm', degText:'', arrowDeg:null }.
+// Compass metadata. Text fields describe the SOURCE (fromDeg); arrowDeg points
+// DOWNWIND (flow vector = from + 180) so the arrow reads as "where the air is
+// going". Calm (< 3 mph) or a non-finite bearing -> all-null fields.
 function compass(bearingDeg, speedMph) {
   if (speedMph != null) {
     const s = Number(speedMph);
-    if (!Number.isFinite(s) || s < CALM_MPH) return { sector: 'Calm', degText: '', arrowDeg: null };
+    if (!Number.isFinite(s) || s < CALM_MPH)
+      return { sector: 'Calm', degText: '', fromDeg: null, arrowDeg: null };
   }
   const b = Number(bearingDeg);
-  if (!Number.isFinite(b)) return { sector: 'Calm', degText: '', arrowDeg: null };
+  if (!Number.isFinite(b)) return { sector: 'Calm', degText: '', fromDeg: null, arrowDeg: null };
   const deg = normalizeDeg(b);
-  return { sector: SECTORS[Math.round(deg / 45) % 8], degText: `${Math.round(deg)}°`, arrowDeg: deg };
+  return {
+    sector: SECTORS[Math.round(deg / 45) % 8],
+    degText: `${Math.round(deg)}°`,
+    fromDeg: deg,
+    arrowDeg: (deg + 180) % 360,
+  };
 }
 
 // Condition tier, strict red -> amber -> yellow -> green (first match wins).
