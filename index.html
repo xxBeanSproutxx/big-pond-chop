@@ -259,7 +259,9 @@
       </button>
     </div>
 
-    <div class="deck-row deck-wind" id="wind-strip" role="status">Wind: —</div>
+    <!-- aria-live off: the strip rewrites every frame during playback; a polite live
+         region would queue an announcement per frame. role=status keeps the semantics. -->
+    <div class="deck-row deck-wind" id="wind-strip" role="status" aria-live="off">Wind: —</div>
   </footer>
   <canvas id="field"></canvas>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
