@@ -50,7 +50,7 @@ def main():
             const track = document.getElementById('track').getBoundingClientRect();
             const tl = document.getElementById('timeline').getBoundingClientRect();
             const play = document.getElementById('play').getBoundingClientRect();
-            const ramp = document.querySelector('.deck-ramp').getBoundingClientRect();
+            const strip = document.getElementById('wind-strip').getBoundingClientRect();
             const pill = document.getElementById('time-pill');
             const pr = pill.getBoundingClientRect();
             const blocks = Array.from(document.getElementById('track-days').children);
@@ -64,7 +64,7 @@ def main():
                     tapeW: document.getElementById('track-tape').getBoundingClientRect().width,
                     tapeInTimeline: document.getElementById('track-tape').parentElement
                                     === document.getElementById('timeline'),
-                    rampFlush: Math.abs(ramp.bottom - deck.bottom) <= 2,
+                    stripFlush: Math.abs(strip.bottom - deck.bottom) <= 2,
                     blocks: blocks.length,
                     header: blocks.length ? blocks[0].querySelector('.day-head').textContent : '',
                     subs: blocks.length
@@ -82,7 +82,7 @@ def main():
         rec("play pinned", v["playOverlay"], "play overlays the window's left edge, z-index>=10")
         rec("tape wired", v["tapeInTimeline"] and v["tapeW"] >= 300,
             "tape=%.0f px inside #timeline=%s" % (v["tapeW"], v["tapeInTimeline"]))
-        rec("ribbon flush", v["rampFlush"], "ramp/deck delta ok=%s" % v["rampFlush"])
+        rec("wind strip flush", v["stripFlush"], "wind-strip/deck delta ok=%s" % v["stripFlush"])
         rec("day header", bool(v["header"].strip()), "block0 header='%s' subs=%s" % (v["header"], v["subs"]))
 
         page.click("#h-7d")
