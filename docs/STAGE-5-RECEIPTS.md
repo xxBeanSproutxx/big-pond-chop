@@ -205,7 +205,22 @@ SEAM 2026-09-13 frame=288 dSpeed=0.00 dDir=3.00 PASS
 
 ## Production deployment
 
-_Filled by the orchestrator after the push; no numbers here until then._
+- **Push.** `git push origin main`: `9ec0f97..fd53764` (21 commits, stage 5A→5E), 2026-09-12
+  01:31 UTC. Rollback tag `pre-stage5` (`9ec0f97`, last Stage-4 deploy) pushed to origin.
+- **GitHub Pages build.** `pages/builds/latest`: `status=built`,
+  commit `fd53764c441fa9393cbfc555f88bb20b2b77fe58`, duration `31207 ms`,
+  `error.message = null`.
+- **Assets.** 12/12 HTTP 200 on `https://xxbeansproutxx.github.io/big-pond-chop/`:
+  `index.html`, `src/tables.js`, `src/wave-math.js`, `src/wind.js`, `src/ui.js`,
+  `src/render.js`, `public/meta.v1.json`, `public/warp.v1.json`, `public/spots.v1.json`,
+  `public/tables.v1.bin`, `public/favicon.svg`, `og-preview.png`.
+- **Headless smoke (Chromium 390x844, live site, 0 page errors).** Fresh boot:
+  `aria-valuemax=95`, frame `2026-09-11T20:30`, `24 h · 15 min`, `Fri 11`, blob overlay
+  naturalWidth=512, now-tick visible, chip `Dangerous · Stay Home`, clock `8:30 PM CDT`.
+  Widen: `aria-valuemax=671`, 7 day labels `Fri 11 … Thu 17`, hatch on (390 px < 768),
+  cue `7 day · hourly → 15 min`. Narrow: back to `95`.
+- **5D.2 verified on production.** Boot skeleton hides again after widen **and** refresh:
+  `boot.hidden=True`, `elementFromPoint(centre)=map` at load / widen / refresh, 0 errors.
 
 ## Notes
 
