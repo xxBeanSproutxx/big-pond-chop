@@ -356,7 +356,6 @@ async function mount(deps) {
   const trackLabel = document.getElementById('track-label');
   const timePill = document.getElementById('time-pill');
   const nowTick = document.getElementById('now-tick');
-  const windStripEl = document.getElementById('wind-strip');
   const horizonEl = document.getElementById('horizon');
   const h24Btn = document.getElementById('h-24h');
   const h7Btn = document.getElementById('h-7d');
@@ -484,11 +483,8 @@ async function mount(deps) {
     bounds = displayBounds(warp);
   }
 
-  const legendBar = document.getElementById('legend-card-bar');
-  if (legendBar) {
-    const stops = ui.HS_STOPS.map(([v, r, g, b]) => `rgb(${r}, ${g}, ${b}) ${(v / 6 * 100).toFixed(1)}%`);
-    legendBar.style.background = `linear-gradient(90deg, ${stops.join(', ')})`;
-  }
+  const rampBar = document.getElementById('ramp-bar');
+  if (rampBar) rampBar.style.background = ui.rampGradient();
 
   function isShoreCell(lat, lon) {
     const g = lonlatToGrid(warp, lon, lat);
@@ -673,8 +669,8 @@ async function mount(deps) {
   // Solid segmented day blocks at real width: alternating shades, midnight divider, day
   // headers and the full 3 h sub-row. Blocks are date-string derived; each is sized from
   // its own frame run, so uneven days still tile exactly.
-  // 5J: a wide block (24 h, 550 px) repeats the day label once per 6 h cell so the label
-  // never scrolls out of context; narrow blocks (7d, 190 px) keep one centred header.
+  // 5K: exactly one header per day block, pinned at the block's start on the wide 24 h
+  // block (one "Saturday 12" on the tape) and centred on the narrow 7 d blocks.
   function renderTimeline() {
     trackDays.textContent = '';
     trackTicks.textContent = '';
@@ -695,20 +691,13 @@ async function mount(deps) {
       block.style.left = `${left}px`;
       block.style.width = `${w}px`;
       const label = ui.dayLabel(parts[k].date, true);
-      if (w > 275) {
-        for (let h = 0; h < 24; h += 6) {
-          const head = document.createElement('span');
-          head.className = 'day-head';
-          head.style.left = `${((h + 3) / 24) * w}px`;
-          head.textContent = label;
-          block.appendChild(head);
-        }
-      } else {
-        const head = document.createElement('span');
-        head.className = 'day-head';
-        head.textContent = label;
-        block.appendChild(head);
-      }
+      // Exactly one header per day block. A wide (24 h) block pins it left at the day
+      // boundary; narrow 7 d blocks keep the centred default from CSS.
+      const head = document.createElement('span');
+      head.className = 'day-head';
+      if (w > 275) { head.style.left = '6px'; head.style.transform = 'none'; }
+      head.textContent = label;
+      block.appendChild(head);
       for (let h = 0; h < 24; h += 3) {
         const sub = document.createElement('span');
         sub.className = 'day-sub' + (h === 0 ? ' edge' : '');
@@ -746,14 +735,11 @@ async function mount(deps) {
 
   // Single feedback helper, called by showFrame (play + programmatic) and by scrub.
   // The pill is permanent and fixed: only its text changes; the tape moves underneath.
-  // 5J: the deck wind strip is written here too, so it stays synchronized with the reticle.
   function updateScrubUi(idx) {
     if (!frames.length || !viewportW) return;
     const e = frames[idx];
     const text = ui.formatPillTime(e.time);
     if (timePill.textContent !== text) timePill.textContent = text;
-    const strip = ui.windStrip(e.speedMph, e.gustMph, e.dirTrueDeg);
-    if (windStripEl && windStripEl.textContent !== strip) windStripEl.textContent = strip;
     trackEl.setAttribute('aria-valuenow', String(idx));
     trackEl.setAttribute('aria-valuetext',
       `${ui.formatClockLocal(e.time)}, ${ui.dayLabel(e.time, true)}`);
