@@ -142,27 +142,27 @@ check('never emits NaN / undefined / Infinity', () => {
   }
 });
 
-console.log('\n== [7] stage-4b compass ==');
-check('sector + degText at the 8 principal bearings', () => {
-  assert.deepStrictEqual(ui.compass(0, 10), { sector: 'N', degText: '0°', arrowDeg: 0 });
-  assert.deepStrictEqual(ui.compass(45, 10), { sector: 'NE', degText: '45°', arrowDeg: 45 });
-  assert.deepStrictEqual(ui.compass(90, 10), { sector: 'E', degText: '90°', arrowDeg: 90 });
-  assert.deepStrictEqual(ui.compass(180, 10), { sector: 'S', degText: '180°', arrowDeg: 180 });
-  assert.deepStrictEqual(ui.compass(315, 10), { sector: 'NW', degText: '315°', arrowDeg: 315 });
-  assert.deepStrictEqual(ui.compass(359, 10), { sector: 'N', degText: '359°', arrowDeg: 359 });
+console.log('\n== [7] stage-4b compass (from-text, downwind arrow) ==');
+check('sector + degText are the SOURCE; arrowDeg is DOWNWIND (from + 180)', () => {
+  assert.deepStrictEqual(ui.compass(0, 10),   { sector: 'N',  degText: '0°',   fromDeg: 0,   arrowDeg: 180 });
+  assert.deepStrictEqual(ui.compass(45, 10),  { sector: 'NE', degText: '45°',  fromDeg: 45,  arrowDeg: 225 });
+  assert.deepStrictEqual(ui.compass(90, 10),  { sector: 'E',  degText: '90°',  fromDeg: 90,  arrowDeg: 270 });
+  assert.deepStrictEqual(ui.compass(180, 10), { sector: 'S',  degText: '180°', fromDeg: 180, arrowDeg: 0 });
+  assert.deepStrictEqual(ui.compass(315, 10), { sector: 'NW', degText: '315°', fromDeg: 315, arrowDeg: 135 });
+  assert.deepStrictEqual(ui.compass(359, 10), { sector: 'N',  degText: '359°', fromDeg: 359, arrowDeg: 179 });
 });
-check('wrap-around normalizes, arrowDeg === normalizeDeg(bearing)', () => {
-  assert.deepStrictEqual(ui.compass(360, 10), { sector: 'N', degText: '0°', arrowDeg: 0 });
-  assert.deepStrictEqual(ui.compass(720, 10), { sector: 'N', degText: '0°', arrowDeg: 0 });
-  assert.deepStrictEqual(ui.compass(-45, 10), { sector: 'NW', degText: '315°', arrowDeg: 315 });
+check('wrap-around normalizes; arrowDeg === (normalizeDeg(b) + 180) % 360', () => {
+  assert.deepStrictEqual(ui.compass(360, 10), { sector: 'N', degText: '0°', fromDeg: 0, arrowDeg: 180 });
+  assert.deepStrictEqual(ui.compass(720, 10), { sector: 'N', degText: '0°', fromDeg: 0, arrowDeg: 180 });
+  assert.deepStrictEqual(ui.compass(-45, 10), { sector: 'NW', degText: '315°', fromDeg: 315, arrowDeg: 135 });
   for (const b of [0, 45, 90, 180, 315, 359, 360, 722, -90]) {
-    assert.strictEqual(ui.compass(b, 10).arrowDeg, ui.normalizeDeg(b));
+    assert.strictEqual(ui.compass(b, 10).arrowDeg, (ui.normalizeDeg(b) + 180) % 360);
   }
 });
 check('calm (< 3 mph) -> Calm with null arrow', () => {
-  eq(ui.compass(315, 2), { sector: 'Calm', degText: '', arrowDeg: null });
-  eq(ui.compass(315, 0), { sector: 'Calm', degText: '', arrowDeg: null });
-  eq(ui.compass(NaN, 10), { sector: 'Calm', degText: '', arrowDeg: null });
+  eq(ui.compass(315, 2), { sector: 'Calm', degText: '', fromDeg: null, arrowDeg: null });
+  eq(ui.compass(315, 0), { sector: 'Calm', degText: '', fromDeg: null, arrowDeg: null });
+  eq(ui.compass(NaN, 10), { sector: 'Calm', degText: '', fromDeg: null, arrowDeg: null });
 });
 
 console.log('\n== [8] stage-4b comfortTier ==');
