@@ -80,6 +80,18 @@ function shouldPaintResult(result, current) {
     result.W === current.W && result.H === current.H;
 }
 
+// ---- stage 5C: deck scrub geometry (pure helpers) ----
+// Viewport x -> frame index against the rail rect, clamped to the ends.
+function idxFromX(px, railLeft, railWidth, n) {
+  const t = Math.max(0, Math.min(1, (px - railLeft) / railWidth));
+  return Math.round(t * (n - 1));
+}
+
+// Left offset that keeps the fixed-width pill inside the track at both ends.
+function clampPillX(xLocal, trackW, pillW = 64, pad = 4) {
+  return Math.min(Math.max(xLocal - pillW / 2, pad), trackW - pad - pillW);
+}
+
 function bilinearSample(field, cols, rows, colF, rowF) {
   const cx = colF < 0 ? 0 : colF > cols - 1 ? cols - 1 : colF;
   const ry = rowF < 0 ? 0 : rowF > rows - 1 ? rows - 1 : rowF;
@@ -290,6 +302,12 @@ async function mount(deps) {
   const canvas = document.getElementById('field');
   const cctx = canvas.getContext('2d');
   const scrub = document.getElementById('scrub');
+  const deck = document.getElementById('deck');
+  const trackEl = document.getElementById('track');
+  const trackRail = document.getElementById('track-rail');
+  const trackProgress = document.getElementById('track-progress');
+  const playhead = document.getElementById('playhead');
+  const timePill = document.getElementById('time-pill');
   const nowTick = document.getElementById('now-tick');
   const label = document.getElementById('hour-label');
   const windEl = document.getElementById('wind-info');
@@ -486,6 +504,107 @@ async function mount(deps) {
     onEvict: (key, entry) => { if (entry) revokeUrl(entry.url); },
   });
 
+  // ---- stage 5C: deck-wide scrub surface + feedback ----
+  const SCRUB_LINGER_MS = 900;
+  let railRect = null;
+  let trackW = 0;
+  let scrubbing = false;
+  let scrubPointerId = null;
+  let pillHideTimer = null;
+  let scrubRaf = 0;
+  let scrubX = 0;
+
+  // Cached once per gesture / on layout change; never read in the move path.
+  function refreshRailRect() {
+    railRect = trackRail.getBoundingClientRect();
+    trackW = trackEl.getBoundingClientRect().width;
+  }
+
+  function schedulePillHide() {
+    if (pillHideTimer) clearTimeout(pillHideTimer);
+    pillHideTimer = setTimeout(() => {
+      pillHideTimer = null;
+      if (!scrubbing && !playing) timePill.hidden = true;
+    }, SCRUB_LINGER_MS);
+  }
+
+  // Single feedback helper, called by showFrame (play + programmatic) and by scrub.
+  function updateScrubUi(idx) {
+    if (!frames.length || !trackW) return;
+    const n = frames.length;
+    const t = n > 1 ? idx / (n - 1) : 0;
+    const x = 11 + t * (trackW - 22); // rail inset 11px each side (5B CSS)
+    playhead.style.left = `${x}px`;
+    playhead.style.transform = 'translateX(-50%)';
+    trackProgress.style.transform = `scaleX(${t})`;
+    timePill.textContent = ui.formatClockLocal(frames[idx].time);
+    timePill.style.left = '0';
+    timePill.style.transform = `translateX(${clampPillX(x, trackW)}px)`;
+    if (scrubbing || playing || pillHideTimer) timePill.hidden = false;
+    else timePill.hidden = true;
+    trackEl.setAttribute('aria-valuenow', String(idx));
+    trackEl.setAttribute('aria-valuetext', ui.formatClockLocal(frames[idx].time));
+  }
+
+  function scrubTo(clientX) {
+    if (!railRect || !frames.length) return;
+    const idx = idxFromX(clientX, railRect.left, railRect.width, frames.length);
+    requestFrame(idx);
+    updateScrubUi(idx);
+  }
+
+  deck.addEventListener('pointerdown', (e) => {
+    if (!frames.length) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (e.target.closest('button, [role=button], a, input')) return;
+    e.preventDefault();
+    refreshRailRect();
+    scrubbing = true;
+    scrubPointerId = e.pointerId;
+    const wasPlaying = playing;
+    if (wasPlaying) pause(); // capture only; never auto-resume
+    deck.setPointerCapture(e.pointerId);
+    if (pillHideTimer) { clearTimeout(pillHideTimer); pillHideTimer = null; }
+    scrubX = e.clientX;
+    scrubTo(scrubX);
+    timePill.hidden = false;
+  });
+  deck.addEventListener('pointermove', (e) => {
+    if (!scrubbing || e.pointerId !== scrubPointerId) return;
+    scrubX = e.clientX;
+    if (scrubRaf) return;
+    scrubRaf = requestAnimationFrame(() => {
+      scrubRaf = 0;
+      if (scrubbing) scrubTo(scrubX);
+    });
+  });
+  function endScrub(e) {
+    if (!scrubbing || (e && e.pointerId !== scrubPointerId)) return;
+    scrubbing = false;
+    scrubPointerId = null;
+    schedulePillHide();
+  }
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+    deck.addEventListener(type, endScrub);
+  }
+
+  trackEl.addEventListener('keydown', (e) => {
+    if (!frames.length) return;
+    let idx;
+    switch (e.key) {
+      case 'ArrowLeft': idx = cur - 1; break;
+      case 'ArrowRight': idx = cur + 1; break;
+      case 'PageUp': idx = cur + 4; break;
+      case 'PageDown': idx = cur - 4; break;
+      case 'Home': idx = 0; break;
+      case 'End': idx = frames.length - 1; break;
+      default: return;
+    }
+    e.preventDefault();
+    pause();
+    requestFrame(Math.max(0, Math.min(frames.length - 1, idx)));
+  });
+
   // Snapshot of the frame the overlay is currently showing; the async encode compares against it.
   function currentMeta() {
     return { idx: cur, pinIdx: pinned ? pinned.i : -1, W: canvas.width, H: canvas.height };
@@ -603,6 +722,7 @@ async function mount(deps) {
     body.dataset.bearingGrid = e.bearingGrid.toFixed(3);
     body.dataset.teffH = e.tEffH.toFixed(2);
     scrub.value = String(cur);
+    updateScrubUi(cur);
     label.textContent = ui.formatClockLocal(e.time);
     windEl.textContent = ui.windLine(e.speedMph, e.gustMph);
     frameEl.textContent = `H/L ${s.hlMax.toFixed(3)}`;
@@ -702,7 +822,8 @@ async function mount(deps) {
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
   playBtn.addEventListener('click', () => setPlaying(!playing));
   document.getElementById('card-close').addEventListener('click', dismissPin);
-  window.addEventListener('resize', scheduleRegather);
+  window.addEventListener('resize', () => { refreshRailRect(); scheduleRegather(); });
+  window.addEventListener('orientationchange', refreshRailRect);
   // test hook: same handler the map click uses
   window.__bpcTap = (lat, lon) => placePin(L.latLng(lat, lon));
 
@@ -716,6 +837,8 @@ async function mount(deps) {
     console.info(`lazy frames: ${frames.length} @ ${stepMin} min`);
     scrub.min = '0';
     scrub.max = String(Math.max(0, frames.length - 1));
+    trackEl.setAttribute('aria-valuemax', String(Math.max(0, frames.length - 1)));
+    refreshRailRect();
     // The now-tick marks the real "now"; an explicit ?hour=/?frame= override hides it.
     if (!q.has('hour') && !q.has('frame') && frames.length) {
       const nowIdx = Number.isFinite(data.currentIndex) ? data.currentIndex : 0;
@@ -777,4 +900,5 @@ module.exports = {
   bilinearSample, gatherRaster, hmaxFt, computeFrame, paintRaster,
   landMaskRaster, smoothRaster, cacheKey, frameBytes, createFrameCache, mount,
   offscreenSupported, revokeUrl, shouldPaintResult, encodeOffscreen,
+  idxFromX, clampPillX,
 };

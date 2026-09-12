@@ -12,6 +12,7 @@ const {
   FRAME_MINUTES, targetWidth, landMaskRaster, smoothRaster,
   cacheKey, frameBytes, createFrameCache,
   playWidth, PLAY_MAX_WIDTH, revokeUrl, shouldPaintResult, offscreenSupported,
+  idxFromX, clampPillX,
 } = require('../src/render');
 const ui = require('../src/ui');
 
@@ -260,6 +261,37 @@ check('stale async result cached but not painted (decision helper)', () => {
   assert.strictEqual(shouldPaintResult(shown, { idx: 5, pinIdx: -1, W: 1536, H: 1568 }), false);
   assert.strictEqual(shouldPaintResult(shown, null), false);
   console.log('       idx/pin/dims mismatch all suppress the async paint');
+});
+
+console.log('\n== [9] stage-5c: scrub geometry ==');
+check('idxFromX clamps at and beyond both rail ends', () => {
+  const L = 10, W = 100, N = 24;
+  assert.strictEqual(idxFromX(0, L, W, N), 0, 'left of rail');
+  assert.strictEqual(idxFromX(L, L, W, N), 0, 'at rail left');
+  assert.strictEqual(idxFromX(L + W, L, W, N), N - 1, 'at rail right');
+  assert.strictEqual(idxFromX(999, L, W, N), N - 1, 'beyond rail right');
+  assert.strictEqual(idxFromX(L + W / 2, L, W, N), Math.round((N - 1) / 2), 'midpoint');
+  console.log(`       left->0 right->${N - 1} mid->${Math.round((N - 1) / 2)}`);
+});
+check('idxFromX is monotone across the rail', () => {
+  const L = 10, W = 100, N = 96;
+  let prev = -1;
+  for (let px = -20; px <= W + 40; px += 2) {
+    const i = idxFromX(px, L, W, N);
+    assert.ok(i >= 0 && i <= N - 1, `bounds ${i}`);
+    assert.ok(i >= prev, `monotone ${i} < ${prev} at px ${px}`);
+    prev = i;
+  }
+  console.log(`       96 frames across ${W}px: non-decreasing, within [0,${N - 1}]`);
+});
+check('clampPillX keeps the 64px pill inside the track at both ends', () => {
+  const trackW = 360;
+  assert.strictEqual(clampPillX(11, trackW), 4, 'frame 0 -> 4');
+  assert.strictEqual(clampPillX(trackW - 11, trackW), trackW - 68, 'last frame -> trackW-68');
+  assert.strictEqual(clampPillX(100, trackW), 68, 'mid -> x-32');
+  assert.strictEqual(clampPillX(0, trackW), 4, 'left clamp');
+  assert.strictEqual(clampPillX(trackW, trackW), trackW - 68, 'right clamp');
+  console.log(`       frame0=4 last=${trackW - 68} mid=68`);
 });
 
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);
