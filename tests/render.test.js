@@ -12,7 +12,7 @@ const {
   FRAME_MINUTES, targetWidth, landMaskRaster, smoothRaster,
   cacheKey, frameBytes, createFrameCache,
   playWidth, PLAY_MAX_WIDTH, revokeUrl, shouldPaintResult, offscreenSupported,
-  idxFromX, clampPillX, dayPartitions, playStep, nextPlayIdx,
+  pxPerDay, pxPerFrame, tapeTranslate, idxFromDrag, dayPartitions, playStep, nextPlayIdx,
 } = require('../src/render');
 const ui = require('../src/ui');
 
@@ -120,8 +120,8 @@ check('stage-5b deck markup holds the frozen ids, drops the legend', () => {
     'viewport meta must drop maximum-scale/user-scalable and add viewport-fit=cover');
   const footer = /<footer id="deck">([\s\S]*?)<\/footer>/.exec(html);
   assert.ok(footer, 'missing <footer id="deck">');
-  const ids = ['play', 'track', 'timeline', 'track-days', 'track-ticks', 'track-label',
-    'now-tick', 'time-pill', 'h-24h', 'h-7d', 'ramp-bar', 'ramp-ticks'];
+  const ids = ['play', 'track', 'timeline', 'track-tape', 'track-days', 'track-ticks',
+    'track-label', 'now-tick', 'time-pill', 'h-24h', 'h-7d', 'ramp-bar', 'ramp-ticks'];
   for (const id of ids) assert.ok(html.includes(`id="${id}"`), `page missing #${id}`);
   const removed = ['playhead', 'track-rail', 'track-progress', 'deck-day', 'hour-label',
     'play-label', 'deck-main'];
@@ -265,35 +265,44 @@ check('stale async result cached but not painted (decision helper)', () => {
   console.log('       idx/pin/dims mismatch all suppress the async paint');
 });
 
-console.log('\n== [9] stage-5c: scrub geometry ==');
-check('idxFromX clamps at and beyond both rail ends', () => {
-  const L = 10, W = 100, N = 24;
-  assert.strictEqual(idxFromX(0, L, W, N), 0, 'left of rail');
-  assert.strictEqual(idxFromX(L, L, W, N), 0, 'at rail left');
-  assert.strictEqual(idxFromX(L + W, L, W, N), N - 1, 'at rail right');
-  assert.strictEqual(idxFromX(999, L, W, N), N - 1, 'beyond rail right');
-  assert.strictEqual(idxFromX(L + W / 2, L, W, N), Math.round((N - 1) / 2), 'midpoint');
-  console.log(`       left->0 right->${N - 1} mid->${Math.round((N - 1) / 2)}`);
+console.log('\n== [9] stage-5g: tape geometry ==');
+check('pxPerDay is 190 in 7d and max(190, window) in 24h', () => {
+  assert.strictEqual(pxPerDay('7d', 374), 190);
+  assert.strictEqual(pxPerDay('24h', 374), 374);
+  assert.strictEqual(pxPerDay('24h', 120), 190, 'a single day always at least fills the window');
+  console.log(`       7d->${pxPerDay('7d', 374)} 24h(374)->${pxPerDay('24h', 374)} ` +
+    `24h(120)->${pxPerDay('24h', 120)}`);
 });
-check('idxFromX is monotone across the rail', () => {
-  const L = 10, W = 100, N = 96;
-  let prev = -1;
-  for (let px = -20; px <= W + 40; px += 2) {
-    const i = idxFromX(px, L, W, N);
-    assert.ok(i >= 0 && i <= N - 1, `bounds ${i}`);
-    assert.ok(i >= prev, `monotone ${i} < ${prev} at px ${px}`);
+check('pxPerFrame is pxPerDay / 96', () => {
+  assert.strictEqual(pxPerFrame('7d', 374), 190 / 96);
+  assert.strictEqual(pxPerFrame('24h', 374), 374 / 96);
+  console.log(`       7d->${pxPerFrame('7d', 374).toFixed(4)} 24h->${pxPerFrame('24h', 374).toFixed(4)}`);
+});
+check('tapeTranslate keeps the active frame under the reticle centre', () => {
+  const pxf = pxPerFrame('7d', 374), center = 187;
+  for (const idx of [0, 1, 96, 335, 671]) {
+    assert.ok(Math.abs(tapeTranslate(idx, pxf, center) + idx * pxf - center) < 1e-9,
+      `idx ${idx} not under centre`);
+  }
+  console.log(`       center ${center}, idx 0 -> ${tapeTranslate(0, pxf, center)}, ` +
+    `idx 671 -> ${tapeTranslate(671, pxf, center).toFixed(1)}`);
+});
+check('idxFromDrag: dragging left advances, right rewinds, clamped at both ends', () => {
+  const pxf = 190 / 96, n = 672, start = 200;
+  for (const k of [1, 5, 37, 120]) {
+    assert.strictEqual(idxFromDrag(-pxf * k, start, pxf, n), start + k, `advance ${k}`);
+  }
+  assert.strictEqual(idxFromDrag(pxf * 40, start, pxf, n), start - 40, 'rewind 40');
+  assert.strictEqual(idxFromDrag(-pxf * 10000, start, pxf, n), n - 1, 'clamp high');
+  assert.strictEqual(idxFromDrag(pxf * 10000, start, pxf, n), 0, 'clamp low');
+  let prev = Infinity;
+  for (let dx = -400; dx <= 400; dx += 5) {
+    const i = idxFromDrag(dx, start, pxf, n);
+    assert.ok(i >= 0 && i <= n - 1, `bounds ${i}`);
+    assert.ok(i <= prev, `monotone ${i} > ${prev} at dx ${dx}`);
     prev = i;
   }
-  console.log(`       96 frames across ${W}px: non-decreasing, within [0,${N - 1}]`);
-});
-check('clampPillX keeps the 68px pill inside the track at both ends', () => {
-  const trackW = 360;
-  assert.strictEqual(clampPillX(11, trackW), 4, 'frame 0 -> 4');
-  assert.strictEqual(clampPillX(trackW - 11, trackW), trackW - 72, 'last frame -> trackW-72');
-  assert.strictEqual(clampPillX(100, trackW), 66, 'mid -> x-34');
-  assert.strictEqual(clampPillX(0, trackW), 4, 'left clamp');
-  assert.strictEqual(clampPillX(trackW, trackW), trackW - 72, 'right clamp');
-  console.log(`       frame0=4 last=${trackW - 72} mid=66`);
+  console.log(`       -pxf*37 -> +37; clamp [0,${n - 1}]; non-increasing in dx`);
 });
 
 console.log('\n== [10] stage-5d: day partitions + 7-day cadence ==');
