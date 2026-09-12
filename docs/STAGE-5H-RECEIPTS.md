@@ -150,6 +150,30 @@ orchestrator, not the build worker.
    feels heavy at release.
 8. **Node-suite count 105 checks** (parity 10, render 32, ui 27, wind 36) — no check deleted.
 
+## Deployment (2026-09-12) — LIVE
+
+- Merged `stage5h` into `main` with `--no-ff`: **merge commit `6785625`**
+  (one add/add conflict on `docs/BUILD-SPEC-STAGE5H.md`, resolved to the branch revision = the
+  amended spec; no source files conflicted). Pushed `19f1a31..6785625`.
+- **Deployed-asset verification (content, not the build API):**
+  `curl https://xxbeansproutxx.github.io/big-pond-chop/src/render.js` contains
+  `MAP_PAINT_MIN_MS = 72` and `Math.max(550, …)` (9 marker hits) and
+  `/docs/STAGE-5H-RECEIPTS.md` serves HTTP 200 → the live site is running 5H. The Pages build
+  API's `builds/latest` record still reported `19f1a31 / built / 37,645 ms` at check time
+  (record lag; the served bytes are authoritative and were checked directly).
+- **Live smoke** (`tools/qa/live_smoke.py`, deployed URL): **`SUMMARY: 10 ok, 0 FAIL`** —
+  deck two-row 68 px · pill permanent `11 PM` · reticle centred ≤1 px · play pinned z≥10 ·
+  **`tape wired … tape=550 px`** · ribbon flush · day header `Friday 11` + 8 sub-labels ·
+  7 day live (7 blocks, alt, tape 1,330) · back to 24 h (`aria-valuemax=95`) · `errors=0`.
+- **Live bench** (`tools/qa/scrub_bench.py --url https://xxbeansproutxx.github.io/big-pond-chop/`,
+  `tmp/live-bench-5h.txt`): **`VERDICT: 24/24 PASS`**
+  | viewport | mode | runway | swaps | paints | tx/moves | med/max ms | long |
+  | --- | --- | --- | --- | --- | --- | --- | --- |
+  | 390×844@2 | mouse | **176** | 10 | 10 | 41/31 | 15.2/63.8 | [] |
+  | 360×800@2 | mouse | **206** | 10 | 10 | 41/31 | 16.8/61.1 | [] |
+  | 360×800@2 | CDP touch | **206** | 10 | 10 | 41/30 | 18.4/66.6 | [] |
+- **Rollback:** `git revert -m 1 6785625` (or reset to tag `pre-stage5h` = `ed377a4`) and push.
+
 ## Spec vs. reality
 
 1. **"max step-latency not more than ~2× median" (done-when 3).** Not achievable on this box
