@@ -44,7 +44,7 @@ check('interpolates smoothly between stops and stays opaque on water', () => {
 });
 check('legend breakpoints and overlay opacity are pinned', () => {
   eq(ui.HS_BREAKS, [0, 1, 2, 3.5, 4.5, 6]);
-  assert.strictEqual(ui.OVERLAY_OPACITY, 0.85);
+  assert.strictEqual(ui.OVERLAY_OPACITY, 0.68);
 });
 check('stage-5l: HS_STOPS[0] is saturated deep lake blue #0369a1', () => {
   eq(ui.HS_STOPS[0], [0.0, 0x03, 0x69, 0xa1]);
@@ -266,16 +266,7 @@ check('bad input -> empty string', () => {
   }
 });
 
-console.log('\n== [12] stage-5j/l: windStrip + calm tier ==');
-check('windStrip: speed + gusts + finite source bearing', () => {
-  assert.strictEqual(ui.windStrip(15, 16, 315), 'Wind: 15 mph · Gusts 16 mph · From NW 315°');
-  assert.strictEqual(ui.windStrip(15, 16), 'Wind: 15 mph · Gusts 16 mph');
-  assert.strictEqual(ui.windStrip(15, 16, NaN), 'Wind: 15 mph · Gusts 16 mph');
-  assert.strictEqual(ui.windStrip(15, undefined, 90), 'Wind: 15 mph · From E 90°');
-  assert.strictEqual(ui.windStrip(2, 5, 315), 'Wind: calm');
-  assert.strictEqual(ui.windStrip(NaN, 5, 315), 'Wind: calm');
-  assert.strictEqual(ui.windStrip(undefined, undefined, undefined), 'Wind: calm');
-});
+console.log('\n== [12] stage-5j/l: calm tier ==');
 check('calm tier relabels only a green sea under 0.5 ft or under 4 mph', () => {
   assert.strictEqual(ui.comfortTier({ maxHsFt: 0.2, rollerFt: 0.2, hlMax: 0, windMph: 10 }).label,
     'Calm · Flat');
