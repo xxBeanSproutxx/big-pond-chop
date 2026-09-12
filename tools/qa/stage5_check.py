@@ -424,7 +424,7 @@ def check_ramp_location(page):
              };
            }""")
     grad_ok = all(c in v["gradient"] for c in (
-        "rgb(6, 182, 212)", "rgb(6, 182, 212)", "rgb(245, 158, 11)",
+        "rgb(8, 145, 178)", "rgb(6, 182, 212)", "rgb(245, 158, 11)",
         "rgb(234, 88, 12)", "rgb(220, 38, 38)", "rgb(190, 24, 93)"))
     stops_ok = v["stops"] == ["0", "1", "2", "3.5", "4.5", "6+"]
     ok = v["exists"] and v["inMap"] and not v["inDeck"] and v["legend"] and stops_ok and grad_ok
@@ -780,6 +780,53 @@ def check_timeline_labels(page):
                         overlap = True
         return {"min": min(vals) if vals else float("inf"), "overlap": overlap, "n": len(vals)}
 
+    def heat_rows():
+        """5O: per 7d block — the .day-heat ribbon geometry/colour and the row fonts."""
+        return page.evaluate(
+            """() => {
+                 var blocks = Array.from(document.getElementById('track-days').children);
+                 var tiers = ['rgb(8, 145, 178)','rgb(16, 185, 129)','rgb(245, 158, 11)',
+                              'rgb(249, 115, 22)','rgb(239, 68, 68)'];
+                 function tierSet(g) {
+                   var m = g.match(/rgb\\(\\s*\\d+,\\s*\\d+,\\s*\\d+\\s*\\)/g) || [];
+                   var seen = [];
+                   m.forEach(function (c) {
+                     var norm = c.replace(/\\s+/g, ' ');
+                     if (tiers.indexOf(norm) >= 0 && seen.indexOf(norm) < 0) seen.push(norm);
+                   });
+                   return seen;
+                 }
+                 return blocks.map(function (b) {
+                   var br = b.getBoundingClientRect();
+                   var hs = Array.from(b.querySelectorAll('.day-heat'));
+                   var h = hs[0];
+                   var hr = h ? h.getBoundingClientRect() : null;
+                   var cs = h ? getComputedStyle(h) : null;
+                   var head = b.querySelector('.day-head');
+                   var sub = b.querySelector('.day-sub:not(.edge)');
+                   var wind = b.querySelector('.day-wind');
+                   var grad = cs ? cs.backgroundImage : '';
+                   return {
+                     n: hs.length,
+                     hh: hr ? hr.height : 0,
+                     hw: hr ? hr.width : 0,
+                     bw: br.width,
+                     radius: cs ? parseFloat(cs.borderTopLeftRadius) : 0,
+                     tiers: tierSet(grad),
+                     stops: (grad.match(/rgb\\(/g) || []).length,
+                     headSize: head ? parseFloat(getComputedStyle(head).fontSize) : 0,
+                     headWeight: head ? getComputedStyle(head).fontWeight : '',
+                     subSize: sub ? parseFloat(getComputedStyle(sub).fontSize) : 0,
+                     subColor: sub ? getComputedStyle(sub).color : '',
+                     windSize: wind ? parseFloat(getComputedStyle(wind).fontSize) : 0,
+                     windWeight: wind ? getComputedStyle(wind).fontWeight : '',
+                     windColor: wind ? getComputedStyle(wind).color : '',
+                     hx: hr ? hr.x : 0,
+                     bx: br.x,
+                   };
+                 });
+               }""")
+
     heads = {}
     head_x = {}
     indices_ok = True
@@ -872,6 +919,38 @@ def check_timeline_labels(page):
     wind7_ok = (w7["counts"] == [8, 8, 8, 8, 8, 8, 8] and w7["texts_ok"] and
                 w7["paired"] and w7["worst"] <= 1.5 and w7["boundary"] == 0)
     g7 = summarize_gaps(ink_gaps())
+    # 5O: per-day heat ribbon (geometry, tier colours), row typography, and the ribbon
+    # moving in lockstep with its parent block when the tape scrolls.
+    heats = heat_rows()
+    heat_count_ok = all(b["n"] == 1 for b in heats)
+    heat_size_ok = all(abs(b["hh"] - 6) <= 0.5 and
+                       abs(b["hw"] - (b["bw"] - 6)) <= 1 and b["radius"] >= 2 for b in heats)
+    # One stop per hourly sample in every block, and >= 2 distinct tier colours across the
+    # 7d horizon (a uniformly calm day is legitimately one colour, so a per-block >= 2 would
+    # fail on real calm stretches; see the 5o evidence line for per-block tier sets).
+    heat_stops_ok = all(b["stops"] == 24 for b in heats)
+    all_tiers = set()
+    for b in heats:
+        all_tiers.update(b["tiers"])
+    heat_color_ok = heat_stops_ok and len(all_tiers) >= 2
+    fonts_ok = all(b["headSize"] == 12 and b["headWeight"] == "600" and
+                   b["subSize"] == 11 and b["subColor"] == "rgb(148, 163, 184)" and
+                   b["windSize"] == 12 and b["windWeight"] == "700" and
+                   b["windColor"] == "rgb(248, 250, 252)" for b in heats)
+    page.focus("#track")
+    page.keyboard.press("Home")
+    page.wait_for_timeout(420)
+    before_x = heat_rows()
+    page.keyboard.press("ArrowRight")
+    page.wait_for_timeout(420)
+    after_x = heat_rows()
+    moved = any(abs(after_x[i]["hx"] - before_x[i]["hx"]) > 1 for i in range(len(before_x)))
+    scroll_ok = (len(before_x) == len(after_x) == len(heats) and moved and
+                 all(abs((after_x[i]["hx"] - before_x[i]["hx"]) -
+                         (after_x[i]["bx"] - before_x[i]["bx"])) <= 1
+                     for i in range(len(before_x))))
+    heat_ok = heat_count_ok and heat_size_ok and heat_color_ok and fonts_ok and scroll_ok
+
     # 5N: no two consecutive text runs in either row may overlap, and the minimum gap at
     # both horizons must be >= 6 px (ink boxes, not the fixed 1.5 em span boxes).
     ink_ok = (g24["min"] >= 6.0 and g7["min"] >= 6.0 and
@@ -886,7 +965,7 @@ def check_timeline_labels(page):
     ok = (indices_ok and head_count_ok and one_head and head_pinned and no_repeat and
           sticky_window_ok and sticky_block_ok and sticky_engages and
           left_edge_ok and boundary_ok and ticks_ok and labels_ok and inside_ok and seven_ok and
-          wind24_ok and wind7_ok and ink_ok)
+          wind24_ok and wind7_ok and ink_ok and heat_ok)
     print("        heads/idx=%s headCount=%d pinned-offset=%.1f text='%s' "
           "sticky x0=%.0f x95=%.0f shift=%.0f window-ok=%s block-ok=%s sub-ticks/24h=%d "
           "(last block) left-edge=%s boundary=%s inside=%s labels=%s"
@@ -900,13 +979,20 @@ def check_timeline_labels(page):
           % (w7["counts"], w7["worst"], w7["texts_ok"],
              w7["blocks"][0]["windTexts"] if w7["blocks"] else []))
     print("        5n gaps 24h=%.1fpx 7d=%.1fpx" % (g24["min"], g7["min"]))
+    print("        5o rows: count=%s size=%s stops=%s colours=%s fonts=%s scroll=%s | "
+          "ink-gap 24h=%.1fpx 7d=%.1fpx"
+          % (heat_count_ok, heat_size_ok, heat_stops_ok, heat_color_ok, fonts_ok, scroll_ok,
+             g24["min"], g7["min"]))
+    print("        5o tiers/block: %s (union=%d>=2)"
+          % ([b["tiers"] for b in heats], len(all_tiers)))
     record(18, "timeline labels (5L)", ok,
            "indices=%s heads=%s one-head=%s pinned=%s no-repeat=%s sticky-window=%s "
            "sticky-block=%s head-x0=%.0f head-x95=%.0f shift=%.0f>50=%s "
            "left-edge-12=%s last-boundary-12=%s ticks=9=%s labels-3h=%s all-inside=%s | "
            "7d counts=%s min-12-gap=%.1f>=20=%s | 5m wind 24h counts=%s worst=%.2fpx nums=%s "
            "boundary-no-wind=%s list=%s | 7d counts=%s worst=%.2fpx nums=%s list0=%s | "
-           "5n gaps 24h=%.1f>=6=%s 7d=%.1f>=6=%s overlap=%s/%s"
+           "5n gaps 24h=%.1f>=6=%s 7d=%.1f>=6=%s overlap=%s/%s | "
+           "5o rows heat-count=%s size=%s colours=%s fonts=%s scroll=%s"
            % (indices_ok, heads, one_head, head_pinned, no_repeat, sticky_window_ok,
               sticky_block_ok, head_x[0], head_x[95], sticky_shift, sticky_engages,
               left_edge_ok, boundary_ok, ticks_ok, labels_ok, inside_ok, seven["counts"],
@@ -916,7 +1002,8 @@ def check_timeline_labels(page):
               w7["counts"], w7["worst"], w7["texts_ok"],
               w7["blocks"][0]["windTexts"] if w7["blocks"] else [],
               g24["min"], g24["min"] >= 6.0, g7["min"], g7["min"] >= 6.0,
-              g24["overlap"], g7["overlap"]))
+              g24["overlap"], g7["overlap"],
+              heat_count_ok, heat_size_ok, heat_color_ok, fonts_ok, scroll_ok))
 
 
 def check_deck_geometry(page):
@@ -1084,24 +1171,29 @@ def check_tape_architecture(page):
     ok_tape7 = 2280 <= m7["tapeW"] <= 2340
     bgs = m7["blockBg"]
     ok_alt = len(bgs) >= 2 and all(bgs[i] != bgs[i + 1] for i in range(len(bgs) - 1))
+    # 5O: the two tones are pinned exactly (#23272e vs #1b1d22) and must alternate.
+    tone_set = set(bgs)
+    tones_ok = tone_set == {"rgb(35, 39, 46)", "rgb(27, 29, 34)"} and ok_alt
     ok_blocks7 = m7["blockCount"] == 7 and all(c == 8 for c in m7["subCounts"])
     print("        7d:  tapeW=%.1f (window %.1f, pxf=%.4f) pill-cx=%.1f tl-cx=%.1f "
           "frame-cx=%.1f cur=%d blocks=%d subs=%s transform=%s"
           % (m7["tapeW"], m7["tlW"], pxf_for(m7), m7["pillCx"], m7["tlCx"],
              m7["tapeX"] + m7["cur"] * pxf_for(m7), m7["cur"], m7["blockCount"],
              m7["subCounts"], m7["transform"]))
+    print("        5o tones: set=%s alternating=%s" % (sorted(tone_set), ok_alt))
 
     ok = (ok_parent and ok_play and ok_centre24 and ok_frame24 and ok_tape24 and
           ok_blocks24 and ok_scrub and ok_centre7 and ok_frame7 and ok_tape7 and
-          ok_alt and ok_blocks7)
+          ok_alt and ok_blocks7 and tones_ok)
     record(16, "tape architecture (5G)", ok,
            "tape-in-timeline=%s now-in-tape=%s play-left=%.1f z=%s | "
            "24h tape=%.1f/window=%.1f runway=%.1f centred=%s frame-under=%s | "
-           "7d tape=%.1f blocks=%d subs=%s alt=%s centred=%s frame-under=%s"
+           "7d tape=%.1f blocks=%d subs=%s alt=%s tones=%s tones-ok=%s centred=%s frame-under=%s"
            % (m24["tapeInTimeline"], m24["nowInTape"], m24["playX"] - m24["trackX"],
               m24["playZ"], m24["tapeW"], m24["tlW"], m24["tapeW"] - m24["tlW"],
               ok_centre24, ok_frame24,
-              m7["tapeW"], m7["blockCount"], m7["subCounts"], ok_alt, ok_centre7, ok_frame7))
+              m7["tapeW"], m7["blockCount"], m7["subCounts"], ok_alt, sorted(tone_set),
+              tones_ok, ok_centre7, ok_frame7))
 
     # restore 24 h for the checks that follow.
     page.click("#h-24h")

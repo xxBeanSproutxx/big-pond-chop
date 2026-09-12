@@ -6,12 +6,11 @@
 // The 0 ft stop is the calm-lake colour: flat water is painted opaque at this value (see
 // render.paintRaster), so calm water reads as one continuous saturated cyan sheet. The
 // ramp above 0 ft is opaque too; only land stays transparent.
-// Known consequence (stage 5N): the 1.0 ft stop was already #06b6d4, so the 0-1 ft band is
-// now a single flat cyan and its legend segment shows no gradient. That is intended, not a
-// bug; the alternative #0891b2 floor keeps a gradient if the flat band is ever unwanted.
+// Stage 5O: the floor is #0891b2, a deeper turquoise. The 1.0 ft stop stays #06b6d4, so
+// the 0-1 ft band is a real gradient again (5N had both stops at #06b6d4, a flat band).
 const HS_STOPS = [
-  [0.0, 0x06, 0xb6, 0xd4], // vibrant cyan (calm water, opaque)
-  [1.0, 0x06, 0xb6, 0xd4], // vibrant cyan (same colour as the 0 ft floor)
+  [0.0, 0x08, 0x91, 0xb2], // saturated cyan calm floor (opaque)
+  [1.0, 0x06, 0xb6, 0xd4], // vibrant cyan
   [2.0, 0xf5, 0x9e, 0x0b], // amber
   [3.5, 0xea, 0x58, 0x0c], // orange-red
   [4.5, 0xdc, 0x26, 0x26], // crimson
@@ -20,10 +19,10 @@ const HS_STOPS = [
 // Calm-water RGBA. Must equal HS_STOPS[0]'s rgb (single source of truth): the legend's
 // 0 ft colour and the map's calm colour are the same colour. Alpha 255 = fully opaque in
 // the PNG; the Leaflet overlay multiplies it by OVERLAY_OPACITY 0.68, so calm water lands
-// at 0.68 effective. Composite 0.68 x rgb(6, 182, 212) + 0.32 x rgb(205, 207, 207) is
-// ~rgb(70, 190, 210): bright, clean turquoise, with bay/lake labels legible through it.
+// at 0.68 effective. Composite 0.68 x rgb(8, 145, 178) + 0.32 x rgb(205, 207, 207) is
+// ~rgb(71, 165, 187): bright turquoise/teal, with bay/lake labels legible through it.
 // Land stays exactly transparent.
-const CALM_RGBA = [0x06, 0xb6, 0xd4, 255];
+const CALM_RGBA = [0x08, 0x91, 0xb2, 255];
 const HS_BREAKS = [0, 1, 2, 3.5, 4.5, 6];
 const OVERLAY_OPACITY = 0.68;
 
@@ -282,6 +281,45 @@ function dayLabel(isoLocal, long) {
   return `${(long ? DOW_LONG : DOW_SHORT)[dt.getUTCDay()]} ${d}`;
 }
 
+// ---- Stage 5O: wind heat ribbon ----
+// Ascending tier scale: [maxMph (exclusive), r, g, b]. 10 -> <10 cyan, 15 -> 10-14 green,
+// 20 -> 15-19 amber, 25 -> 20-24 orange, Infinity -> 25+ crimson.
+const WIND_HEAT = [
+  [10, 0x08, 0x91, 0xb2], // < 10 mph  saturated cyan  (#0891b2)
+  [15, 0x10, 0xb9, 0x81], // 10-14     bright green    (#10b981)
+  [20, 0xf5, 0x9e, 0x0b], // 15-19     amber           (#f59e0b)
+  [25, 0xf9, 0x73, 0x16], // 20-24     orange          (#f97316)
+  [Infinity, 0xef, 0x44, 0x44], // 25+   crimson         (#ef4444)
+];
+
+// Tier colour [r,g,b] for a wind speed. Non-finite or negative -> the <10 mph colour.
+function windHeatColor(mph) {
+  const s = Number(mph);
+  const v = Number.isFinite(s) && s >= 0 ? s : 0;
+  for (let i = 0; i < WIND_HEAT.length; i++) {
+    if (v < WIND_HEAT[i][0]) return [WIND_HEAT[i][1], WIND_HEAT[i][2], WIND_HEAT[i][3]];
+  }
+  const last = WIND_HEAT[WIND_HEAT.length - 1];
+  return [last[1], last[2], last[3]];
+}
+
+// Continuous CSS gradient, one stop per sample at i/(n-1). n < 2 -> a flat two-stop
+// gradient of that sample's colour; empty -> the <10 colour (never throws, never NaN).
+function windHeatGradient(speeds) {
+  const list = speeds || [];
+  if (list.length < 2) {
+    const c = windHeatColor(list.length ? list[0] : NaN);
+    const rgb = `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+    return `linear-gradient(90deg, ${rgb} 0%, ${rgb} 100%)`;
+  }
+  const n = list.length;
+  const stops = list.map((s, i) => {
+    const c = windHeatColor(s);
+    return `rgb(${c[0]}, ${c[1]}, ${c[2]}) ${(i / (n - 1)) * 100}%`;
+  });
+  return `linear-gradient(90deg, ${stops.join(', ')})`;
+}
+
 module.exports = {
   HS_STOPS, HS_BREAKS, OVERLAY_OPACITY, CALM_RGBA,
   colorForHs, rgbForHs, rampGradient, percentile, p10,
@@ -290,4 +328,5 @@ module.exports = {
   FEATURE_RADIUS_M, SHORE_RADIUS_M,
   CALM_MPH, CALM_TIER_MPH, CALM_HS_FT, normalizeDeg, windLine, compass,
   comfortTier, formatClockLocal, formatPillTime, dayLabel,
+  WIND_HEAT, windHeatColor, windHeatGradient,
 };
