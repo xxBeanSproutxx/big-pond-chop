@@ -101,6 +101,55 @@ git worktree add --detach /tmp/bpc-pre5h HEAD
     --url http://127.0.0.1:8137/index.html --label pre-stage5h
 ```
 
+## Orchestrator gate (independent re-run on the committed tree, 2026-09-12)
+
+Tree: `stage5h` @ `9aba1cd`, working tree clean. Every number below was produced by the
+orchestrator, not the build worker.
+
+- **Node suites (my run):** parity 10 ok, render 32 ok, ui 27 ok, wind 36 ok — four
+  `ALL TESTS PASSED`, exit 0 each.
+- **Test-integrity diff vs `pre-stage5h`:** the only check present before and absent now is the
+  renamed `pxPerDay is 190 in 7d and max(190, window) in 24h` (delta E1); the only deleted
+  assertion lines in `tests/` are that check's two `pxPerDay`/one `pxPerFrame` assertions —
+  all pre-authorised. **Parity output is byte-identical to pre-stage** apart from timing lines
+  (the physics did not move).
+- **`tools/qa/stage5_check.py` (my run):** `SUMMARY: 23 ok, 0 FAIL`.
+  `[16] 24h tape=550.0/window=374.0 runway=176.0 centred=True frame-under=True` ·
+  `7d tape=1330.0 blocks=7 subs=[8×7] alt=True` ·
+  `[17] moves=31 tx=41 swaps=11 long-max=0 idx=42 expected=42 pill=True instruments=True`.
+- **`tools/qa/scrub_bench.py` (my run, both trees):** pre `12/24 PASS` · stage `24/24 PASS`.
+  Stage rows: 390×844 runway **176** px, swaps **10**, paints 10, tx/moves 41/31,
+  med/p90/max **16.6/60.2/66.1 ms**, long `[]` · 360×800 runway **206**, swaps 10,
+  16.6/53.5/54.0, long `[]` · CDP touch 360×800 runway **206**, swaps 10, 17.6/54.2/66.3,
+  long `[]`. Pre-stage rows for the same commands: runway **0**, swaps 14 (mouse) / 2 (touch),
+  med ≈ 41-54 ms, max ≈ 94.8-102.9 ms.
+- **Independent instrument (orchestrator-written, different hooks — prototype blob-`src` wrap
+  + `URL.createObjectURL` counter, cold-cache first drag of the session):**
+  | | pre-stage5h | stage5h |
+  | --- | --- | --- |
+  | 24 h runway | 0 px | **176 px** |
+  | overlay src swaps in one drag | 28 | **4** |
+  | step latency median / max | 16.6 / **159.8 ms** | 16.7 / **88.1 ms** |
+  | long tasks in the drag+0.7 s window | [71, 71] | [71, 69] |
+  | `body.dataset.encodeMs` | 21.6 | 13.1 |
+  This is the second, independently-written witness to the same direction of travel. The two
+  residual ~70 ms long tasks appear in **both** trees (pre-existing, not a 5H regression:
+  same count, same magnitude) — see the follow-up note below.
+
+### Orchestrator notes (honest deltas)
+
+6. **Observed drag-time repaint rate is ~10-11 fps, not 12-15.** 10 paints over a ~940 ms drag
+   = 10.6 fps against the 72 ms (13.9 fps) *cap*: the busy-skip legitimately drops a few paints
+   below the ceiling. Reid's clause is a maximum ("at a maximum rate of 12-15 fps"), so this is
+   inside it; stated here so the number is not read as the target missed.
+7. **Follow-up candidate (NOT fixed in 5H, not a regression):** ~70 ms long tasks remain in a
+   drag+release window (present pre-stage too). They are the synchronous raster build
+   (`gatherRaster` + `smoothRaster`, 36-46 ms) landing at drag start / on the release snap.
+   Removing them requires an async/cooperative build or a narrower drag-time raster class —
+   explicitly out of 5H scope (§C3); it is the natural Stage 5H.1 / 5I item if the phone still
+   feels heavy at release.
+8. **Node-suite count 105 checks** (parity 10, render 32, ui 27, wind 36) — no check deleted.
+
 ## Spec vs. reality
 
 1. **"max step-latency not more than ~2× median" (done-when 3).** Not achievable on this box
