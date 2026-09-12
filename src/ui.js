@@ -2,12 +2,12 @@
 // Stage 3: pure UI helpers — headline formatting, Hs palette, spot naming.
 // No DOM, no tables: node-testable and browser-loadable via the tiny loader.
 
-// ---- Hs palette (ft): glassy navy -> cyan -> amber -> orange-red -> crimson -> magenta ----
-// The 0 ft stop is the calm-lake colour: flat water is painted with this hue at partial
-// alpha (see render.paintRaster) so the basemap reads through calm water. The ramp above
-// 0 ft stays opaque; only the 0.0 ft floor is translucent.
+// ---- Hs palette (ft): deep lake blue -> cyan -> amber -> orange-red -> crimson -> magenta ----
+// The 0 ft stop is the calm-lake colour: flat water is painted opaque at this value (see
+// render.paintRaster), so calm water reads as one continuous saturated blue sheet. The
+// ramp above 0 ft is opaque too; only land stays transparent.
 const HS_STOPS = [
-  [0.0, 0x2a, 0x58, 0x85], // tranquil water blue (calm water, translucent on the map)
+  [0.0, 0x03, 0x69, 0xa1], // saturated deep lake blue (calm water, opaque)
   [1.0, 0x06, 0xb6, 0xd4], // vibrant cyan
   [2.0, 0xf5, 0x9e, 0x0b], // amber
   [3.5, 0xea, 0x58, 0x0c], // orange-red
@@ -15,13 +15,13 @@ const HS_STOPS = [
   [5.5, 0xbe, 0x18, 0x5d], // magenta
 ];
 // Calm-water RGBA. Must equal HS_STOPS[0]'s rgb (single source of truth): the legend's
-// 0 ft colour and the map's calm colour are the same colour. Alpha 115/255 = 0.45; the
-// Leaflet overlay applies OVERLAY_OPACITY 0.72 on top, so the on-screen calm layer reads
-// ~0.32 alpha over the desaturated basemap — intentional, so lake-bed detail, depth cues
-// and island/bay names stay legible through calm water.
-const CALM_RGBA = [0x2a, 0x58, 0x85, 115];
+// 0 ft colour and the map's calm colour are the same colour. Alpha 255 = fully opaque in
+// the PNG; the Leaflet overlay multiplies it by OVERLAY_OPACITY 0.85, so calm water lands
+// at 0.85 effective. Composite 0.85 x rgb(3, 105, 161) over the desaturated basemap reads
+// ~rgb(33, 120, 168): deep saturated lake blue, never slate gray.
+const CALM_RGBA = [0x03, 0x69, 0xa1, 255];
 const HS_BREAKS = [0, 1, 2, 3.5, 4.5, 6];
-const OVERLAY_OPACITY = 0.72;
+const OVERLAY_OPACITY = 0.85;
 
 // RGBA for an Hs value in ft. Non-positive / non-finite -> fully transparent (the caller
 // decides land vs calm water); water -> opaque. Opacity is applied once by the Leaflet overlay.
@@ -47,7 +47,7 @@ function rgbForHs(hsFt) {
 }
 
 // Single source of truth for the legend ramp gradient: the six Hs stop colours, evenly
-// spaced. src/render.js applies it to #ramp-bar at mount.
+// spaced. src/render.js applies it to #legend-card-bar at mount.
 const RAMP_PCT = ['0%', '16.7%', '33.3%', '50%', '66.7%', '100%'];
 function rampGradient() {
   const stops = HS_STOPS.map(([, r, g, b], i) => `rgb(${r}, ${g}, ${b}) ${RAMP_PCT[i]}`);
@@ -202,6 +202,15 @@ function compass(bearingDeg, speedMph) {
   };
 }
 
+// Stage 5L wind status strip: windLine plus the SOURCE bearing when it is finite.
+// Calm / non-finite speed -> "Wind: calm" (no From clause); finite bearing -> " · From <sector> <deg>°".
+function windStrip(speedMph, gustMph, bearingDeg) {
+  const base = windLine(speedMph, gustMph);
+  if (base === 'Wind: calm') return base;
+  const c = compass(bearingDeg, speedMph);
+  return c.fromDeg == null ? base : `${base} · From ${c.sector} ${c.degText}`;
+}
+
 // Condition tier, strict red -> amber -> yellow -> green (first match wins).
 // Missing/NaN inputs never trigger a condition. A green sea is relabelled "Calm · Flat"
 // when the wind is under 4 mph or the lake max is under 0.5 ft — never for rougher keys.
@@ -284,6 +293,6 @@ module.exports = {
   SECTORS, haversineM, bearing8, centroidOfCorners, sectorFor,
   nameSpot, describePin, sectorPhrase, sectorName, shortPlace, formatHeadline,
   FEATURE_RADIUS_M, SHORE_RADIUS_M,
-  CALM_MPH, CALM_TIER_MPH, CALM_HS_FT, normalizeDeg, windLine, compass,
+  CALM_MPH, CALM_TIER_MPH, CALM_HS_FT, normalizeDeg, windLine, windStrip, compass,
   comfortTier, formatClockLocal, formatPillTime, dayLabel,
 };

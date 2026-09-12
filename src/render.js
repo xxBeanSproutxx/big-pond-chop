@@ -18,6 +18,7 @@ const PLAY_INTERVAL_MS = 333;
 const FRAME_MINUTES = 15;
 const FRAME_CACHE_MAX = 8;
 const MAP_PAINT_MIN_MS = 72; // ~13.9 fps: drag-time overlay repaint throttle (12-15 fps band)
+const STICKY_INSET = 56;    // 5L: sticky day header clears the 48 px #play button at the window edge
 
 // ---- affine warp ----
 function gridToLonlat(warp, col, row) {
@@ -356,6 +357,7 @@ async function mount(deps) {
   const trackLabel = document.getElementById('track-label');
   const timePill = document.getElementById('time-pill');
   const nowTick = document.getElementById('now-tick');
+  const windStripEl = document.getElementById('wind-strip');
   const horizonEl = document.getElementById('horizon');
   const h24Btn = document.getElementById('h-24h');
   const h7Btn = document.getElementById('h-7d');
@@ -483,8 +485,8 @@ async function mount(deps) {
     bounds = displayBounds(warp);
   }
 
-  const rampBar = document.getElementById('ramp-bar');
-  if (rampBar) rampBar.style.background = ui.rampGradient();
+  const legendBar = document.getElementById('legend-card-bar');
+  if (legendBar) legendBar.style.background = ui.rampGradient();
 
   function isShoreCell(lat, lon) {
     const g = lonlatToGrid(warp, lon, lat);
@@ -601,6 +603,7 @@ async function mount(deps) {
   let paintGen = 0;            // bumped per committed paint; stale encodes are dropped
   let inFlightEncode = 0;      // convertToBlob calls not yet settled
   let lastOverlayUrl = null;   // overlay URL dedupe (cache hits re-apply the same blob:)
+  let stickyHead = null;       // 5L: wide (24h) day header, clamped in writeTape
 
   // Cached once per gesture / on layout change; never read in the move path.
   function refreshRailRect() {
@@ -615,11 +618,16 @@ async function mount(deps) {
   }
 
   // Single writer for the tape transform: centre the active frame under the fixed reticle.
+  // 5L: also clamps the wide day header to the window's left edge so it stays visible.
   function writeTape(idx) {
     if (!viewportW) return;
     const center = viewportW / 2;
-    trackTape.style.transform =
-      'translateX(' + tapeTranslate(idx, pxPerFrame(horizon, viewportW), center) + 'px)';
+    const tx = tapeTranslate(idx, pxPerFrame(horizon, viewportW), center);
+    trackTape.style.transform = 'translateX(' + tx + 'px)';
+    if (stickyHead) {
+      const want = Math.max(6, (-tx) + STICKY_INSET - stickyHead.blockLeft);
+      if (stickyHead.el.style.left !== want + 'px') stickyHead.el.style.left = want + 'px';
+    }
   }
 
   // Stage 5H §C1: overlay URL dedupe — cache hits re-apply the same blob: URL today.
@@ -671,9 +679,11 @@ async function mount(deps) {
   // its own frame run, so uneven days still tile exactly.
   // 5K: exactly one header per day block, pinned at the block's start on the wide 24 h
   // block (one "Saturday 12" on the tape) and centred on the narrow 7 d blocks.
+  // 5L: the wide header is sticky — writeTape() clamps it to the window's left edge.
   function renderTimeline() {
     trackDays.textContent = '';
     trackTicks.textContent = '';
+    stickyHead = null;
     trackLabel.textContent = horizon === '7d' ? '7 day' : '24 h';
     if (!frames.length || !viewportW) return;
     const n = frames.length;
@@ -695,7 +705,11 @@ async function mount(deps) {
       // boundary; narrow 7 d blocks keep the centred default from CSS.
       const head = document.createElement('span');
       head.className = 'day-head';
-      if (w > 275) { head.style.left = '6px'; head.style.transform = 'none'; }
+      if (w > 275) {
+        head.style.left = '6px';
+        head.style.transform = 'none';
+        stickyHead = { el: head, blockLeft: left }; // 5L: only the wide 24h block is sticky
+      }
       head.textContent = label;
       block.appendChild(head);
       for (let h = 0; h < 24; h += 3) {
@@ -740,6 +754,9 @@ async function mount(deps) {
     const e = frames[idx];
     const text = ui.formatPillTime(e.time);
     if (timePill.textContent !== text) timePill.textContent = text;
+    // 5L: the deck wind strip is written on this one path, so scrub and playback stay in sync.
+    const strip = ui.windStrip(e.speedMph, e.gustMph, e.dirTrueDeg);
+    if (windStripEl && windStripEl.textContent !== strip) windStripEl.textContent = strip;
     trackEl.setAttribute('aria-valuenow', String(idx));
     trackEl.setAttribute('aria-valuetext',
       `${ui.formatClockLocal(e.time)}, ${ui.dayLabel(e.time, true)}`);

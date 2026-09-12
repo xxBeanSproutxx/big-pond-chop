@@ -110,19 +110,18 @@ check('basemap is muted + keyless (no watermarked provider)', () => {
   const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
   assert.ok(/\.leaflet-tile-pane\s*\{[^}]*filter:[^}]*grayscale/.test(html), 'tile pane must be desaturated');
   assert.strictEqual(TILE_MAX_ZOOM, 19);
-  assert.strictEqual(OVERLAY_OPACITY, 0.72);
+  assert.strictEqual(OVERLAY_OPACITY, 0.85);
   assert.strictEqual(PLAY_INTERVAL_MS, 333);
   console.log(`       ${TILE_URL} @ opacity ${OVERLAY_OPACITY}`);
 });
-check('stage-5k deck markup holds the frozen ids, ramp docked in the deck', () => {
+check('stage-5l deck markup: wind strip back, ramp in the map legend card', () => {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   assert.ok(/<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">/.test(html),
     'viewport meta must drop maximum-scale/user-scalable and add viewport-fit=cover');
   const footer = /<footer id="deck">([\s\S]*?)<\/footer>/.exec(html);
   assert.ok(footer, 'missing <footer id="deck">');
   const ids = ['play', 'track', 'timeline', 'track-tape', 'track-days', 'track-ticks',
-    'track-label', 'now-tick', 'time-pill', 'h-24h', 'h-7d',
-    'ramp-bar', 'ramp-ticks'];
+    'track-label', 'now-tick', 'time-pill', 'h-24h', 'h-7d', 'wind-strip'];
   for (const id of ids) assert.ok(html.includes(`id="${id}"`), `page missing #${id}`);
   const removed = ['playhead', 'track-rail', 'track-progress', 'deck-day', 'hour-label',
     'play-label', 'deck-main'];
@@ -130,15 +129,18 @@ check('stage-5k deck markup holds the frozen ids, ramp docked in the deck', () =
   assert.ok(!footer[1].includes('id="scrub"'), '#scrub shim must be gone (5D)');
   assert.ok(!footer[1].includes('id="legend"'), '#legend must be gone from the deck');
   assert.ok(!footer[1].includes('id="readout"'), '#readout must be out of the deck');
-  assert.ok(footer[1].includes('ramp-bar') && footer[1].includes('ramp-ticks'),
-    'the ramp row must be back in the deck (5K)');
-  for (const id of ['wind-strip', 'legend-card', 'legend-card-bar', 'legend-card-ticks']) {
-    assert.ok(!html.includes(id), `#${id} must be gone (5K)`);
+  assert.ok(footer[1].includes('id="wind-strip"'), 'the wind strip must be the deck second row (5L)');
+  assert.ok(!footer[1].includes('ramp-bar') && !footer[1].includes('ramp-ticks'),
+    'the ramp row must be out of the deck (5L)');
+  const map = /<div id="map">([\s\S]*?)<footer id="deck">/.exec(html);
+  assert.ok(map, 'missing <div id="map">');
+  for (const id of ['legend-card', 'legend-card-bar', 'legend-card-ticks']) {
+    assert.ok(map[1].includes(`id="${id}"`), `#${id} must be inside #map (5L)`);
   }
-  const ticks = html.match(/id="ramp-ticks">([\s\S]*?)<\/div>/);
+  const ticks = html.match(/id="legend-card-ticks">([\s\S]*?)<\/div>/);
   assert.ok(ticks && ['0', '1', '2', '3.5', '4.5', '6+'].every((s) => ticks[1].includes(`<span>${s}</span>`)),
-    'ramp ticks must list the six Hs stops');
-  console.log('       deck ids present, ramp docked in the deck, legend card / wind strip gone');
+    'legend ticks must list the six Hs stops');
+  console.log('       deck ids present, wind strip in the deck, ramp in the map legend card');
 });
 check('frame carries a water-only p10 at or below the lake max', () => {
   const entry = { speedMph: 30, dirTrueDeg: 315, tEffH: 8 };
@@ -377,15 +379,15 @@ check('shouldPaintMap: gate closed -> false; open+idle -> true; open+busy -> fal
   console.log('       closed/busy suppress; open+idle paints');
 });
 
-console.log('\n== [12] stage-5k: calm-water paint ==');
-check('paintRaster: calm water -> CALM_RGBA translucent (alpha 115), land -> transparent', () => {
+console.log('\n== [12] stage-5l: calm-water paint ==');
+check('paintRaster: calm water -> CALM_RGBA opaque (alpha 255), land -> transparent', () => {
   const W = 2, H = 1;
   const raster = new Float32Array([0, 0]);        // both non-positive
   const landFrac = new Float32Array([0, 1]);       // col 0 water (calm), col 1 land
   const img = { width: W, height: H, data: new Uint8ClampedArray(W * H * 4) };
   const ctx = { createImageData: () => img, putImageData: () => {} };
   paintRaster(ctx, raster, W, H, landFrac);
-  assert.deepStrictEqual(Array.from(img.data.slice(0, 4)), [42, 88, 133, 115], 'calm water');
+  assert.deepStrictEqual(Array.from(img.data.slice(0, 4)), [3, 105, 161, 255], 'calm water');
   assert.deepStrictEqual(Array.from(img.data.slice(4, 8)), [0, 0, 0, 0], 'land');
 });
 check('paintRaster: positive Hs still uses the colour ramp (opaque), no landFrac needed', () => {
