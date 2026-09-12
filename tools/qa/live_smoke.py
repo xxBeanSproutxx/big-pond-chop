@@ -50,7 +50,7 @@ def main():
             const track = document.getElementById('track').getBoundingClientRect();
             const tl = document.getElementById('timeline').getBoundingClientRect();
             const play = document.getElementById('play').getBoundingClientRect();
-            const ramp = document.getElementById('wind-strip').getBoundingClientRect();
+            const ramp = document.querySelector('.deck-ramp').getBoundingClientRect();
             const pill = document.getElementById('time-pill');
             const pr = pill.getBoundingClientRect();
             const blocks = Array.from(document.getElementById('track-days').children);
