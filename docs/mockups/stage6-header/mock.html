@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stage 6 header mockup — CURRENT vs TARGET</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #06090f; color: #cbd5e1;
+         font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  h2.lab { font-size: 13px; margin: 0; padding: 6px 10px; color: #e2e8f0;
+           background: #111827; border-bottom: 1px solid #1f2937;
+           display: flex; justify-content: space-between; font-weight: 600; }
+  h2.lab .meta { color: #64748b; font-weight: 400; }
+  .stack { padding: 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 24px; }
+  .block { display: flex; flex-direction: column; }
+  .block > h1 { font-size: 12px; margin: 0 0 6px 2px; color: #94a3b8; font-weight: 700;
+                letter-spacing: .08em; text-transform: uppercase; }
+
+  /* ---- The device frame: width is set by JS from ?vw= or the buttons ---- */
+  .frame { position: relative; overflow: hidden; background: #0d1b2a; }
+  .frame .mapsim { position: absolute; inset: 0; background: #14283b; }
+  .frame .mapsim svg { display: block; width: 100%; height: 100%; }
+
+  /* =========================================================================
+     CURRENT header — cloned verbatim from index.html @ 89e3a2d (lines 24-59
+     for CSS, 197-219 for markup). Only `.frame` scoping is added; every
+     declared value is byte-identical to the source.
+     ========================================================================= */
+  .m-current :root { color-scheme: dark; } /* no-op, kept for traceability */
+  .m-current header { padding: 2px 10px; background: #10263a; display: flex; align-items: center;
+             gap: 8px; height: 72px; min-height: 72px; max-height: 72px;
+             overflow: hidden; }
+  .m-current header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px;
+             position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .m-current .head-text { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap;
+             align-items: baseline; gap: 2px 8px; }
+  .m-current #verdict { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 0 1 auto; }
+  .m-current #verdict-range { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .m-current #subrow { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: baseline;
+             column-gap: 8px; min-width: 0; }
+  .m-current #verdict-peak { flex: 1 1 100%; min-width: 0; font-size: 13px; color: #ffd166;
+             font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden;
+             text-overflow: ellipsis; }
+  .m-current #secondary { flex: 1 1 100%; display: flex; flex-direction: row; align-items: baseline;
+             gap: 8px; font-size: 11px; color: #9fc3dd; font-variant-numeric: tabular-nums;
+             white-space: nowrap; }
+  .m-current #comfort-chip { flex: 0 0 auto; font-size: 11px; font-weight: 700; border-radius: 3px;
+             padding: 2px 6px; white-space: nowrap; line-height: 1.25; }
+  .m-current .tier-green { background: #15803d; color: #fff; }
+  .m-current .tier-yellow { background: #facc15; color: #0d1b2a; }
+  .m-current .tier-amber { background: #ea580c; color: #fff; }
+  .m-current .tier-red { background: #dc2626; color: #fff; }
+  .m-current #refresh { background: #1d4e6f; color: #e8f0f7; border: 0; border-radius: 6px;
+             width: 48px; min-width: 48px; min-height: 48px; padding: 0; display: inline-flex;
+             align-items: center; justify-content: center; margin-left: auto;
+             touch-action: manipulation; }
+  .m-current #refresh .icon { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round;
+             stroke-linejoin: round; display: block; }
+  /* The source @media block is width-scoped, so apply it inside the frame too. */
+  .m-current .screen.w400 #verdict-range { font-size: 14px; }
+  .m-current .screen.w400 #comfort-chip { font-size: 10px; padding: 2px 5px; }
+  .m-current .screen.w400 #secondary { font-size: 10px; gap: 6px; }
+  .m-current .screen.w400 #verdict-peak { font-size: 12px; }
+
+  /* =========================================================================
+     TARGET header — the proposed marine instrument panel.
+     Rigid 72px, frosted glass, avionics sans, tabular numerals.
+     ========================================================================= */
+  .m-target header {
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+    height: 72px; min-height: 72px; max-height: 72px;
+    overflow: hidden;
+    display: flex; align-items: center; gap: 8px;
+    padding: 2px 10px;
+    background: rgba(15,23,42,0.85);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    color: #f8fafc;
+  }
+  .m-target header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);
+    font-size: 15px; margin: 0; font-weight: 600; }
+  .m-target .head-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;
+    justify-content: center; gap: 3px; }
+  .m-target .panel-row { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; }
+  .m-target .lbl { font-size: 10px; font-weight: 500; color: #64748b; line-height: 1;
+    font-variant-numeric: tabular-nums; }
+
+  /* Row 1 — peak-location readout sits on a full, never-wrapping line. */
+  #peak { font-size: 10px; font-weight: 600; color: #64748b; letter-spacing: .04em;
+    text-transform: uppercase; font-variant-numeric: tabular-nums; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; min-width: 0; }
+  #tier-chip { flex: 0 0 auto; font-size: 10px; font-weight: 700; border-radius: 3px;
+    padding: 2px 6px; line-height: 1.2; white-space: nowrap; letter-spacing: .02em; }
+
+  /* Row 2 — the dual wind readout. Never wraps; the unit tails clip before the
+     numbers ever do. */
+  #dual { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 4px;
+    white-space: nowrap; overflow: hidden; }
+  .pill { display: inline-flex; align-items: baseline; gap: 3px; border-radius: 999px;
+    padding: 1px 7px; line-height: 1.45; flex: 0 0 auto; }
+  .pill-shore { background: rgba(148,163,184,0.18); border: 1px solid rgba(148,163,184,0.35); }
+  .pill-lake  { background: var(--tint); border: 1px solid var(--tint-bd); }
+  .num { font-size: 13px; font-weight: 700; color: #f8fafc; font-variant-numeric: tabular-nums;
+    line-height: 1.2; }
+  .unit { font-size: 10px; font-weight: 500; color: #64748b; font-variant-numeric: tabular-nums;
+    line-height: 1.2; }
+  #arr { font-size: 10px; color: #64748b; flex: 0 0 auto; line-height: 1.2; }
+  #gusts { flex: 0 0 auto; display: inline-flex; align-items: baseline; gap: 3px; }
+  #mph-tail { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+
+  /* '?' badge + popover */
+  #why { flex: 0 0 auto; width: 15px; height: 15px; min-width: 15px; border-radius: 50%;
+    border: 1px solid #64748b; background: transparent; color: #94a3b8;
+    font: 700 10px/1 -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+    padding: 0; display: inline-flex; align-items: center; justify-content: center;
+    align-self: center; cursor: pointer; }
+  /* Popover lives OUTSIDE the 72px overflow:hidden header, anchored to the
+     containing frame, so it is never sliced by the header's clip box. */
+  #why-pop { position: absolute; z-index: 900; display: none;
+    width: min(280px, calc(100% - 24px));
+    top: 78px; right: 10px; padding: 8px 10px; border-radius: 8px;
+    background: rgba(15,23,42,0.97); border: 1px solid rgba(255,255,255,0.14);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.5); color: #cbd5e1;
+    font: 500 11px/1.4 -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; }
+  .m-target.po-open #why-pop { display: block; }
+
+  .m-target #refresh { flex: 0 0 auto; background: #1d4e6f; color: #e8f0f7; border: 0;
+    border-radius: 6px; width: 48px; min-width: 48px; min-height: 48px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center; margin-left: auto;
+    touch-action: manipulation; }
+  .m-target #refresh .icon { fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round; display: block; }
+
+  /* =========================================================================
+     THREE-PILL variant — Reid's APPROVED row (2026-09-12).
+       Wind: [ 8 Shore ] ➔ [ 17 Lake ] · [ 24 Gust ] mph (?)
+     Locked tokens: numerals 13px/700 #f8fafc tabular-nums; labels 10px #94a3b8;
+     unit text #cbd5e1; header fill rgba(15,23,42,.85) + blur(8px) +
+     border-bottom 1px solid rgba(255,255,255,.1); shore/gust pill fill
+     rgba(148,163,184,.18); lake pill fill = WIND_HEAT tier colour of the lake
+     value at .55 alpha over the header fill, with PER-TIER INK (white on the
+     dark tiers, #0f172a on light yellow/amber). '?' is a real 44x44 hit box at
+     the END of the row. #help-pop is a SIBLING of <header>.
+     ========================================================================= */
+  .m-threepill header {
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+    height: 72px; min-height: 72px; max-height: 72px;
+    overflow: hidden;
+    display: flex; align-items: center; gap: 8px;
+    padding: 2px 10px;
+    background: rgba(15,23,42,0.85);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    color: #f8fafc;
+  }
+  .m-threepill header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); font-size: 15px; margin: 0; font-weight: 600; }
+  .m-threepill .head-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;
+    justify-content: center; gap: 3px; }
+  .m-threepill .panel-row { display: flex; align-items: center; gap: 8px; min-width: 0;
+    white-space: nowrap; }
+  .m-threepill .panel-row.wind-row { gap: 0; }
+  .m-threepill .lbl { font-size: 10px; font-weight: 500; color: #94a3b8; line-height: 1;
+    font-variant-numeric: tabular-nums; }
+  .m-threepill .lbl-slot { display: inline-flex; align-items: center; flex: 0 0 auto;
+    margin-right: 4px; }
+  .m-threepill .lbl-slot.collapsed { display: none; }
+
+  /* The three-pill row itself. Never wraps; single line by construction. */
+  #three { flex: 1 1 auto; min-width: 0; display: flex; align-items: center;
+    white-space: nowrap; overflow: hidden; }
+  #three .pill { display: inline-flex; align-items: baseline; gap: 3px; border-radius: 999px;
+    padding: 2px 8px; line-height: 1.4; flex: 0 0 auto; }
+  #three .pill-shore { background: rgba(148,163,184,0.18);
+    border: 1px solid rgba(148,163,184,0.35); }
+  #three .pill-gust  { background: rgba(148,163,184,0.18);
+    border: 1px solid rgba(148,163,184,0.35); }
+  /* Lake pill: fill = the WIND_HEAT tier colour of the DISPLAYED lake value at
+     .55 alpha over the header fill; ink swaps to #0f172a on light tiers. */
+  #three .pill-lake  { background: var(--tint); border: 1px solid var(--tint-bd);
+    color: var(--ink); }
+  #three .num { font-size: 13px; font-weight: 700; color: #f8fafc;
+    font-variant-numeric: tabular-nums; line-height: 1.2; }
+  #three .pill-lake .num { color: var(--ink); }
+  #three .unit { font-size: 10px; font-weight: 500; color: #cbd5e1;
+    font-variant-numeric: tabular-nums; line-height: 1.2; }
+  #three .pill-lake .unit { color: var(--ink); }
+  /* The arrow is a real inline SVG. Never the ➔ dingbat. */
+  #arrow { flex: 0 0 auto; width: 16px; height: 12px; display: inline-block;
+    margin: 0 3px; color: #94a3b8; }
+  #arrow svg { display: block; width: 16px; height: 12px; }
+  #arrow path { fill: none; stroke: currentColor; stroke-width: 1.5;
+    stroke-linecap: round; stroke-linejoin: round; }
+  #dot { flex: 0 0 auto; margin: 0 4px; font-size: 11px; color: #94a3b8; line-height: 1;
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; }
+  #mph { flex: 0 1 auto; min-width: 0; overflow: hidden; font-size: 10px; font-weight: 500;
+    color: #cbd5e1; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  #help { flex: 0 0 auto; width: 44px; height: 44px; min-width: 44px; min-height: 44px;
+    margin-left: 8px; border-radius: 50%; border: 1px solid #475569;
+    background: transparent; color: #94a3b8; padding: 0;
+    font: 700 18px/1 -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; touch-action: manipulation; }
+  #help .glyph { font-size: 18px; line-height: 1; }
+  /* #help-pop is a SIBLING of <header>, anchored below the 72px band. As a child
+     of the overflow:hidden header it would be sliced at 72px. */
+  #help-pop { position: absolute; z-index: 900; display: none;
+    width: min(300px, calc(100% - 20px));
+    top: 78px; right: 10px; padding: 8px 10px; border-radius: 8px;
+    background: rgba(15,23,42,0.97); border: 1px solid rgba(255,255,255,0.14);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.5); color: #cbd5e1;
+    font: 500 11px/1.4 -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; }
+  #help-pop ul { margin: 0; padding: 0; list-style: none; }
+  #help-pop li { margin: 0 0 5px 0; padding-left: 9px; text-indent: -9px; }
+  #help-pop li:last-child { margin-bottom: 0; }
+  .m-threepill.po-open #help-pop { display: block; }
+
+  .m-threepill #refresh { flex: 0 0 auto; background: #1d4e6f; color: #e8f0f7; border: 0;
+    border-radius: 6px; width: 48px; min-width: 48px; min-height: 48px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center; margin-left: auto;
+    touch-action: manipulation; }
+  .m-threepill #refresh .icon { fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round; display: block; }
+
+  /* Screen wrapper: what the "viewport" is inside the mockup. */
+  .screen { position: relative; overflow: hidden; width: 100%; height: 100%; }
+
+  /* Fake on-map furniture so the overlay variant has real content under AND
+     below the floating header (mirrors #wind-badge / #horizon in index.html). */
+  .wbadge { position: absolute; top: 12px; right: 12px; z-index: 500; display: flex;
+    align-items: center; gap: 6px; height: 32px; border-radius: 16px;
+    background: rgba(16,38,58,.85); padding-right: 12px; }
+  .wbadge .disc { width: 32px; height: 32px; display: flex; align-items: center;
+    justify-content: center; flex: 0 0 32px; }
+  .wbadge .txt { font-size: 12px; color: #e8f0f7; font-variant-numeric: tabular-nums;
+    white-space: nowrap; font-family: -apple-system, BlinkMacSystemFont, 'Inter','Segoe UI',Roboto,sans-serif; }
+  .hz { position: absolute; top: 12px; left: 56px; z-index: 1000; display: flex; gap: 4px; }
+  .hz button { height: 28px; min-height: 28px; padding: 0 9px; background: rgba(16,38,58,.85);
+    color: #e8f0f7; border: 1px solid #33506b; border-radius: 14px;
+    font: 11px/1 system-ui, sans-serif; }
+  .hz button[aria-pressed="true"] { background: #ffd166; color: #10263a; border-color: #ffd166; }
+
+  /* === OVERLAY variant: the SAME TARGET header, floated over a full-bleed map.
+     The frame carries both `m-target` (all target header styling, single source
+     of truth) and `m-overlay` (only the positional overrides below). === */
+  .m-overlay { position: relative; }
+  .m-overlay .mapsim { position: absolute; inset: 0; }
+  .m-overlay .screen { position: absolute; inset: 0; display: block; }
+  .m-overlay header { position: absolute; top: 0; left: 0; right: 0; z-index: 800; }
+  /* Pushed below the 72px header band so nothing hides behind the glass. */
+  .m-overlay .wbadge { top: 84px; }
+  .m-overlay .hz { top: 84px; }
+
+  .legend { font-size: 11px; color: #64748b; padding: 8px 14px 24px; }
+  .legend b { color: #94a3b8; }
+</style>
+</head>
+<body>
+<div id="out"></div>
+<div class="legend">
+  Labelled stack. <b>frame width</b> = <span id="leg-w">—</span>px, frame height fills the
+  viewport. Each header is 72px tall and sits on a fake dark lake map so the frosted glass
+  has something to blur. State: <b id="leg-s">—</b>.
+  Toggle with <b>?state=normal|wide|calm|popover</b>, <b>?vw=360|390</b>,
+  <b>?variant=current|target|overlay|threepill|threeoverlay</b>,
+  <b>?dropwind=1</b> (degradation: drop the Wind: prefix).
+</div>
+
+<script>
+(function () {
+  var P = new URLSearchParams(location.search);
+  var vw = parseInt(P.get('vw') || '360', 10);
+  var state = (P.get('state') || 'normal').toLowerCase();
+  var STATES = ['normal', 'wide', 'calm', 'popover'];
+  if (STATES.indexOf(state) < 0) state = 'normal';
+  /* Degradation option (L3b): drop the "Wind:" prefix when the row's ink exceeds
+     the available width. Driven by ?dropwind=1, or window.__setDropWind(true). */
+  var dropWind = P.get('dropwind') === '1';
+
+  /* One knob per view state. `lake` carries its own tier tint: the Lake pill is
+     "tinted with the active condition tier" per the design. */
+  var VALUES = {
+    normal:  { shore: 8,  lake: 17, gusts: 24, tier: 'green',  chip: 'FISHABLE · LIGHT CHOP',
+               peak: 'PEAK 1.4 FT · WALLEYE POINT · 38 FT DEEP' },
+    wide:    { shore: 12, lake: 27, gusts: 38, tier: 'yellow', chip: 'CAUTION · MODERATE CHOP',
+               peak: 'PEAK 2.6 FT · WALLEYE POINT · 38 FT DEEP' },
+    calm:    { shore: 3,  lake: 4,  gusts: 6,  tier: 'blue',   chip: 'CALM · GLASS',
+               peak: 'PEAK 0.4 FT · WALLEYE POINT · 38 FT DEEP' },
+    popover: { shore: 8,  lake: 17, gusts: 24, tier: 'green',  chip: 'FISHABLE · LIGHT CHOP',
+               peak: 'PEAK 1.4 FT · WALLEYE POINT · 38 FT DEEP' }
+  };
+  /* Condition tiers used for the tint. green/yellow/amber/red come from the app's
+     existing tier palette (index.html #comfort-chip classes); blue is the calm add. */
+  var TIER = {
+    green:  { bg: 'rgba(21,128,61,0.55)',  bd: 'rgba(74,222,128,0.70)' },
+    yellow: { bg: 'rgba(250,204,21,0.55)', bd: 'rgba(253,224,71,0.75)' },
+    blue:   { bg: 'rgba(29,78,111,0.75)',  bd: 'rgba(125,211,252,0.70)' }
+  };
+
+  /* ---- THREE-PILL variant state table (Reid-approved row, 2026-09-12) ----
+     The Lake pill tint is looked up from the DISPLAYED lake value via the app's
+     real WIND_HEAT scale (src/ui.js lines 287-304), NOT from the condition chip:
+       <10 cyan #0891b2 · 10-14 green #10b981 · 15-19 amber #f59e0b
+       20-24 orange #f97316 · 25+ crimson #ef4444
+     Every tier paints .55 of its colour over the header glass. The composited
+     substrate is what the ink must clear 4.5:1 against, and at .55 alpha over
+     rgba(15,23,42,.85) EVERY tier composites dark — measured white ink wins:
+       cyan #0b5a75 5.x:1 · amber #8d6219 5.17:1 · crimson #8a3038 7.83:1
+     The `?ink=dark` control exists so the amber 3.30:1 failure can be re-shown. */
+  var HEAT = [
+    { max: 10,       hex: '#0891b2', ink: '#f8fafc', name: 'cyan' },
+    { max: 15,       hex: '#10b981', ink: '#f8fafc', name: 'green' },
+    /* Amber at .55 over the header glass composites to a DARK brown (#8d6219),
+       not a light yellow. Measured: white ink 5.17:1 vs #0f172a ink 3.30:1.
+       So the amber/orange tiers take WHITE ink, same as the dark tiers. */
+    { max: 20,       hex: '#f59e0b', ink: '#f8fafc', name: 'amber' },
+    { max: 25,       hex: '#f97316', ink: '#f8fafc', name: 'orange' },
+    { max: Infinity, hex: '#ef4444', ink: '#f8fafc', name: 'crimson' }
+  ];
+  var INK_LIGHT = '#0f172a';   /* retained for the `?ink=dark` A/B control only */
+  var INK_DARK  = '#f8fafc';   /* the shipped per-tier ink for EVERY tier */
+
+  function heatFor(mph) {
+    var v = Number(mph);
+    if (!isFinite(v) || v < 0) v = 0;
+    for (var i = 0; i < HEAT.length; i++) if (v < HEAT[i].max) return HEAT[i];
+    return HEAT[HEAT.length - 1];
+  }
+  function tierFillHex(hex, alpha) {
+    /* The tier colour at `alpha` over the header fill rgba(15,23,42,.85) over the
+       map, exactly as the browser composites it. Used for the ink decision and
+       reported in the receipt; the CSS uses rgba() with the same alpha. */
+    var r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16),
+        b = parseInt(hex.slice(5, 7), 16);
+    var h = { r: 15, g: 23, b: 42 };          /* header fill, alpha .85 -> over map */
+    var m = { r: 20, g: 40, b: 58 };
+    var bg = { r: h.r * .85 + m.r * .15, g: h.g * .85 + m.g * .15, b: h.b * .85 + m.b * .15 };
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+  }
+
+  var v = VALUES[state];
+  var t = TIER[v.tier];
+
+  var MAPSIM =
+    '<svg viewBox="0 0 390 800" preserveAspectRatio="none" aria-hidden="true">' +
+      '<defs><linearGradient id="lg" x1="0" y1="0" x2="0" y2="1">' +
+        '<stop offset="0" stop-color="#203a52"/><stop offset="1" stop-color="#0b1622"/>' +
+      '</linearGradient></defs>' +
+      '<rect width="390" height="800" fill="url(#lg)"/>' +
+      '<path d="M0 90 Q 90 60 175 118 T 390 150 L390 330 Q 260 370 140 336 T 0 360 Z" fill="#1b3346" opacity="0.95"/>' +
+      '<path d="M0 250 Q 90 210 175 268 T 390 300 L390 560 Q 260 600 140 566 T 0 590 Z" fill="#1b3346" opacity="0.95"/>' +
+      '<path d="M0 90 Q 90 60 175 118 T 390 150" fill="none" stroke="#33506b" stroke-width="1.5"/>' +
+      '<path d="M0 250 Q 90 210 175 268 T 390 300" fill="none" stroke="#33506b" stroke-width="1.5"/>' +
+      '<g stroke="#2b4459" stroke-width="1" fill="none">' +
+        '<path d="M0 40 H390"/><path d="M0 60 H390"/><path d="M0 120 H390"/><path d="M0 340 H390"/>' +
+        '<path d="M0 420 H390"/><path d="M0 500 H390"/>' +
+        '<path d="M60 20 V800"/><path d="M150 30 V800"/><path d="M250 50 V800"/><path d="M330 70 V800"/>' +
+      '</g>' +
+      /* High-frequency detail in the TOP BAND (y 0-80) so the frosted header
+         has real content to blur. Without this the blur is a visual no-op. */
+      '<g stroke="#7fa8c9" stroke-width="1" opacity="0.55">' +
+        '<path d="M0 8 H390"/><path d="M0 16 H390"/><path d="M0 24 H390"/>' +
+        '<path d="M0 32 H390"/><path d="M0 44 H390"/><path d="M0 52 H390"/>' +
+        '<path d="M0 62 H390"/><path d="M0 70 H390"/>' +
+        '<path d="M12 0 V90"/><path d="M34 0 V90"/><path d="M56 0 V90"/><path d="M78 0 V90"/>' +
+        '<path d="M100 0 V90"/><path d="M122 0 V90"/><path d="M144 0 V90"/><path d="M166 0 V90"/>' +
+        '<path d="M188 0 V90"/><path d="M210 0 V90"/><path d="M232 0 V90"/><path d="M254 0 V90"/>' +
+        '<path d="M276 0 V90"/><path d="M298 0 V90"/><path d="M320 0 V90"/><path d="M342 0 V90"/>' +
+        '<path d="M364 0 V90"/><path d="M386 0 V90"/>' +
+      '</g>' +
+      '<g fill="#ffd166" opacity="0.85" font-family="monospace" font-size="9">' +
+        '<text x="6" y="14">N 45.2\u00b0</text><text x="300" y="14">W 93.6\u00b0</text>' +
+        '<text x="6" y="34">GARRISON REEF</text><text x="6" y="54">MYRNA BAY  38 ft</text>' +
+        '<text x="230" y="74">ISLE  22 ft</text>' +
+      '</g>' +
+      '<circle cx="46" cy="46" r="2.5" fill="#ff5c5c"/>' +
+      '<circle cx="152" cy="26" r="2.5" fill="#ff5c5c"/>' +
+      '<circle cx="266" cy="58" r="2.5" fill="#ff5c5c"/>' +
+      '<circle cx="340" cy="18" r="2.5" fill="#ff5c5c"/>' +
+      '<circle cx="120" cy="300" r="3" fill="#ffd166"/>' +
+      '<text x="130" y="304" fill="#ffd166" font-family="monospace" font-size="10">Walleye Point</text>' +
+      '<text x="20" y="700" fill="#33506b" font-family="monospace" font-size="11">Mille Lacs Lake</text>' +
+    '</svg>';
+
+  /* Fake on-map furniture (overlay variant only, so the floating header has
+     live content both under it and directly below it). */
+  var MAP_FURNITURE =
+    '<div class="hz" role="group" aria-label="Forecast horizon">' +
+      '<button type="button" aria-pressed="true">24 h</button>' +
+      '<button type="button" aria-pressed="false">7 day</button>' +
+    '</div>' +
+    '<div class="wbadge">' +
+      '<span class="disc"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" ' +
+        'fill="#ffd166"><path d="M12 2 L17.5 20.5 L12 16.2 L6.5 20.5 Z"></path></svg></span>' +
+      '<span class="txt">From NW 315\u00b0</span>' +
+    '</div>';
+
+
+  /* ---- CURRENT header markup: verbatim from index.html 197-219 ---- */
+  var CURRENT_HTML =
+    '<header>\n' +
+    '    <h1>Mille Lacs wind waves</h1>\n' +
+    '    <div class="head-text">\n' +
+    '      <div id="verdict">\n' +
+    '        <div id="verdict-range">—</div>\n' +
+    '      </div>\n' +
+    '      <span id="comfort-chip" class="tier-green">Fishable \u00b7 Light Chop</span>\n' +
+    '      <div id="subrow">\n' +
+    '        <div id="verdict-peak"></div>\n' +
+    '        <div id="secondary">\n' +
+    '          <span id="wind-info"></span>\n' +
+    '          <span class="sep" aria-hidden="true">\u00b7</span>\n' +
+    '          <span id="frame-info"></span>\n' +
+    '        </div>\n' +
+    '      </div>\n' +
+    '    </div>\n' +
+    '    <button id="refresh" type="button" aria-label="Refresh wind data" title="Refresh wind data">\n' +
+    '      <svg class="icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">\n' +
+    '        <path d="M20 11a8 8 0 1 0-2.3 5.7"></path>\n' +
+    '        <polyline points="20,5 20,11 14,11"></polyline>\n' +
+    '      </svg>\n' +
+    '    </button>\n' +
+    '  </header>';
+
+  /* ---- TARGET header markup (the proposal) ---- */
+  var TARGET_HTML =
+    '<header>\n' +
+    '    <h1>Mille Lacs wind waves</h1>\n' +
+    '    <div class="head-text">\n' +
+    '      <div class="panel-row">\n' +
+    '        <span id="peak">PEAK 1.4 FT \u00b7 WALLEYE POINT \u00b7 38 FT DEEP</span>\n' +
+    '        <span id="tier-chip">FISHABLE \u00b7 LIGHT CHOP</span>\n' +
+    '      </div>\n' +
+    '      <div class="panel-row">\n' +
+    '        <div id="dual">\n' +
+    '          <span class="lbl" id="lbl-wind">Wind:</span>\n' +
+    '          <span class="pill pill-shore"><span class="num" id="shore">8</span><span class="unit" id="shore-u">Shore</span></span>\n' +
+    '          <span id="arr">\u2794</span>\n' +
+    '          <span class="pill pill-lake"><span class="num" id="lake">17</span><span class="unit" id="lake-u">Lake</span></span>\n' +
+    '          <span class="unit" id="mph-tail">mph \u00b7 Gusts <span class="num" id="gusts">24</span></span>\n' +
+    '        </div>\n' +
+    '        <button id="why" type="button" aria-label="Why this differs from other apps">?</button>\n' +
+    '      </div>\n' +
+    '    </div>\n' +
+    '    <button id="refresh" type="button" aria-label="Refresh wind data" title="Refresh wind data">\n' +
+    '      <svg class="icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">\n' +
+    '        <path d="M20 11a8 8 0 1 0-2.3 5.7"></path>\n' +
+    '        <polyline points="20,5 20,11 14,11"></polyline>\n' +
+    '      </svg>\n' +
+    '    </button>\n' +
+    '  </header>\n' +
+    '  <div id="why-pop" role="tooltip">Standard weather apps measure inland at 2m among trees.\n' +
+    '    BigPondChop calculates unobstructed 10m open-water wind.</div>';
+
+  /* ---- THREE-PILL header markup: the APPROVED row (Reid, 2026-09-12).
+       Wind: [ 8 Shore ] ➔ [ 17 Lake ] · [ 24 Gust ] mph (?)
+     The arrow is an inline SVG, never the ➔ dingbat. #help is a real 44x44 hit
+     box at the row END. #help-pop is a SIBLING of <header> (a child of the
+     overflow:hidden header gets sliced at 72px — verified last round). ---- */
+  var THREEPILL_HTML =
+    '<header>\n' +
+    '    <h1>Mille Lacs wind waves</h1>\n' +
+    '    <div class="head-text">\n' +
+    '      <div class="panel-row">\n' +
+    '        <span id="peak">PEAK 1.4 FT \u00b7 WALLEYE POINT \u00b7 38 FT DEEP</span>\n' +
+    '        <span id="tier-chip">FISHABLE \u00b7 LIGHT CHOP</span>\n' +
+    '      </div>\n' +
+    '      <div class="panel-row wind-row">\n' +
+    '        <span id="three">\n' +
+    '          <span class="lbl-slot" id="lbl-slot"><span class="lbl" id="lbl-wind">Wind:</span></span>\n' +
+    '          <span class="pill pill-shore"><span class="num" id="shore">8</span><span class="unit" id="shore-u">Shore</span></span>\n' +
+    '          <span id="arrow" aria-hidden="true"><svg viewBox="0 0 16 12">' +
+                  '<path d="M1 6 H13 M9 2 L13 6 L9 10"/></svg></span>\n' +
+    '          <span class="pill pill-lake"><span class="num" id="lake">17</span><span class="unit" id="lake-u">Lake</span></span>\n' +
+    '          <span id="dot" aria-hidden="true">\u00b7</span>\n' +
+    '          <span class="pill pill-gust"><span class="num" id="gust">24</span><span class="unit" id="gust-u">Gust</span></span>\n' +
+    '          <span id="mph">mph</span>\n' +
+    '        </span>\n' +
+    '        <button id="help" type="button" aria-label="Why these numbers differ from other apps"\n' +
+    '                aria-expanded="false" aria-controls="help-pop"><span class="glyph">?</span></button>\n' +
+    '      </div>\n' +
+    '    </div>\n' +
+    '    <button id="refresh" type="button" aria-label="Refresh wind data" title="Refresh wind data">\n' +
+    '      <svg class="icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">\n' +
+    '        <path d="M20 11a8 8 0 1 0-2.3 5.7"></path>\n' +
+    '        <polyline points="20,5 20,11 14,11"></polyline>\n' +
+    '      </svg>\n' +
+    '    </button>\n' +
+    '  </header>\n' +
+    '  <div id="help-pop" role="tooltip">\n' +
+    '    <ul>\n' +
+    '      <li>\u2022 Shore: Inland forecast accounting for terrain friction (matches phone apps).</li>\n' +
+    '      <li>\u2022 Lake: 10m open-water wind driving wave growth (typically 20-60% higher; median +33% in our data).</li>\n' +
+    '      <li>\u2022 Gust: Peak 3-5s open-water bursts indicating squall risk.</li>\n' +
+    '    </ul>\n' +
+    '  </div>';
+
+  function frame(cls, width, label, meta, variant) {
+    variant = variant || 'm-current';
+    var isOverlay = variant === 'm-overlay' || variant === 'm-threeoverlay';
+    var isThree = variant === 'm-threepill' || variant === 'm-threeoverlay';
+    var isThreeOverlay = variant === 'm-threeoverlay';
+    var frameClass = isThreeOverlay ? 'm-threepill m-overlay' : variant;
+    var screenStyle = isOverlay
+      ? 'position:absolute;inset:0;display:block'
+      : 'position:absolute;inset:0;display:flex;flex-direction:column';
+    var hdr = isThree ? THREEPILL_HTML : (variant === 'm-current' ? CURRENT_HTML : TARGET_HTML);
+    return '' +
+      '<div class="block" data-variant="' + variant + '">' +
+        '<h1>' + label + '</h1>' +
+        '<h2 class="lab"><span>' + variant + '</span><span class="meta">' + meta + '</span></h2>' +
+        '<div class="frame ' + frameClass + (state === 'popover' ? ' po-open' : '') +
+             '" data-vw="' + width + '" style="width:' + width + 'px;height:640px">' +
+          '<div class="mapsim">' + MAPSIM + (isOverlay ? MAP_FURNITURE : '') + '</div>' +
+          '<div class="screen ' + (width <= 400 ? 'w400' : '') + '" style="' + screenStyle + '">' +
+            hdr +
+            (isOverlay ? '' : '<div style="flex:1 1 auto"></div>') +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  var VAR = (P.get('variant') || 'all').toLowerCase();
+
+  function mapOnlyFrame(width) {
+    // The identical fake map, no header, no furniture: the sharp reference for
+    // the backdrop-filter pixel comparison. Element screenshots of a region the
+    // header overlaps cannot serve as a reference because the compositor bakes
+    // the overlapping header in.
+    return '' +
+      '<div class="block" data-variant="maponly">' +
+        '<h1>REFERENCE \u2014 fake map with no header</h1>' +
+        '<h2 class="lab"><span>maponly</span><span class="meta">sharp reference</span></h2>' +
+        '<div class="frame m-maponly" data-vw="' + width + '" ' +
+             'style="width:' + width + 'px;height:640px">' +
+          '<div class="mapsim">' + MAPSIM + '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function render() {
+    var html = '<div class="stack">';
+    if (VAR === 'maponly') {
+      html += mapOnlyFrame(vw);
+    } else if (VAR === 'current') {
+      html += frame('m-current', vw, 'CURRENT \u2014 index.html @ 89e3a2d', 'as shipped', 'm-current');
+    } else if (VAR === 'target') {
+      html += frame('m-target', vw, 'TARGET \u2014 in-flow', 'proposed', 'm-target');
+    } else if (VAR === 'overlay') {
+      html += frame('m-target', vw, 'TARGET \u2014 floating overlay', 'proposed', 'm-overlay');
+    } else if (VAR === 'threepill') {
+      html += frame('m-threepill', vw, 'THREE-PILL \u2014 in-flow', 'APPROVED', 'm-threepill');
+    } else if (VAR === 'threeoverlay') {
+      html += frame('m-threepill', vw, 'THREE-PILL \u2014 floating overlay', 'APPROVED', 'm-threeoverlay');
+    } else {
+      html += frame('m-current', vw, 'CURRENT \u2014 index.html @ 89e3a2d', 'as shipped', 'm-current') +
+              frame('m-target',  vw, 'TARGET \u2014 marine instrument panel (in-flow)', 'proposed', 'm-target') +
+              frame('m-target',  vw, 'TARGET \u2014 marine instrument panel (floating overlay)', 'ALSO proposed', 'm-overlay') +
+              frame('m-threepill', vw, 'THREE-PILL \u2014 APPROVED row (in-flow)', 'APPROVED', 'm-threepill') +
+              frame('m-threepill', vw, 'THREE-PILL \u2014 APPROVED row (floating overlay)', 'APPROVED', 'm-threeoverlay');
+    }
+    html += '</div>';
+    document.getElementById('out').innerHTML = html;
+
+    /* Fill the CURRENT variant's live nodes, exactly as src/*.js would. */
+    document.querySelectorAll('.m-current').forEach(function (f) {
+      f.querySelector('#verdict-range').textContent = v.lake + '\u2013' + (v.lake + 1) + ' ft';
+      f.querySelector('#comfort-chip').textContent = v.chip;
+      f.querySelector('#verdict-peak').textContent = v.peak;
+      f.querySelector('#wind-info').textContent = 'Wind ' + v.lake + ' mph ' + 'SE';
+      f.querySelector('#frame-info').textContent = 'Gusts ' + v.gusts;
+    });
+    /* Fill / tint the TARGET variants (in-flow + floating overlay). */
+    document.querySelectorAll('.m-target').forEach(function (f) {
+      f.querySelector('#peak').textContent = v.peak;
+      f.querySelector('#tier-chip').textContent = v.chip;
+      f.querySelector('#shore').textContent = v.shore;
+      f.querySelector('#lake').textContent = v.lake;
+      f.querySelector('#gusts').textContent = v.gusts;
+      f.querySelector('#arr').textContent = '\u2794';
+      f.querySelector('#mph-tail').innerHTML = 'mph \u00b7 Gusts <span class="num" id="gusts">' + v.gusts + '</span>';
+      f.querySelectorAll('.pill-lake').forEach(function (p) {
+        p.style.setProperty('--tint', t.bg);
+        p.style.setProperty('--tint-bd', t.bd);
+      });
+      f.querySelector('#tier-chip').className = '';
+      f.querySelector('#tier-chip').style.background = t.bg;
+      f.querySelector('#tier-chip').style.color = '#f8fafc';
+      f.querySelector('#tier-chip').style.border = '1px solid ' + t.bd;
+    });
+
+    /* Fill / tint the THREE-PILL variant. The Lake pill tint comes from the
+       DISPLAYED lake value through the app's WIND_HEAT scale, with per-tier ink.
+       `?ink=white|auto` overrides the per-tier ink decision so the amber-tier
+       ink can be A/B measured instead of guessed. */
+    var INK_MODE = (P.get('ink') || 'auto').toLowerCase();
+    document.querySelectorAll('.m-threepill').forEach(function (f) {
+      var heat = heatFor(v.lake);
+      var ink = INK_MODE === 'dark' ? INK_LIGHT
+              : INK_MODE === 'light' ? INK_LIGHT
+              : heat.ink;
+      f.dataset.inkMode = INK_MODE;
+      f.dataset.heatName = heat.name;
+      f.querySelector('#peak').textContent = v.peak;
+      f.querySelector('#tier-chip').textContent = v.chip;
+      f.querySelector('#shore').textContent = v.shore;
+      f.querySelector('#lake').textContent = v.lake;
+      f.querySelector('#gust').textContent = v.gusts;
+      f.querySelector('#tier-chip').className = '';
+      f.querySelector('#tier-chip').style.background = t.bg;
+      f.querySelector('#tier-chip').style.color = '#f8fafc';
+      f.querySelector('#tier-chip').style.border = '1px solid ' + t.bd;
+      f.querySelectorAll('.pill-lake').forEach(function (p) {
+        p.style.setProperty('--tint', tierFillHex(heat.hex, 0.55));
+        p.style.setProperty('--tint-bd', heat.hex);
+        p.style.setProperty('--ink', ink);
+        p.dataset.heat_tier = heat.name;
+        p.dataset.heat_source = heat.hex;
+        p.dataset.ink = ink;
+        p.dataset.tier_fill_alpha = '0.55';
+      });
+      if (dropWind) {
+        var slot = f.querySelector('#lbl-slot');
+        if (slot) slot.classList.add('collapsed');
+      }
+    });
+    document.getElementById('leg-w').textContent = vw;
+    document.getElementById('leg-s').textContent = state;
+    window.__mockReady = true;
+    window.__mockState = state;
+    window.__mockVw = vw;
+  }
+
+  render();
+
+  document.getElementById('why') && document.getElementById('why').addEventListener('click', function () {
+    document.querySelectorAll('.m-target, .m-overlay').forEach(function (f) { f.classList.toggle('po-open'); });
+  });
+  document.querySelectorAll('#help').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var on = false;
+      document.querySelectorAll('.m-threepill').forEach(function (f) {
+        f.classList.toggle('po-open');
+        if (f.classList.contains('po-open')) on = true;
+      });
+      document.querySelectorAll('#help').forEach(function (x) {
+        x.setAttribute('aria-expanded', on ? 'true' : 'false');
+      });
+    });
+  });
+  window.__setState = function (s) { state = s; render(); };
+  window.__setVw = function (w) { vw = w; render(); };
+  window.__setDropWind = function (b) { dropWind = !!b; render(); };
+})();
+</script>
+</body>
+</html>
