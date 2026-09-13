@@ -381,8 +381,12 @@ async function mount(deps) {
   const horizonEl = document.getElementById('horizon');
   const h24Btn = document.getElementById('h-24h');
   const h7Btn = document.getElementById('h-7d');
-  const windEl = document.getElementById('wind-info');
-  const frameEl = document.getElementById('frame-info');
+  const shoreEl = document.getElementById('shore');
+  const lakeEl = document.getElementById('lake');
+  const gustEl = document.getElementById('gust');
+  const pillLakeEl = document.getElementById('pill-lake');
+  const helpBtn = document.getElementById('help');
+  const helpPop = document.getElementById('help-pop');
   const verdictRange = document.getElementById('verdict-range');
   const verdictPeak = document.getElementById('verdict-peak');
   const comfortChip = document.getElementById('comfort-chip');
@@ -536,6 +540,7 @@ async function mount(deps) {
 
   let map = null, overlay = null;
   let frames = [];
+  let shoreDay = null;    // 6B: shore series matching `frames`; null when unavailable
   let stepMin = 15;
   let cur = 0;
   let full7d = null;      // cached '7d' ingest result for the zero-fetch narrow
@@ -570,7 +575,9 @@ async function mount(deps) {
     llBounds, { opacity: OVERLAY_OPACITY }).addTo(map);
   // Auto-fit the lake edge-to-edge: no static setView/zoom, padding keeps the
   // east/west shorelines off the viewport edges on portrait phones.
-  const fitLake = () => map.fitBounds(llBounds, { padding: [12, 12], maxZoom: 12 });
+  // 6B: the header floats over the map, so reserve its 72 px band + 12 px clearance.
+  const fitLake = () => map.fitBounds(llBounds,
+    { paddingTopLeft: [12, 84], paddingBottomRight: [12, 12], maxZoom: 12 });
   fitLake();
   // The flex layout can settle after the first paint; refit once the container is real.
   requestAnimationFrame(() => map.invalidateSize());
@@ -1000,8 +1007,13 @@ async function mount(deps) {
     body.dataset.teffH = e.tEffH.toFixed(2);
     // During a drag the tape UI is owned by scrubUiTo (newest index); only the map paints.
     updateScrubUi(scrubbing && dragIdx != null ? dragIdx : cur);
-    windEl.textContent = ui.windLine(e.speedMph, e.gustMph);
-    frameEl.textContent = `H/L ${s.hlMax.toFixed(3)}`;
+    const shoreEntry = shoreDay && shoreDay[cur];
+    const pills = ui.windPills(e.speedMph, shoreEntry ? shoreEntry.speedMph : null, e.gustMph);
+    lakeEl.textContent = pills.lake;
+    shoreEl.textContent = pills.shore;
+    gustEl.textContent = pills.gust;
+    pillLakeEl.style.setProperty('--tint', pills.lakeTint);
+    pillLakeEl.style.setProperty('--tint-bd', pills.lakeBorder);
     const c = ui.compass(e.dirTrueDeg, e.speedMph);
     if (c.arrowDeg == null) {
       badgeArrow.style.display = 'none';
@@ -1096,6 +1108,23 @@ async function mount(deps) {
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
   playBtn.addEventListener('click', () => setPlaying(!playing));
   document.getElementById('card-close').addEventListener('click', dismissPin);
+  // 6B: ? explainer. #help-pop is a sibling of <header> (never sliced by its clip),
+  // so one open/close path can keep aria-expanded in sync and return focus to #help.
+  let helpOpen = false;
+  function setHelpOpen(on) {
+    helpOpen = !!on;
+    helpBtn.setAttribute('aria-expanded', helpOpen ? 'true' : 'false');
+    helpPop.hidden = !helpOpen;
+    if (!helpOpen) helpBtn.focus();
+  }
+  helpBtn.addEventListener('click', () => setHelpOpen(!helpOpen));
+  helpPop.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && helpOpen) setHelpOpen(false);
+  });
+  document.addEventListener('click', (e) => {
+    if (helpOpen && !helpPop.contains(e.target) && !helpBtn.contains(e.target)) setHelpOpen(false);
+  });
   // A width change moves the rail mapping: re-place the hairline/playhead + day label.
   function resyncTrackUi() {
     updateScrubUi(cur);
@@ -1108,6 +1137,7 @@ async function mount(deps) {
 
   function applyWindData(data) {
     frames = data.day;
+    shoreDay = data.shoreDay || null;
     stepMin = data.stepMin || 15;
     builtMs = 0;
     frameCache.clear();
@@ -1186,7 +1216,9 @@ async function mount(deps) {
     if (horizon !== '7d' || !full7d) return;
     pause();
     const data = Object.assign({}, full7d, {
-      day: wind.firstDaySlice(full7d.day), horizon: '24h',
+      day: wind.firstDaySlice(full7d.day),
+      shoreDay: full7d.shoreDay ? wind.firstDaySlice(full7d.shoreDay) : null,
+      horizon: '24h',
     });
     persistHorizon('24h');
     setHorizonPressed('24h');
