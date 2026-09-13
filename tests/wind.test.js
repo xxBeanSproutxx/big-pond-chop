@@ -11,6 +11,7 @@ const {
   gammaToGrid, computeTeff, seedTeff, interpolate15, buildSeriesFrom,
   expandHourlyVector, selectRange, buildUrl, bearingDelta,
   ingest, chicagoNow, currentIndex, firstDaySlice, selectDay,
+  DEFAULT_POINT, SHORE_POINT, buildDualUrl, parseTwoLocations,
 } = require('../src/wind');
 const { computeFrame } = require('../src/render');
 
@@ -167,6 +168,32 @@ check('buildUrl: default and 24h are 2 days, 7d is 7 days', () => {
   assert.ok(buildUrl(1, 2, '24h').endsWith('forecast_days=2'));
   assert.ok(buildUrl(1, 2, '7d').endsWith('forecast_days=7'));
   assert.strictEqual(buildUrl(1, 2), buildUrl(1, 2, '24h'));
+});
+
+console.log('\n== [1e-2] Stage 6A dual-location URL + index-keyed parse ==');
+check('buildDualUrl joins both coords, keeps forecast_days last', () => {
+  const u = buildDualUrl(DEFAULT_POINT, SHORE_POINT);
+  assert.ok(u.includes('latitude=46.22,46.13'), u);
+  assert.ok(u.includes('longitude=-93.657,-93.57'), u);
+  assert.ok(u.endsWith('forecast_days=2'), u);
+  assert.ok(buildDualUrl(DEFAULT_POINT, SHORE_POINT, '7d').endsWith('forecast_days=7'));
+  assert.strictEqual(buildUrl(1, 2), buildUrl(1, 2, '24h'), 'single-location URL unchanged');
+});
+check('parseTwoLocations keys lake=index 0, shore=index 1 (no location_id on 0)', () => {
+  const live = [
+    { latitude: 46.21358, longitude: -93.64418, minutely_15: { time: ['t'] } },
+    { latitude: 46.104504, longitude: -93.57359, location_id: 1, minutely_15: { time: ['t'] } },
+  ];
+  const r = parseTwoLocations(live);
+  assert.strictEqual(r.lake, live[0]);
+  assert.strictEqual(r.shore, live[1]);
+  assert.ok(!('location_id' in r.lake), 'index 0 has no location_id');
+  assert.strictEqual(r.shore.location_id, 1);
+});
+check('parseTwoLocations rejects non-array and short arrays', () => {
+  assert.deepStrictEqual(parseTwoLocations({ hourly: {} }), { lake: null, shore: null });
+  assert.deepStrictEqual(parseTwoLocations([{ a: 1 }]), { lake: null, shore: null });
+  assert.deepStrictEqual(parseTwoLocations(null), { lake: null, shore: null });
 });
 
 console.log('\n== [1f] selectRange window ==');
@@ -331,6 +358,68 @@ function synthHourly(date) {
     assert.strictEqual(firstDay.length, ref.length);
     assert.deepStrictEqual(firstDay.map((e) => e.time), ref.map((e) => e.time));
   });
+
+  console.log('\n== [3d] Stage 6A dual-location ingest: shoreDay, fail-open, one fetch ==');
+  function synthTwo(date) {
+    const lake = synthMinutely(date);
+    const shore = synthMinutely(date);
+    shore.location_id = 1;
+    shore.minutely_15.wind_speed_10m = shore.minutely_15.wind_speed_10m.map((v) => v + 5);
+    return [lake, shore];
+  }
+
+  const dual = await ingest({ json: synthTwo(DATE), gamma: meta.gamma_deg, now: at1712 });
+  console.log(`  dual: day ${dual.day.length}, shoreDay ${dual.shoreDay.length}, ` +
+    `lake cur ${dual.day[dual.currentIndex].speedMph.toFixed(2)} mph, ` +
+    `shore cur ${dual.shoreDay[dual.currentIndex].speedMph.toFixed(2)} mph`);
+  check('shoreDay matches day length and timestamps on a synthetic dual payload', () => {
+    assert.strictEqual(dual.shoreDay.length, dual.day.length);
+    for (let i = 0; i < dual.day.length; i++) {
+      assert.strictEqual(dual.shoreDay[i].time, dual.day[i].time, `time[${i}]`);
+    }
+    assert.ok(dual.shoreDay[0].speedMph > dual.day[0].speedMph, 'shore fixture is distinct');
+  });
+  check('shoreDay shares the exact entry shape (buildSeriesFrom path)', () => {
+    const keys = Object.keys(dual.day[0]).sort().join(',');
+    assert.strictEqual(Object.keys(dual.shoreDay[0]).sort().join(','), keys);
+  });
+
+  const dual7 = await ingest({ json: [synth8(DATE), synth8(DATE)], gamma: meta.gamma_deg, now: at1712, horizon: '7d' });
+  console.log(`  dual 7d: day ${dual7.day.length}, shoreDay ${dual7.shoreDay.length}`);
+  check("'7d' shoreDay also matches the 672-frame window", () => {
+    assert.strictEqual(dual7.shoreDay.length, dual7.day.length);
+    assert.strictEqual(dual7.shoreDay[671].time, dual7.day[671].time);
+  });
+
+  const bad1 = await ingest({ json: synthMinutely(DATE), gamma: meta.gamma_deg, now: at1712 });
+  const bad2 = await ingest({ json: [synthMinutely(DATE)], gamma: meta.gamma_deg, now: at1712 });
+  const allNull = synthMinutely(DATE);
+  allNull.minutely_15.wind_speed_10m = allNull.minutely_15.wind_speed_10m.map(() => null);
+  const bad3 = await ingest({ json: [synthMinutely(DATE), allNull], gamma: meta.gamma_deg, now: at1712 });
+  check('malformed/one-location/no-shore-speed payloads -> shoreDay null, no throw', () => {
+    assert.strictEqual(bad1.shoreDay, null, 'object not array');
+    assert.strictEqual(bad2.shoreDay, null, 'array of 1');
+    assert.strictEqual(bad3.shoreDay, null, 'shore wind_speed_10m all null');
+    assert.strictEqual(bad1.day.length, 96, 'lake path unaffected');
+  });
+
+  const realFetch = global.fetch;
+  let calls = 0, seenUrl = null;
+  global.fetch = async (url) => {
+    calls++; seenUrl = url;
+    return { ok: true, json: async () => synthTwo(DATE) };
+  };
+  try {
+    const net = await ingest({ gamma: meta.gamma_deg, now: at1712 });
+    check('ingest hits the network exactly once with both coordinates in the URL', () => {
+      assert.strictEqual(calls, 1, `fetch calls ${calls}`);
+      assert.ok(seenUrl.includes('latitude=46.22,46.13'), seenUrl);
+      assert.ok(seenUrl.includes('longitude=-93.657,-93.57'), seenUrl);
+      assert.ok(net.shoreDay && net.shoreDay.length === 96, 'shore parsed from the same response');
+    });
+  } finally {
+    global.fetch = realFetch;
+  }
 
   console.log('\n== [4] live Open-Meteo ingest + 96-frame field table ==');
   const tables = decodeTables(fs.readFileSync(path.join(ROOT, 'public', 'tables.v1.bin')));
