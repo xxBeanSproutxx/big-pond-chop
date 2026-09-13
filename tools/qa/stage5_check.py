@@ -1653,6 +1653,16 @@ S6_GEOMETRY_JS = r"""
   const hs = header ? getComputedStyle(header) : null;
   const help = R(g('help'), '#help'), refresh = R(g('refresh'), '#refresh');
   const mph = R(g('mph'), '#mph');
+  /* 6B.3: the ? is a 20 px micro-badge whose 44 px TOUCH target lives in an invisible
+     ::after (inset: -12px). Measure the declared expansion, not the visual box. */
+  const helpHit = (function () {
+    const el = g('help'); if (!el || !help) return null;
+    const ps = getComputedStyle(el, '::after');
+    const ex = Math.abs(parseFloat(ps.left) || 0), exT = Math.abs(parseFloat(ps.top) || 0);
+    const exR = Math.abs(parseFloat(ps.right) || 0), exB = Math.abs(parseFloat(ps.bottom) || 0);
+    return {w: +(help.w + ex + exR).toFixed(2), h: +(help.h + exT + exB).toFixed(2),
+            left: +(help.x - ex).toFixed(2), expand: ex};
+  })();
   const mapR = R(g('map'), '#map');
   const horizon = R(g('horizon'), '#horizon'), badge = R(g('wind-badge'), '#wind-badge');
   return {
@@ -1667,7 +1677,7 @@ S6_GEOMETRY_JS = r"""
           scrollWidth: document.getElementById('mph').scrollWidth,
           clientWidth: document.getElementById('mph').clientWidth} : null,
     pills: pills, pillsInside: pills.length > 0 && pills.every(function (p) { return p.inside; }),
-    help: help, refresh: refresh,
+    help: help, helpHit: helpHit, refresh: refresh,
     helpGap: (help && refresh) ? +(refresh.x - help.right).toFixed(2) : null,
     map: mapR, overlaps: !!(hr && mapR && hr.bottom > mapR.top && hr.top < mapR.bottom),
     horizonClear: (horizon && hr) ? +(horizon.top - hr.bottom).toFixed(2) : null,
@@ -1881,13 +1891,18 @@ def check_marine_header(pw, port):
              and three["ink"] <= three["avail"],
              "[19.3] %s @%dx%d ink=%s avail=%s slack=%s"
              % (name, w, h, three and three["ink"], three and three["avail"], slack))
-        emit(geo["pillsInside"] and geo["help"] and geo["help"]["w"] >= 44.0
-             and geo["help"]["h"] >= 44.0 and geo["helpGap"] is not None
-             and geo["helpGap"] >= 8.0,
-             "[19.4] %s @%dx%d pills-inside=%s help=%sx%s gap=%s"
+        emit(geo["pillsInside"] and geo["help"]
+             and abs(geo["help"]["w"] - 20.0) <= 0.5 and abs(geo["help"]["h"] - 20.0) <= 0.5
+             and geo["helpHit"] and geo["helpHit"]["w"] >= 44.0 and geo["helpHit"]["h"] >= 44.0
+             and geo["helpGap"] is not None and geo["helpGap"] >= 8.0
+             and geo["mph"] and geo["helpHit"]["left"] >= geo["mph"]["r"]["right"],
+             "[19.4] %s @%dx%d pills-inside=%s badge=%sx%s hit=%sx%s gap=%s mph-clear=%s"
              % (name, w, h, geo["pillsInside"],
                 geo["help"] and geo["help"]["w"], geo["help"] and geo["help"]["h"],
-                geo["helpGap"]))
+                geo["helpHit"] and geo["helpHit"]["w"], geo["helpHit"] and geo["helpHit"]["h"],
+                geo["helpGap"],
+                (geo["helpHit"] and geo["mph"])
+                and "%.2f" % (geo["helpHit"]["left"] - geo["mph"]["r"]["right"])))
         styles_present = all(st.get(k) for k in ("shore", "lake", "gust", "shore-u", "lake-u", "gust-u"))
         nums_ok = styles_present and all(st[k]["fontSize"] == "13px" and st[k]["fontWeight"] == "700"
                       and st[k]["fontVariantNumeric"] == "tabular-nums"

@@ -27,7 +27,7 @@
      Stage 6B.2: the band is 72 px of CONTENT (it grows into the notch inset
      instead of clipping) and the top padding keeps row 1 off the bezel. */
   header { position: fixed; top: 0; left: 0; right: 0; z-index: 1001;
-           padding: max(6px, env(safe-area-inset-top, 0px)) 10px 2px;
+           padding: max(6px, env(safe-area-inset-top, 0px)) 10px 4px;
            display: flex; align-items: center;
            gap: 8px; height: var(--header-h); min-height: var(--header-h);
            max-height: var(--header-h);
@@ -63,10 +63,14 @@
      the lake pill is tinted by WIND_HEAT at .55 alpha (white ink on every tier, by
      measurement). Pills are 2px 6px to fit the widest state inside 232 px @360. */
   #three { flex: 1 1 auto; min-width: 0; align-self: center; display: flex;
-           align-items: center; white-space: nowrap; overflow: hidden;
-           /* margin, not padding: keeps clientWidth == the usable row width, so the
-              harness's "ink <= avail" gate stays meaningful */
-           margin-right: 52px; }
+           align-items: center; gap: 4px; white-space: nowrap; overflow: hidden;
+           /* 6B.3: one uniform 4 px rhythm between pills / arrow / dot / mph
+              replaces the old ad-hoc margins (pills flush, dot 4 px, arrow 3 px),
+              so the row reads as a single bundle instead of a pill cluster with a
+              dangling unit. margin-right 32 px = the 20 px micro-badge + its 8 px
+              gap + the 4 px of ::after overhang, so clientWidth stays the REAL
+              usable width and the harness "ink <= avail" gate stays meaningful. */
+           margin-right: 32px; }
   #three .pill { display: inline-flex; align-items: baseline; gap: 3px; flex: 0 0 auto;
                  border-radius: 999px; padding: 2px 6px; line-height: 1.4; }
   #pill-shore, #pill-gust { background: rgba(148,163,184,.18);
@@ -83,24 +87,28 @@
   #lake-u { font-size: 10px; font-weight: 500; color: #f8fafc;
             font-variant-numeric: tabular-nums; line-height: 1.2; }
   #arrow { flex: 0 0 auto; width: 16px; height: 12px; display: inline-block;
-           align-self: center; margin: 0 3px; color: #94a3b8; }
+           align-self: center; margin: 0; color: #94a3b8; }
   #arrow svg { display: block; width: 16px; height: 12px; }
   #arrow path { fill: none; stroke: currentColor; stroke-width: 1.5;
                 stroke-linecap: round; stroke-linejoin: round; }
-  #dot { flex: 0 0 auto; margin: 0 4px; font-size: 11px; color: #94a3b8; line-height: 1; }
+  #dot { flex: 0 0 auto; margin: 0; font-size: 11px; color: #94a3b8; line-height: 1; }
   #mph { flex: 0 1 auto; min-width: 0; overflow: hidden; font-size: 10px; font-weight: 500;
          color: #cbd5e1; font-variant-numeric: tabular-nums; line-height: 1.2; }
-  /* 6B.2: absolutely positioned so the 44 px hit box cannot inflate the text
-     column — in flow it stretched row 3 to 44 px, which pushed .head-text past
-     the 68 px content box and clipped row 1 at y=-5.5. Right offset = 10 px
-     header padding + 48 px #refresh + 8 px gap. */
-  #help { position: absolute; bottom: 2px; right: 66px;
-          width: 44px; height: 44px;
-          min-width: 44px; min-height: 44px; border-radius: 50%; border: 1px solid rgba(148,163,184,.35);
-          background: rgba(148,163,184,.14); color: #cbd5e1; padding: 0;
-          font: 600 14px/1 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
-          display: inline-flex; align-items: center; justify-content: center;
-          touch-action: manipulation; }
+  /* 6B.3 (Option A micro-polish): a discreet 20 px micro-badge instead of a 44 px
+     control dominating the row. It stays ABSOLUTELY positioned — an in-flow hit box
+     is what inflated row 3 and clipped row 1 in 6B.2 — and the 44 px TOUCH target is
+     rebuilt invisibly with ::after. Right offset = 10 px header padding + 48 px
+     #refresh + 8 px gap; vertically centred in the band via --header-h. */
+  #help { position: absolute; top: calc((var(--header-h) - 20px) / 2); right: 66px;
+         width: 20px; height: 20px; min-width: 20px; min-height: 20px;
+         border-radius: 50%; border: 1px solid rgba(255,255,255,.15);
+         background: rgba(255,255,255,.05); color: #94a3b8; padding: 0;
+         font: 600 11px/1 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+         display: inline-flex; align-items: center; justify-content: center;
+         touch-action: manipulation; }
+  /* invisible 12 px expansion each side: 20 + 12 + 12 = the full 44 px touch target
+     with zero visual weight. Kept clear of #mph's ink by the 32 px #three margin. */
+  #help::after { content: ''; position: absolute; inset: -12px; border-radius: 50%; }
   /* #help-pop is a SIBLING of <header>: a child of the overflow:hidden band is
      sliced at 72 px. Fixed + z 1002 keeps it above Leaflet's 1000 controls. */
   #help-pop { position: fixed; top: calc(var(--header-h) + 6px); right: 10px; z-index: 1002;
@@ -123,7 +131,11 @@
     #secondary { font-size: 10px; gap: 6px; }
     #verdict-peak { font-size: 12px; }
   }
-  #refresh { background: #1d4e6f; color: #e8f0f7; border: 0; border-radius: 6px;
+  /* 6B.3: marine-glass refresh instead of the old #1d4e6f blue block — same fill and
+     hairline as the #help badge, so the two controls read as one family. Icon contrast
+     on the composite (#cbd5e1 over rgba(15,23,42,.85)) measures 8.1:1. */
+  #refresh { background: rgba(255,255,255,.05); color: #cbd5e1;
+             border: 1px solid rgba(255,255,255,.15); border-radius: 10px;
              width: 48px; min-width: 48px; min-height: 48px; padding: 0; display: inline-flex;
              align-items: center; justify-content: center; margin-left: auto;
              touch-action: manipulation; }
@@ -260,7 +272,12 @@
   /* Muted basemap: CARTO's keyless tiles now stamp "API KEY REQUIRED", so the tile pane
      itself is desaturated instead — kills the green/wetland clash under the wave overlay. */
   .leaflet-tile-pane { filter: grayscale(.9) saturate(.35) brightness(1.04) contrast(.94); }
-  /* Stage 5J: lift Leaflet's attribution clear of the floating amber pill / deck edge. */
+  /* Stage 5J / 6B.3: lift Leaflet's attribution clear of the amber now-pill and its
+     needle, which rise ABOVE the deck into the map. Measured: the corner is positioned
+     against #map (whose bottom edge IS the deck's top), so this lift resolves to 68 px
+     of real clearance above the deck — verified at 360 and 390 (attribution bottom 670
+     vs deck top 738), with the string floating clear of the amber pill. The deck's own
+     safe-area growth needs no term here: the map's bottom tracks it either way. */
   .leaflet-bottom { bottom: calc(var(--deck-h) + 6px); }
   #field { display: none; }
 </style>
