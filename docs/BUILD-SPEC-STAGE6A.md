@@ -1,8 +1,8 @@
 # BUILD SPEC — Stage 6A: dual-location wind ingest (lake + shore) in ONE batched request
 
 Repo: `/home/reid/projects/big-pond-chop`, branch `stage6` (off `main` @ `89e3a2d`).
-Reid's Stage 6 sign-off is APPROVED (decisions D1–D14 + two adjustments, doc
-`~/.gstack/projects/big-pond-chop/STAGE-6-HEADER-SIGNOFF.md`). **This leaf is DATA ONLY** —
+Reid's Stage 6 sign-off is APPROVED (decisions D1–D14 locked; a summary of the ones that matter to you is in
+"Contract" below). **This leaf is DATA ONLY** —
 no header/DOM/CSS work (that is 6B).
 
 ## Goal
@@ -71,8 +71,14 @@ STOP and report why instead of editing it.
 
 ## Procedure
 
+- **You MUST edit `src/wind.js` and `tests/wind.test.js`.** A run that only reads files and exits is a
+  failure, not a deliverable — the orchestrator checks for actual diffs.
+- **Do not try to read files outside this repository** (anything under `~/.gstack/`, `~/.hermes/`, `/tmp/`):
+  the permission wall auto-rejects them and wastes your budget. Everything you need is in this spec.
+- When the suites below are green, commit: `git add src/wind.js tests/wind.test.js && git commit -m
+  "stage6a: dual-location wind ingest (shore + lake in one request)"`.
 - Follow the **ponytail** ruleset (laziest correct implementation — do not add options, config or
-  abstractions nobody asked for). Commits prefixed `stage6a:`.
+  abstractions nobody asked for).
 - **Do NOT merge, tag or push** — the orchestrator owns that.
 - If a number in this spec conflicts with observed reality, trust reality and report the conflict.
 - Report the ACTUAL shipped function signatures and the `ingest()` return shape in your summary.
