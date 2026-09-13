@@ -12,7 +12,7 @@
 <link rel="icon" type="image/svg+xml" href="public/favicon.svg">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark; --header-h: calc(72px + env(safe-area-inset-top, 0px)); }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body { display: flex; flex-direction: column; background: #0d1b2a; color: #e8f0f7;
@@ -21,13 +21,32 @@
      Three stacked text rows sit in a column beside the 48 px refresh button:
      row 1 = range + tier chip, row 2 = peak line at the column's full width so the
      location label never truncates on a 360 px phone, row 3 = wind + H/L. */
-  header { padding: 2px 10px; background: #10263a; display: flex; align-items: center;
-           gap: 8px; height: 72px; min-height: 72px; max-height: 72px;
-           overflow: hidden; }
+  /* Stage 6B: the header floats over the map (fixed, z-index 1001 > Leaflet's
+     1000) as a frosted glass band. #map extends under it; fitLake() reserves the
+     live header height + 12 px so the lake edge stays clear of the band.
+     Stage 6B.2: the band is 72 px of CONTENT (it grows into the notch inset
+     instead of clipping) and the top padding keeps row 1 off the bezel. */
+  header { position: fixed; top: 0; left: 0; right: 0; z-index: 1001;
+           padding: max(6px, env(safe-area-inset-top, 0px)) 10px 4px;
+           display: flex; align-items: center;
+           gap: 8px; height: var(--header-h); min-height: var(--header-h);
+           max-height: var(--header-h);
+           overflow: hidden; background: rgba(15,23,42,.85);
+           -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+           border-bottom: 1px solid rgba(255,255,255,.1); color: #f8fafc;
+           font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; }
+  @supports not (backdrop-filter: blur(1px)) { header { background: #0f172a; } }
+  /* 6B.2: the map now starts at y=0 (the header is fixed), so Leaflet's own top
+     controls would sit UNDER the band (measured y=10 vs the pre-6B y=82).
+     Offset the whole top strip below the header + 10 px. */
+  .leaflet-top { top: calc(var(--header-h) + 10px); }
   header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px;
               position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .head-text { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap;
-               align-items: baseline; gap: 2px 8px; }
+               align-content: center; align-items: baseline; gap: 2px 8px; }
+  /* 6B.2: the 52 px reservation for the ? pill lives on the WIND ROW ONLY — on the
+     whole column it squeezed row 1 until the tier chip wrapped, which made
+     .head-text 76 px tall inside a 64 px content box and clipped row 1. */
   #verdict { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 0 1 auto; }
   #verdict-range { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
   /* Peak and wind get a row each: sharing a row clipped the location at 360 px. */
@@ -39,6 +58,67 @@
   #secondary { flex: 1 1 100%; display: flex; flex-direction: row; align-items: baseline;
                gap: 8px; font-size: 11px; color: #9fc3dd; font-variant-numeric: tabular-nums;
                white-space: nowrap; }
+  /* Stage 6B: three-pill marine wind row. No "Wind:" prefix; the labels carry it.
+     Numerals 13/700 white tabular; labels 10/500 #cbd5e1; shore+gust share one fill;
+     the lake pill is tinted by WIND_HEAT at .55 alpha (white ink on every tier, by
+     measurement). Pills are 2px 6px to fit the widest state inside 232 px @360. */
+  #three { flex: 1 1 auto; min-width: 0; align-self: center; display: flex;
+           align-items: center; gap: 4px; white-space: nowrap; overflow: hidden;
+           /* 6B.3: one uniform 4 px rhythm between pills / arrow / dot / mph
+              replaces the old ad-hoc margins (pills flush, dot 4 px, arrow 3 px),
+              so the row reads as a single bundle instead of a pill cluster with a
+              dangling unit. margin-right 32 px = the 20 px micro-badge + its 8 px
+              gap + the 4 px of ::after overhang, so clientWidth stays the REAL
+              usable width and the harness "ink <= avail" gate stays meaningful. */
+           margin-right: 32px; }
+  #three .pill { display: inline-flex; align-items: baseline; gap: 3px; flex: 0 0 auto;
+                 border-radius: 999px; padding: 2px 6px; line-height: 1.4; }
+  #pill-shore, #pill-gust { background: rgba(148,163,184,.18);
+                            border: 1px solid rgba(148,163,184,.35); }
+  #pill-lake { background: var(--tint, rgba(148,163,184,.18));
+               border: 1px solid var(--tint-bd, rgba(148,163,184,.35)); }
+  #shore, #lake, #gust { font-size: 13px; font-weight: 700; color: #f8fafc;
+                         font-variant-numeric: tabular-nums; line-height: 1.2; }
+  #shore-u, #gust-u { font-size: 10px; font-weight: 500; color: #cbd5e1;
+                      font-variant-numeric: tabular-nums; line-height: 1.2; }
+  /* Stage 6B.1 (orchestrator gate fix): the lake label sits on the .55-alpha tier tint,
+     where #cbd5e1 measured 3.58:1 (amber tier) — below the 4.5:1 gate. White clears every
+     reachable tier: teal 7.24, green 5.68, amber 5.08, orange 6.25, crimson 7.72. */
+  #lake-u { font-size: 10px; font-weight: 500; color: #f8fafc;
+            font-variant-numeric: tabular-nums; line-height: 1.2; }
+  #arrow { flex: 0 0 auto; width: 16px; height: 12px; display: inline-block;
+           align-self: center; margin: 0; color: #94a3b8; }
+  #arrow svg { display: block; width: 16px; height: 12px; }
+  #arrow path { fill: none; stroke: currentColor; stroke-width: 1.5;
+                stroke-linecap: round; stroke-linejoin: round; }
+  #dot { flex: 0 0 auto; margin: 0; font-size: 11px; color: #94a3b8; line-height: 1; }
+  #mph { flex: 0 1 auto; min-width: 0; overflow: hidden; font-size: 10px; font-weight: 500;
+         color: #cbd5e1; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  /* 6B.3 (Option A micro-polish): a discreet 20 px micro-badge instead of a 44 px
+     control dominating the row. It stays ABSOLUTELY positioned — an in-flow hit box
+     is what inflated row 3 and clipped row 1 in 6B.2 — and the 44 px TOUCH target is
+     rebuilt invisibly with ::after. Right offset = 10 px header padding + 48 px
+     #refresh + 8 px gap; vertically centred in the band via --header-h. */
+  #help { position: absolute; top: calc((var(--header-h) - 20px) / 2); right: 66px;
+         width: 20px; height: 20px; min-width: 20px; min-height: 20px;
+         border-radius: 50%; border: 1px solid rgba(255,255,255,.15);
+         background: rgba(255,255,255,.05); color: #94a3b8; padding: 0;
+         font: 600 11px/1 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+         display: inline-flex; align-items: center; justify-content: center;
+         touch-action: manipulation; }
+  /* invisible 12 px expansion each side: 20 + 12 + 12 = the full 44 px touch target
+     with zero visual weight. Kept clear of #mph's ink by the 32 px #three margin. */
+  #help::after { content: ''; position: absolute; inset: -12px; border-radius: 50%; }
+  /* #help-pop is a SIBLING of <header>: a child of the overflow:hidden band is
+     sliced at 72 px. Fixed + z 1002 keeps it above Leaflet's 1000 controls. */
+  #help-pop { position: fixed; top: calc(var(--header-h) + 6px); right: 10px; z-index: 1002;
+              width: min(300px, calc(100% - 20px)); padding: 8px 10px; border-radius: 8px;
+              background: rgba(15,23,42,.97); border: 1px solid rgba(255,255,255,.14);
+              box-shadow: 0 6px 18px rgba(0,0,0,.5); color: #cbd5e1;
+              font: 500 11px/1.4 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; }
+  #help-pop ul { margin: 0; padding: 0; list-style: none; }
+  #help-pop li { margin: 0 0 5px 0; padding-left: 9px; text-indent: -9px; }
+  #help-pop li:last-child { margin-bottom: 0; }
   #comfort-chip { flex: 0 0 auto; font-size: 11px; font-weight: 700; border-radius: 3px;
                   padding: 2px 6px; white-space: nowrap; line-height: 1.25; }
   .tier-green { background: #15803d; color: #fff; }
@@ -51,7 +131,11 @@
     #secondary { font-size: 10px; gap: 6px; }
     #verdict-peak { font-size: 12px; }
   }
-  #refresh { background: #1d4e6f; color: #e8f0f7; border: 0; border-radius: 6px;
+  /* 6B.3: marine-glass refresh instead of the old #1d4e6f blue block — same fill and
+     hairline as the #help badge, so the two controls read as one family. Icon contrast
+     on the composite (#cbd5e1 over rgba(15,23,42,.85)) measures 8.1:1. */
+  #refresh { background: rgba(255,255,255,.05); color: #cbd5e1;
+             border: 1px solid rgba(255,255,255,.15); border-radius: 10px;
              width: 48px; min-width: 48px; min-height: 48px; padding: 0; display: inline-flex;
              align-items: center; justify-content: center; margin-left: auto;
              touch-action: manipulation; }
@@ -60,7 +144,7 @@
   #map { flex: 1 1 auto; min-height: 0; height: auto; overflow: hidden; background: #14283b; position: relative; }
   /* On-map wind badge, docked top-right (clear of the top-left Leaflet zoom control
      and the bottom-right attribution strip). */
-  #wind-badge { position: absolute; top: 12px; right: 12px; z-index: 500; display: flex;
+  #wind-badge { position: absolute; top: calc(var(--header-h) + 12px); right: 12px; z-index: 500; display: flex;
                 align-items: center; gap: 6px; height: 32px; border-radius: 16px;
                 background: rgba(16,38,58,.85); padding-right: 12px; }
   #wind-badge-disc { width: 32px; height: 32px; display: flex; align-items: center;
@@ -70,7 +154,7 @@
                      white-space: nowrap; }
   /* Loading skeleton (covers the map until the first painted frame). */
   #boot { position: absolute; inset: 0; z-index: 700; display: flex; flex-direction: column;
-          align-items: center; justify-content: center; gap: 10px;
+          align-items: center; justify-content: center; gap: 10px; padding-top: 72px;
           background: rgba(13,27,42,.92); color: #e8f0f7; font-size: 13px; }
   #boot.hidden { display: none; }
   #boot-track { width: min(240px, 60%); height: 6px; border-radius: 3px;
@@ -87,7 +171,7 @@
     height: calc(var(--deck-h) + env(safe-area-inset-bottom, 0px));
     padding: 0 8px;
     padding-bottom: env(safe-area-inset-bottom, 0px);
-    background: #10263a; overflow: visible;
+    background: #0f172a; overflow: visible;
     position: relative; z-index: 1100; /* the amber pill floats above the deck edge (Windy) */
     touch-action: none;
     user-select: none; -webkit-user-select: none;
@@ -97,7 +181,7 @@
   .deck-track{ overflow: visible; position: relative; } /* pill floats above; play overlays */
   .deck-track{ height: 62px; display: flex; align-items: stretch; }
   /* Horizon micro-pill: lives in the map corner, clear of the zoom control + wind badge. */
-  #horizon { position: absolute; top: 12px; left: 56px; z-index: 1000; display: flex; gap: 4px; }
+  #horizon { position: absolute; top: calc(var(--header-h) + 12px); left: 56px; z-index: 1000; display: flex; gap: 4px; }
   #horizon button { height: 28px; min-height: 28px; padding: 0 9px; background: rgba(16,38,58,.85);
                     color: #e8f0f7; border: 1px solid #33506b; border-radius: 14px;
                     font: 11px/1 system-ui, sans-serif; touch-action: manipulation; }
@@ -146,11 +230,12 @@
      painted behind the numbers (DOM order). */
   .day-heat { position: absolute; left: 3px; right: 3px; bottom: 2px; height: 20px;
               border-radius: 3px; }
-  /* Stage 5L/5M: the wave colour bar lives in a non-interactive card at the map's bottom-left.
-     Reid asked for bottom:78px, but the card's 78-111px band crosses the OSM attribution band
-     (74-91px from the map's bottom, x 156-390) in x 156-176. Measured clearance at 98px is
-     ~7px, so the card is docked at 98px. */
-  #legend-card { position: absolute; left: 10px; bottom: 98px; z-index: 500; pointer-events: none;
+  /* Stage 5L/5M. 6B.4: docked to the deck line (deck-h + 4 px, left 8 px) — the old
+     98 px lift existed only because the full-width OSM attribution band crossed the
+     card; the attribution is now compact (right, ~110 px) so nothing collides and
+     the southern bays are clear. */
+  #legend-card { position: absolute; left: 8px; bottom: calc(var(--deck-h) + 4px); margin: 0;
+                 z-index: 500; pointer-events: none;
                  background: rgba(16,38,58,.85); border-radius: 8px; padding: 6px 8px; }
   #legend-card-bar { width: 150px; height: 11px; border-radius: 3px; border: 1px solid #33506b; }
   #legend-card-ticks { width: 150px; margin-top: 2px; display: flex; justify-content: space-between;
@@ -188,8 +273,19 @@
   /* Muted basemap: CARTO's keyless tiles now stamp "API KEY REQUIRED", so the tile pane
      itself is desaturated instead — kills the green/wetland clash under the wave overlay. */
   .leaflet-tile-pane { filter: grayscale(.9) saturate(.35) brightness(1.04) contrast(.94); }
-  /* Stage 5J: lift Leaflet's attribution clear of the floating amber pill / deck edge. */
+  /* Stage 5J / 6B.3 / 6B.4: dock the attribution to the deck line. The corner is
+     positioned against #map (whose bottom edge IS the deck's top), so deck-h + 4 px
+     resolves to 4 px of real clearance above the deck — the string now shares the
+     bottom line with the legend instead of floating 68 px up over the southern bays. */
   .leaflet-bottom { bottom: calc(var(--deck-h) + 6px); }
+  .leaflet-bottom.leaflet-right { bottom: calc(var(--deck-h) + 4px); right: 6px; margin: 0; }
+  /* 6B.4: no white box, no shadow — muted 9 px text that sits on the basemap itself.
+     The dark text-shadow is a legibility aid only (the desaturated tiles are light, so
+     9 px #94a3b8 alone measures ~2.6:1); it adds no box and no border. */
+  .leaflet-control-attribution { background: none !important; box-shadow: none !important;
+                                 color: #94a3b8; font-size: 9px;
+                                 text-shadow: 0 0 2px rgba(15,23,42,.9), 0 0 1px rgba(15,23,42,.9); }
+  .leaflet-control-attribution a { color: #94a3b8; }
   #field { display: none; }
 </style>
 </head>
@@ -204,9 +300,16 @@
       <div id="subrow">
         <div id="verdict-peak"></div>
         <div id="secondary">
-          <span id="wind-info"></span>
-          <span class="sep" aria-hidden="true">·</span>
-          <span id="frame-info"></span>
+          <div id="three">
+            <span id="pill-shore" class="pill"><span id="shore">8</span><span id="shore-u">Shore</span></span>
+            <span id="arrow" aria-hidden="true"><svg viewBox="0 0 16 12" width="16" height="12"><path d="M1 6 H13 M9 2 L13 6 L9 10"/></svg></span>
+            <span id="pill-lake" class="pill"><span id="lake">17</span><span id="lake-u">Lake</span></span>
+            <span id="dot" aria-hidden="true">·</span>
+            <span id="pill-gust" class="pill"><span id="gust">24</span><span id="gust-u">Gust</span></span>
+            <span id="mph">mph</span>
+          </div>
+          <button id="help" type="button" aria-expanded="false" aria-controls="help-pop"
+                  aria-label="What do Shore, Lake and Gust mean?">?</button>
         </div>
       </div>
     </div>
@@ -217,6 +320,13 @@
       </svg>
     </button>
   </header>
+  <div id="help-pop" role="tooltip" hidden>
+    <ul>
+      <li>• Shore: Inland forecast accounting for terrain friction (matches phone apps).</li>
+      <li>• Lake: 10m open-water wind driving wave growth (typically 20–60% higher; median +33% in our data).</li>
+      <li>• Gust: Peak 3-5s open-water bursts indicating squall risk.</li>
+    </ul>
+  </div>
   <div id="map">
     <div id="horizon" role="group" aria-label="Forecast horizon">
       <button id="h-24h" type="button" data-horizon="24h" aria-pressed="true">24 h</button>

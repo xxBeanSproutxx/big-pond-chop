@@ -132,21 +132,31 @@ check('never a bare single number (range + peak words present)', () => {
   console.log(`       ${open.peak} / ${shore.peak}`);
 });
 
-console.log('\n== [6] stage-4b windLine ==');
-check('normal, calm, and missing gust', () => {
-  assert.strictEqual(ui.windLine(14, 26), 'Wind: 14 mph · Gusts 26 mph');
-  assert.strictEqual(ui.windLine(14.4, 25.6), 'Wind: 14 mph · Gusts 26 mph');
-  assert.strictEqual(ui.windLine(2.9, 26), 'Wind: calm');
-  assert.strictEqual(ui.windLine(0, 0), 'Wind: calm');
-  assert.strictEqual(ui.windLine(14), 'Wind: 14 mph');
-  assert.strictEqual(ui.windLine(14, NaN), 'Wind: 14 mph');
-  assert.strictEqual(ui.windLine(14, undefined), 'Wind: 14 mph');
-  assert.strictEqual(ui.windLine(3, 5), 'Wind: 3 mph · Gusts 5 mph');
+console.log('\n== [6] stage-6b windPills (three-pill row model) ==');
+check('rounds to integers and tints the lake pill from its WIND_HEAT tier', () => {
+  const p = ui.windPills(17.4, 8.5, 24.6);
+  assert.strictEqual(p.lake, '17');
+  assert.strictEqual(p.shore, '9');
+  assert.strictEqual(p.gust, '25');
+  assert.strictEqual(p.lakeTint, 'rgba(245, 158, 11, 0.55)'); // 17 mph -> amber
+  assert.strictEqual(p.lakeBorder, 'rgb(245, 158, 11)');
+  console.log(`       17.4/8.5/24.6 -> ${p.shore} Shore ${p.lake} Lake ${p.gust} Gust ${p.lakeTint}`);
+});
+check('missing shore -> em dash; every WIND_HEAT boundary keeps the lake tint honest', () => {
+  for (const bad of [null, undefined, NaN, Infinity, -Infinity, '']) {
+    assert.strictEqual(ui.windPills(12, bad, 20).shore, '—', `shore ${bad}`);
+  }
+  assert.strictEqual(ui.windPills(9.9, 1, 1).lakeTint, 'rgba(8, 145, 178, 0.55)');
+  assert.strictEqual(ui.windPills(15, 1, 1).lakeTint, 'rgba(245, 158, 11, 0.55)');
+  assert.strictEqual(ui.windPills(25, 1, 1).lakeTint, 'rgba(239, 68, 68, 0.55)');
 });
 check('never emits NaN / undefined / Infinity', () => {
-  for (const [s, g] of [[NaN, 10], [Infinity, 10], [10, Infinity], [undefined, undefined], [10, null]]) {
-    const out = ui.windLine(s, g);
-    assert.ok(!/NaN|undefined|Infinity/.test(out), `bad output "${out}"`);
+  for (const [l, s, g] of [[NaN, 10, 5], [Infinity, 10, 5], [10, NaN, Infinity],
+    [undefined, null, undefined]]) {
+    const p = ui.windPills(l, s, g);
+    for (const v of [p.lake, p.shore, p.gust]) {
+      assert.ok(!/NaN|undefined|Infinity/.test(v), `bad output "${v}"`);
+    }
   }
 });
 

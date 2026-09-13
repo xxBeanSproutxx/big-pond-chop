@@ -23,8 +23,9 @@ import subprocess
 import sys
 import time
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 try:
@@ -266,7 +267,7 @@ def check_lazy_7d(page):
 def _header_metrics(page):
     return page.evaluate(
         "() => { var h = document.querySelector('header');"
-        " return { c: h.clientHeight, s: h.scrollHeight }; }")
+        " return { c: h.clientHeight, s: h.scrollHeight, o: h.offsetHeight }; }")
 
 
 def _sweep(page, names):
@@ -305,9 +306,12 @@ def check_header(page, names):
         page.screenshot(path=str(SHOTS / ("bpc-s5-%d.png" % w)))
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_timeout(300)
-    ok = all(m["c"] == 72 and m["s"] <= 72 for _, m in rows) and \
+    # 6C delta 1: 6B gave the header a 1 px hairline border-bottom (approved design),
+    # so clientHeight is 71 (content-box) while the BAND is still 72 px. Assert the
+    # border-box height (offsetHeight == 72) — same intent, correct box model.
+    ok = all(m["o"] == 72 and m["s"] <= 72 for _, m in rows) and \
         all(not sw["bad"] for _, sw in sweeps)
-    detail = " | ".join("%d: %d/%d" % (w, m["c"], m["s"]) for w, m in rows)
+    detail = " | ".join("%d: box=%d content=%d scroll=%d" % (w, m["o"], m["c"], m["s"]) for w, m in rows)
     worst = max((sw["worst"] for _, sw in sweeps), key=lambda x: x["over"])
     widest = max(sw["widest"] for _, sw in sweeps)
     record(3, "header layout", ok,
@@ -318,10 +322,15 @@ def check_header(page, names):
 
 
 def check_tier(page):
+    # Stage 6C repair: #frame-info was deleted in 6B (the H/L readout left the
+    # header).  Re-point the probe at the shipped #three row — null-safe, so a
+    # missing id reads '' instead of throwing.  #three carries no H/L anymore, so
+    # hl stays NaN and the tier is decided by the max/roller body datasets.
     v = page.evaluate(
         "() => ({ hs: parseFloat(document.body.dataset.hsFt),"
         " hm: parseFloat(document.body.dataset.hmaxFt),"
-        " fi: document.getElementById('frame-info').textContent,"
+        " fi: (function () { var t = document.getElementById('three');"
+        "       return t ? t.textContent : ''; })(),"
         " cls: document.getElementById('comfort-chip').className,"
         " txt: document.getElementById('comfort-chip').textContent })")
     m = re.search(r"H/L\s+([0-9.]+)", v["fi"])
@@ -1590,6 +1599,509 @@ def check_seam():
 
 
 # --------------------------------------------------------------------------- #
+# [19] Stage 6C: marine header verification (src-free, route-stubbed)
+# --------------------------------------------------------------------------- #
+S6_SHOTS = ROOT / "tmp" / "s6-shots"
+S6_SHOTS.mkdir(parents=True, exist_ok=True)
+S6_LAKE_LAT, S6_SHORE_LAT = 46.22, 46.13
+# Host set observed on a clean boot: the dual-location ingest must not add a
+# second weather host (see STAGE-6-RECEIPTS for the observation).
+S6_HOSTS_OK = {"127.0.0.1", "api.open-meteo.com", "tile.openstreetmap.org", "unpkg.com"}
+# Row order is Shore / Lake / Gust (the spec's "normal (8/17/24)" reads shore/lake/gust).
+S6_STATES = {
+    "normal": {"lake": 17.0, "shore": 8.0, "gust": 24.0},
+    "wide": {"lake": 27.0, "shore": 12.0, "gust": 38.0},
+    "calm": {"lake": 4.0, "shore": 3.0, "gust": 6.0},
+}
+
+S6_GEOMETRY_JS = r"""
+() => {
+  // Null-safe: a missing id is NAMED in `missing` and its rect is null, so the
+  // gate reports the element instead of throwing (stage 6C hardening).
+  const missing = [];
+  const R = (el, label) => { if (!el) { missing.push(label || '?'); return null; }
+    const r = el.getBoundingClientRect();
+    return {x:+r.x.toFixed(2), y:+r.y.toFixed(2), w:+r.width.toFixed(2), h:+r.height.toFixed(2),
+            top:+r.top.toFixed(2), bottom:+r.bottom.toFixed(2), right:+r.right.toFixed(2)}; };
+  const g = (id) => { const el = document.getElementById(id);
+    if (!el) { missing.push('#' + id); } return el; };
+  const header = document.querySelector('header');
+  if (!header) { missing.push('header'); }
+  const hr = R(header, 'header');
+  const three = g('three');
+  const kids = three ? Array.from(three.children) : [];
+  const el0 = kids.length ? R(kids[0], 'row-first') : null;
+  const elN = kids.length ? R(kids[kids.length - 1], 'row-last') : null;
+  const ink = (el0 && elN) ? +(elN.right - el0.x).toFixed(2) : null;
+  const cs3 = three ? getComputedStyle(three) : null;
+  const avail = three ? +(three.clientWidth - (parseFloat(cs3.paddingLeft) || 0)
+                  - (parseFloat(cs3.paddingRight) || 0)).toFixed(2) : null;
+  const pills = ['pill-shore', 'pill-lake', 'pill-gust'].map(function (id) {
+    const el = g(id), r = R(el, '#' + id);
+    return {id: id, r: r, bg: el ? getComputedStyle(el).backgroundColor : null,
+            inside: !!(r && hr && r.top >= hr.top - 0.01 && r.bottom <= hr.bottom + 0.01 &&
+                    r.x >= hr.x - 0.01 && r.right <= hr.right + 0.01)};
+  });
+  const styles = {};
+  ['shore','shore-u','lake','lake-u','gust','gust-u','mph','dot','help'].forEach(function (id) {
+    const el = g(id);
+    if (!el) { styles[id] = null; return; }
+    const s = getComputedStyle(el);
+    styles[id] = {color: s.color, fontSize: s.fontSize, fontWeight: s.fontWeight,
+                  fontVariantNumeric: s.fontVariantNumeric, fontFamily: s.fontFamily};
+  });
+  const hs = header ? getComputedStyle(header) : null;
+  const help = R(g('help'), '#help'), refresh = R(g('refresh'), '#refresh');
+  const mph = R(g('mph'), '#mph');
+  /* 6B.3: the ? is a 20 px micro-badge whose 44 px TOUCH target lives in an invisible
+     ::after (inset: -12px). Measure the declared expansion, not the visual box. */
+  const helpHit = (function () {
+    const el = g('help'); if (!el || !help) return null;
+    const ps = getComputedStyle(el, '::after');
+    const ex = Math.abs(parseFloat(ps.left) || 0), exT = Math.abs(parseFloat(ps.top) || 0);
+    const exR = Math.abs(parseFloat(ps.right) || 0), exB = Math.abs(parseFloat(ps.bottom) || 0);
+    return {w: +(help.w + ex + exR).toFixed(2), h: +(help.h + exT + exB).toFixed(2),
+            left: +(help.x - ex).toFixed(2), expand: ex};
+  })();
+  const mapR = R(g('map'), '#map');
+  const horizon = R(g('horizon'), '#horizon'), badge = R(g('wind-badge'), '#wind-badge');
+  return {
+    missing: missing,
+    header: header ? {r: hr, clientHeight: header.clientHeight, scrollHeight: header.scrollHeight} : null,
+    headerStyle: hs ? {backdropFilter: hs.backdropFilter || hs.webkitBackdropFilter,
+                  zIndex: hs.zIndex, background: hs.backgroundColor,
+                  position: hs.position, fontFamily: hs.fontFamily} : null,
+    three: three ? {r: R(three, '#three'), scrollWidth: three.scrollWidth,
+            clientWidth: three.clientWidth, ink: ink, avail: avail} : null,
+    mph: mph ? {r: mph, text: document.getElementById('mph').textContent,
+          scrollWidth: document.getElementById('mph').scrollWidth,
+          clientWidth: document.getElementById('mph').clientWidth} : null,
+    pills: pills, pillsInside: pills.length > 0 && pills.every(function (p) { return p.inside; }),
+    help: help, helpHit: helpHit, refresh: refresh,
+    helpGap: (help && refresh) ? +(refresh.x - help.right).toFixed(2) : null,
+    map: mapR, overlaps: !!(hr && mapR && hr.bottom > mapR.top && hr.top < mapR.bottom),
+    horizonClear: (horizon && hr) ? +(horizon.top - hr.bottom).toFixed(2) : null,
+    badgeClear: (badge && hr) ? +(badge.top - hr.bottom).toFixed(2) : null,
+    styles: styles,
+    lakeText: g('lake') ? document.getElementById('lake').textContent : null,
+    shoreText: g('shore') ? document.getElementById('shore').textContent : null,
+    gustText: g('gust') ? document.getElementById('gust').textContent : null
+  };
+}
+"""
+
+S6_CONTRAST_JS = r"""
+() => {
+  const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+  const L = (rgb) => 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
+  const parse = (s) => { const m = s.match(/[\d.]+/g).map(Number); return {rgb: m.slice(0, 3), a: m.length > 3 ? m[3] : 1}; };
+  const over = (fg, bg) => fg.rgb.map((c, i) => c * fg.a + bg[i] * (1 - fg.a));
+  const ratio = (a, b) => { const l1 = L(a), l2 = L(b); return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05); };
+  const cs = getComputedStyle(document.querySelector('header'));
+  const GLASS = over(parse(cs.backgroundColor), [20, 40, 59]);
+  const pills = {};
+  ['pill-shore', 'pill-lake', 'pill-gust'].forEach(function (id) {
+    pills[id] = over(parse(getComputedStyle(document.getElementById(id)).backgroundColor), GLASS);
+  });
+  const P = (id) => parse(getComputedStyle(document.getElementById(id)).color).rgb;
+  const out = {};
+  out['#lake numeral vs #pill-lake'] = ratio(P('lake'), pills['pill-lake']);
+  out['#shore numeral vs #pill-shore'] = ratio(P('shore'), pills['pill-shore']);
+  out['#gust numeral vs #pill-gust'] = ratio(P('gust'), pills['pill-gust']);
+  out['#lake-u label vs #pill-lake'] = ratio(P('lake-u'), pills['pill-lake']);
+  out['#shore-u label vs #pill-shore'] = ratio(P('shore-u'), pills['pill-shore']);
+  out['#gust-u label vs #pill-gust'] = ratio(P('gust-u'), pills['pill-gust']);
+  out['#mph unit vs header glass'] = ratio(P('mph'), GLASS);
+  out['#dot vs header glass'] = ratio(P('dot'), GLASS);
+  out['#arrow vs header glass'] = ratio(P('arrow'), GLASS);
+  out['#help glyph vs header glass'] = ratio(P('help'), GLASS);
+  const keys = Object.keys(out);
+  const min = Math.min.apply(null, keys.map((k) => out[k]));
+  return {ratios: out, min: +min.toFixed(2), minPair: keys.filter((k) => out[k] === min)[0]};
+}
+"""
+
+S6_POPOVER_JS = r"""
+() => {
+  // Null-safe by construction: a probe must never throw in a page.evaluate — it
+  // reports which element was missing instead (stage 6C: a navigation mid-check
+  // used to null the whole document and abort the group).
+  const missing = [];
+  const need = (id) => {
+    const el = document.getElementById(id);
+    if (!el) { missing.push('#' + id); }
+    return el;
+  };
+  const rectOf = (el, label) => {
+    if (!el) { missing.push(label); return null; }
+    const r = el.getBoundingClientRect();
+    return {top: +r.top.toFixed(2), bottom: +r.bottom.toFixed(2), left: +r.left.toFixed(2),
+            right: +r.right.toFixed(2), width: +r.width.toFixed(2), height: +r.height.toFixed(2)};
+  };
+  const el = need('help-pop');
+  const header = document.querySelector('header');
+  if (!header) { missing.push('header'); }
+  const help = need('help');
+  const er = rectOf(el, '#help-pop');
+  const hr = rectOf(header, 'header rect');
+  return {missing: missing,
+          hidden: el ? el.hidden : null,
+          parent: el && el.parentElement ? el.parentElement.tagName : null,
+          prev: el && el.previousElementSibling ? el.previousElementSibling.tagName : null,
+          aria: help ? help.getAttribute('aria-expanded') : null,
+          focus: document.activeElement ? document.activeElement.id : null,
+          rect: er, top: er ? er.top : null, bottom: er ? er.bottom : null,
+          headerBottom: hr ? hr.bottom : null};
+}
+"""
+
+S6_IDENTITY_JS = r"""
+async () => {
+  const res = await fetch('src/wind.js');
+  const src = await res.text();
+  const mod = {exports: {}};
+  new Function('module', 'exports', 'require', src)(mod, mod.exports,
+    function (req) { throw new Error('harness require ' + req); });
+  const data = await mod.exports.ingest({horizon: '24h'});
+  const idx = Number(document.getElementById('track').getAttribute('aria-valuenow'));
+  return {idx: idx, dayLen: data.day.length,
+          shoreLen: data.shoreDay ? data.shoreDay.length : null,
+          day: data.day[idx] ? data.day[idx].speedMph : null,
+          shore: data.shoreDay ? data.shoreDay[idx].speedMph : null,
+          gust: data.day[idx] ? data.day[idx].gustMph : null};
+}
+"""
+
+
+def _s6_series(today, lake, shore, gust, varying=False):
+    """A crafted Open-Meteo paired response: [lake, shore], 8 local days of hourly
+    samples (past day inclusive) so today always slices to 96 15-min frames."""
+    start = today - timedelta(days=1)
+    n = 8 * 24
+    times, ls, ld, lg, ss, sd, sg = [], [], [], [], [], [], []
+    for i in range(n):
+        d = start + timedelta(days=i // 24)
+        h = i % 24
+        times.append("%04d-%02d-%02dT%02d:00" % (d.year, d.month, d.day, h))
+        if varying:
+            lv, sv, gv = 11.0 + (i % 19), 8.0 + (i % 3), 15.0 + (i % 20)
+        else:
+            lv, sv, gv = lake, shore, gust
+        ls.append(lv); ld.append(270.0); lg.append(gv)
+        ss.append(sv); sd.append(250.0); sg.append(gv)
+    units = {"wind_speed_10m": "mph", "wind_gusts_10m": "mph",
+             "wind_direction_10m": "deg", "time": "iso8601"}
+
+    def loc(lat, lon, sp, dr, gu):
+        return {"latitude": lat, "longitude": lon, "timezone": "America/Chicago",
+                "hourly_units": units,
+                "hourly": {"time": times, "wind_speed_10m": sp,
+                           "wind_direction_10m": dr, "wind_gusts_10m": gu}}
+    return [loc(S6_LAKE_LAT, -93.657, ls, ld, lg),
+            loc(S6_SHORE_LAT, -93.57, ss, sd, sg)]
+
+
+def _s6_eq(dom_text, value):
+    try:
+        return str(int(round(float(value)))) == str(dom_text).strip()
+    except (TypeError, ValueError):
+        return False
+
+
+def check_marine_header(pw, port):
+    """Stage 6C [19]: drive the shipped marine header from crafted dual-location
+    responses (route-intercepted) and verify geometry, typography, contrast,
+    identity, jitter, network shape, popover plumbing and the missing-shore path."""
+    base = "http://127.0.0.1:%d/index.html" % port
+    today = datetime.now(CHICAGO).date()
+    vps = ((360, 800), (390, 844))
+    browser = pw.chromium.launch()
+    ctx = browser.new_context(viewport={"width": 360, "height": 800}, device_scale_factor=2)
+    page = ctx.new_page()
+    errors = []
+    requests = []
+    page.on("pageerror", lambda e: errors.append("pageerror: %s" % e))
+    page.on("console", lambda m: errors.append("console: %s" % m.text) if m.type == "error" else None)
+    page.on("request", lambda r: requests.append((urlparse(r.url).hostname or "", r.url)))
+    holder = {"body": None}
+
+    def route_wind(route):
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(holder["body"]))
+    page.route("**/api.open-meteo.com/**", route_wind)
+
+    def load(body):
+        holder["body"] = body
+        page.goto(base, wait_until="domcontentloaded")
+        page.wait_for_function(
+            "() => { var p = document.getElementById('time-pill');"
+            " return !!p && p.textContent.trim() !== '\u2014' &&"
+            " document.getElementById('track-days').children.length >= 1; }",
+            timeout=120000)
+        page.wait_for_timeout(450)
+
+    def view(w, h):
+        page.set_viewport_size({"width": w, "height": h})
+        page.wait_for_timeout(400)
+
+    all_ok = [True]
+    fails = []
+
+    def emit(ok, line, tag=None):
+        if not ok:
+            all_ok[0] = False
+            fails.append(tag or line.split()[0])
+        print("        19 %s" % line, flush=True)
+        return ok
+
+    def gate(num, label, fn, *args):
+        """Run one numbered gate; an exception (Playwright / Python / a probe that
+        could not read a destroyed document) fails ONLY that gate and the group
+        keeps going.  Never a silent pass: an exception is always a FAIL."""
+        try:
+            return fn(*args)
+        except Exception as exc:  # noqa: BLE001 - QA records, never aborts
+            emit(False, "[%s] %s EXCEPTION %s: %s"
+                 % (num, label, type(exc).__name__, str(exc).splitlines()[0]))
+            return None
+
+    geos = {}
+
+    def layout_block(name, w, h):
+        view(w, h)
+        geo = page.evaluate(S6_GEOMETRY_JS)
+        con = page.evaluate(S6_CONTRAST_JS)
+        geos[(name, w)] = geo
+        if geo["missing"]:
+            emit(False, "[19.probe] %s @%dx%d MISSING ELEMENTS %s"
+                 % (name, w, h, geo["missing"]))
+        hd, three, mph, st = geo["header"], geo["three"], geo["mph"], geo["styles"]
+        emit(hd is not None and abs(hd["r"]["h"] - 72.0) < 0.005
+             and hd["scrollHeight"] == hd["clientHeight"],
+             "[19.1] %s @%dx%d header_h=%s scrollH=%s clientH=%s"
+             % (name, w, h, hd and hd["r"]["h"], hd and hd["scrollHeight"],
+                hd and hd["clientHeight"]))
+        emit(three is not None and mph is not None
+             and three["scrollWidth"] <= three["clientWidth"] and mph["r"]["w"] >= 19.0,
+             "[19.2] %s @%dx%d #three sw=%s cw=%s mph_w=%s (>=19)"
+             % (name, w, h, three and three["scrollWidth"], three and three["clientWidth"],
+                mph and mph["r"]["w"]))
+        slack = (three["avail"] - three["ink"]) if (three and three["ink"] is not None
+                 and three["avail"] is not None) else None
+        emit(three is not None and three["ink"] is not None and three["avail"] is not None
+             and three["ink"] <= three["avail"],
+             "[19.3] %s @%dx%d ink=%s avail=%s slack=%s"
+             % (name, w, h, three and three["ink"], three and three["avail"], slack))
+        emit(geo["pillsInside"] and geo["help"]
+             and abs(geo["help"]["w"] - 20.0) <= 0.5 and abs(geo["help"]["h"] - 20.0) <= 0.5
+             and geo["helpHit"] and geo["helpHit"]["w"] >= 44.0 and geo["helpHit"]["h"] >= 44.0
+             and geo["helpGap"] is not None and geo["helpGap"] >= 8.0
+             and geo["mph"] and geo["helpHit"]["left"] >= geo["mph"]["r"]["right"],
+             "[19.4] %s @%dx%d pills-inside=%s badge=%sx%s hit=%sx%s gap=%s mph-clear=%s"
+             % (name, w, h, geo["pillsInside"],
+                geo["help"] and geo["help"]["w"], geo["help"] and geo["help"]["h"],
+                geo["helpHit"] and geo["helpHit"]["w"], geo["helpHit"] and geo["helpHit"]["h"],
+                geo["helpGap"],
+                (geo["helpHit"] and geo["mph"])
+                and "%.2f" % (geo["helpHit"]["left"] - geo["mph"]["r"]["right"])))
+        styles_present = all(st.get(k) for k in ("shore", "lake", "gust", "shore-u", "lake-u", "gust-u"))
+        nums_ok = styles_present and all(st[k]["fontSize"] == "13px" and st[k]["fontWeight"] == "700"
+                      and st[k]["fontVariantNumeric"] == "tabular-nums"
+                      for k in ("shore", "lake", "gust"))
+        labels_ok = styles_present and all(st[k]["fontSize"] == "10px"
+                                          for k in ("shore-u", "lake-u", "gust-u"))
+        font_ok = styles_present and all(t in st["lake"]["fontFamily"]
+                                         for t in ("Inter", "Roboto", "sans-serif"))
+        emit(nums_ok and labels_ok and font_ok,
+             "[19.5] %s @%dx%d numerals=%s/%s/%s labels=%s font=%s"
+             % (name, w, h, st.get("lake") and st["lake"]["fontSize"],
+                st.get("lake") and st["lake"]["fontWeight"],
+                st.get("lake") and st["lake"]["fontVariantNumeric"],
+                st.get("lake-u") and st["lake-u"]["fontSize"],
+                st.get("lake") and st["lake"]["fontFamily"]))
+        emit(con["min"] >= 4.5,
+             "[19.6] %s @%dx%d contrast min=%.2f:1 (%s) pairs=%s"
+             % (name, w, h, con["min"], con["minPair"],
+                " ".join("%s=%.2f" % (k.split()[0], v) for k, v in con["ratios"].items())))
+
+    # ---- gates 1-6: normal / wide / calm, both viewports -------------------
+    for name in ("normal", "wide", "calm"):
+        cfg = S6_STATES[name]
+        if name == "normal":
+            requests[:] = []
+        load(_s6_series(today, cfg["lake"], cfg["shore"], cfg["gust"]))
+        if name == "normal":
+            boot = list(requests)
+            om = [u for hh, u in boot if hh == "api.open-meteo.com"]
+
+            def gate8():
+                hosts = sorted(set(hh for hh, _ in boot))
+                both = bool(om) and ("46.22" in om[0] and "46.13" in om[0])
+                emit(len(om) == 1 and both and set(hosts) <= S6_HOSTS_OK,
+                     "[19.8] normal @boot open-meteo=%d url-has-both-lats=%s hosts=%s unexpected=%s"
+                     % (len(om), both, hosts, sorted(set(hosts) - S6_HOSTS_OK) or "none"))
+            gate("19.8", "network shape", gate8)
+            for w, h in vps:
+                def gate9(w=w, h=h):
+                    view(w, h)
+                    ident = page.evaluate(S6_IDENTITY_JS)
+                    dom_lake = page.evaluate("() => document.getElementById('lake').textContent")
+                    dom_shore = page.evaluate("() => document.getElementById('shore').textContent")
+                    emit(ident["day"] is not None and ident["shore"] is not None
+                         and _s6_eq(dom_lake, ident["day"]) and _s6_eq(dom_shore, ident["shore"]),
+                         "[19.9] identity @%dx%d idx=%s day[idx]=%s shoreDay[idx]=%s "
+                         "DOM lake='%s' shore='%s' lake-match=%s shore-match=%s"
+                         % (w, h, ident["idx"], ident["day"], ident["shore"], dom_lake, dom_shore,
+                            _s6_eq(dom_lake, ident["day"]), _s6_eq(dom_shore, ident["shore"])))
+                gate("19.9", "identity", gate9)
+        for w, h in vps:
+            gate("layout@%dx%d" % (w, h), "layout @%dx%d" % (w, h), layout_block, name, w, h)
+            if name == "normal":
+                page.screenshot(path=str(S6_SHOTS / ("header-%d.png" % w)))
+            if name == "wide" and w == 360:
+                page.screenshot(path=str(S6_SHOTS / "wide-360.png"))
+
+    # ---- gate 12: overlay / blur / clearance -------------------------------
+    def gate12():
+        g0 = geos[("normal", 360)]
+        render_src = (ROOT / "src/render.js").read_text()
+        hs = g0["headerStyle"]
+        emit(hs is not None and hs["backdropFilter"] == "blur(8px)"
+             and hs["zIndex"] is not None and int(float(hs["zIndex"])) >= 1001 and g0["overlaps"]
+             # 6B.2: the top padding is now computed from the LIVE header band
+             # (72 px of content + notch inset) instead of a hard-coded 84 px.
+             and "headerBand() + 12" in render_src
+             and g0["horizonClear"] is not None and g0["horizonClear"] >= 12.0
+             and g0["badgeClear"] is not None and g0["badgeClear"] >= 12.0,
+             "[19.12] overlay backdropFilter=%s zIndex=%s overlaps-map=%s fit-padding-dynamic=%s "
+             "horizon-clearance=%s badge-clearance=%s"
+             % (hs and hs["backdropFilter"], hs and hs["zIndex"], g0["overlaps"],
+                "headerBand() + 12" in render_src, g0["horizonClear"], g0["badgeClear"]))
+    gate("19.12", "overlay/blur", gate12)
+
+    # ---- gate 7: jitter on a varying frame series --------------------------
+    def gate7():
+        load(_s6_series(today, 11.0, 8.0, 15.0, varying=True))
+        for w, h in vps:
+            view(w, h)
+            page.focus("#track")
+            page.keyboard.press("Home")
+            page.wait_for_timeout(500)
+            samples = []
+            for _ in range(24):
+                page.keyboard.press("ArrowRight")
+                page.wait_for_timeout(40)
+                samples.append(page.evaluate(
+                    "() => ({lake: document.getElementById('lake').textContent,"
+                    " w: document.getElementById('pill-lake').getBoundingClientRect().width,"
+                    " rowRight: document.getElementById('three').getBoundingClientRect().right,"
+                    " refreshLeft: document.getElementById('refresh').getBoundingClientRect().left})"))
+            deltas = [abs(samples[i]["w"] - samples[i - 1]["w"]) for i in range(1, len(samples))
+                      if len(samples[i]["lake"]) == len(samples[i - 1]["lake"])]
+            maxd = max(deltas) if deltas else 0.0
+            cross = any(s["rowRight"] > s["refreshLeft"] for s in samples)
+            emit(bool(deltas) and maxd <= 0.5 and not cross,
+                 "[19.7] jitter @%dx%d frames=%d equal-digit-pairs=%d max-lake-delta=%.2fpx "
+                 "row-crosses-refresh=%s lakes=%s"
+                 % (w, h, len(samples), len(deltas), maxd, cross,
+                    ",".join(s["lake"] for s in samples)))
+    gate("19.7", "jitter", gate7)
+
+    # ---- gate 10: popover with real clicks + pin/card guard ---------------
+    def gate10():
+        load(_s6_series(today, 17.0, 8.0, 24.0))
+        for w, h in vps:
+            view(w, h)
+            opened = page.evaluate(
+                "() => { var r = window.__bpcTap(46.23846, -93.64229);"
+                " return {ret: !!r, hidden: document.getElementById('card').hidden}; }")
+            pins0 = page.evaluate("() => document.querySelectorAll('#map .leaflet-overlay-pane path').length")
+            page.click("#help")
+            page.wait_for_timeout(150)
+            p1 = page.evaluate(S6_POPOVER_JS)
+            open_ok = (p1["missing"] == [] and not p1["hidden"] and p1["aria"] == "true"
+                       and p1["parent"] == "BODY" and p1["prev"] == "HEADER"
+                       and p1["top"] is not None and p1["headerBottom"] is not None
+                       and p1["top"] >= p1["headerBottom"] - 0.5
+                       and p1["bottom"] > 72.0)
+            card_open = not page.evaluate("() => document.getElementById('card').hidden")
+            if w == 360:
+                page.screenshot(path=str(S6_SHOTS / "popover-360.png"))
+            page.click("#help-pop", position={"x": 30, "y": 20})
+            page.wait_for_timeout(120)
+            p_in = page.evaluate(S6_POPOVER_JS)
+            inner_ok = (not p_in["hidden"]) and not page.evaluate(
+                "() => document.getElementById('card').hidden")
+            pins1 = page.evaluate("() => document.querySelectorAll('#map .leaflet-overlay-pane path').length")
+            page.click("#help")
+            page.wait_for_timeout(120)
+            p2 = page.evaluate(S6_POPOVER_JS)
+            close_ok = p2["hidden"] and p2["aria"] == "false" and p2["focus"] == "help"
+            page.click("#help")
+            page.wait_for_timeout(100)
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(120)
+            p3 = page.evaluate(S6_POPOVER_JS)
+            esc_ok = p3["hidden"] and p3["aria"] == "false" and p3["focus"] == "help"
+            # dismiss the card, then prove an outside map tap closes the popover.
+            # 6C fix: the old point (w//2, h-140) = (180, 660) landed on Leaflet's
+            # attribution <a href="https://leafletjs.com/"> and NAVIGATED the page
+            # away, which destroyed the context and crashed the whole group.  Pick a
+            # bare map point that is provably not a link or control.
+            page.click("#card-close")
+            page.wait_for_timeout(120)
+            page.click("#help")
+            page.wait_for_timeout(100)
+            tap = page.evaluate(
+                "([w, hMax]) => { for (var y = 300; y <= hMax; y += 20) {"
+                "  var e = document.elementFromPoint(Math.round(w / 2), y);"
+                "  if (e && !e.closest('a') && !e.closest('button')"
+                "      && !e.closest('.leaflet-control'))"
+                "    return {x: Math.round(w / 2), y: y}; } return null; }",
+                [w, h - 40])
+            if not tap:
+                emit(False, "[19.10] popover @%dx%d NO BARE MAP POINT FOUND for the outside tap" % (w, h))
+                continue
+            page.mouse.click(tap["x"], tap["y"])
+            page.wait_for_timeout(150)
+            p4 = page.evaluate(S6_POPOVER_JS)
+            out_ok = p4["missing"] == [] and p4["hidden"] and p4["aria"] == "false" and p4["focus"] == "help"
+            emit(opened["ret"] and not opened["hidden"] and open_ok and card_open and inner_ok
+                 and pins1 == pins0 and close_ok and esc_ok and out_ok,
+                 "[19.10] popover @%dx%d pin-opened=%s chip-open(hidden=%s aria=%s sibling=%s prev=%s "
+                 "top=%s bottom=%s>72) inside-keeps-card=%s pins=%d==%d escape(hidden=%s aria=%s focus=%s) "
+                 "outside-tap@%s,%s(hidden=%s aria=%s focus=%s missing=%s)"
+                 % (w, h, opened["ret"], p1["hidden"], p1["aria"], p1["parent"] == "BODY",
+                    p1["prev"], p1["top"], p1["bottom"], inner_ok, pins1, pins0, p3["hidden"],
+                    p3["aria"], p3["focus"], tap["x"], tap["y"], p4["hidden"],
+                    p4["aria"], p4["focus"], p4["missing"]))
+    gate("19.10", "popover", gate10)
+
+    # ---- gate 11: missing shore (single-object response) ------------------
+    def gate11():
+        err0 = len(errors)
+        single = _s6_series(today, 17.0, 8.0, 24.0)[0]
+        load(single)
+        for w, h in vps:
+            view(w, h)
+            v = page.evaluate(
+                "() => ({shore: document.getElementById('shore').textContent,"
+                " lake: document.getElementById('lake').textContent,"
+                " h: document.querySelector('header').getBoundingClientRect().height})")
+            ne = len(errors) - err0
+            emit(v["shore"] == "\u2014" and _s6_eq(v["lake"], 17.0) and abs(v["h"] - 72.0) < 0.005
+                 and ne == 0,
+                 "[19.11] shore-missing @%dx%d #shore='%s' #lake='%s' header=%.2f new-console-errors=%d"
+                 % (w, h, v["shore"], v["lake"], v["h"], ne))
+    gate("19.11", "shore-missing", gate11)
+
+    page.close()
+    ctx.close()
+    browser.close()
+    record(19, "6 marine header", all_ok[0],
+           "all gates ok=%s%s" % (all_ok[0], "" if all_ok[0] else " failing=%s" % fails))
+
+
+# --------------------------------------------------------------------------- #
 # main
 # --------------------------------------------------------------------------- #
 def main():
@@ -1641,6 +2153,7 @@ def main():
             safe(7, "touch", check_card_and_touch, page, warp)
             safe("7b", "touch ergonomics", check_touch_ergonomics, page)
             safe(18, "timeline labels (5L)", check_timeline_labels, page)
+            safe(19, "6 marine header", check_marine_header, pw, port)
             safe(9, "playback perf", check_playback, page, warp)
             now_ups = safe(10, "radar smoothing", check_smoothing, page, meta, warp)
             if now_ups:

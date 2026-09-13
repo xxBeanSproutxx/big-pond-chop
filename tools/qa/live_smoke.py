@@ -114,6 +114,57 @@ def main():
             "() => document.getElementById('track').getAttribute('aria-valuemax') === '95'",
             timeout=60000)
         rec("back to 24 h", True, "aria-valuemax=95")
+
+        # ---- Stage 6C: the DEPLOYED bytes must carry the 6B marine chrome ----
+        # These read the served HTML/CSS/DOM, so they fail if Pages serves a tree
+        # from before 6B (the failure mode a local build green-light cannot see).
+        chrome = page.evaluate("""() => {
+            const q = (s) => document.querySelector(s);
+            const header = q('header');
+            const cs = header ? getComputedStyle(header) : null;
+            const styles = ['#shore', '#shore-u', '#lake', '#lake-u', '#gust', '#gust-u']
+              .map(s => { const el = document.querySelector(s);
+                          return el ? getComputedStyle(el).fontFamily : null; });
+            // read the served markup raw too, so an id that only exists because
+            // the app JS injected it (i.e. not in the DEPLOYED bytes) still fails.
+            const raw = document.documentElement.outerHTML;
+            return {
+              ids: ['three', 'pill-shore', 'pill-lake', 'pill-gust', 'help-pop']
+                     .map(id => !!document.getElementById(id)),
+              inkIds: ['shore', 'lake', 'gust'].map(id => !!document.getElementById(id)),
+              headerBg: cs ? cs.backgroundColor : null,
+              backdrop: cs ? (cs.backdropFilter || cs.webkitBackdropFilter) : null,
+              zIndex: cs ? cs.zIndex : null,
+              headerFont: cs ? cs.fontFamily : null,
+              inkFonts: styles,
+              rawAvionics: raw.includes('Inter') && raw.includes('Roboto') &&
+                           raw.includes('sans-serif'),
+              rawGlass: raw.includes('rgba(15,23,42,.85)') ||
+                        raw.includes('rgba(15, 23, 42, 0.85)'),
+              rawPillIds: ['pill-shore', 'pill-lake', 'pill-gust', 'help-pop', 'three']
+                            .every(id => raw.includes('id=\"' + id + '\"')),
+              rowText: q('#three') ? q('#three').textContent.trim() : null,
+              helpPos: q('#help-pop') ? getComputedStyle(q('#help-pop')).position : null,
+            };
+        }""")
+        avionics = (bool(chrome["rawAvionics"])
+                    and all(f and "Inter" in f and "Roboto" in f and "sans-serif" in f
+                            for f in ([chrome["headerFont"]] + chrome["inkFonts"])))
+        rec("6b ids live", all(chrome["ids"]) and all(chrome["inkIds"]),
+            "three/pill-shore/pill-lake/pill-gust/help-pop=%s ink=%s row='%s'"
+            % (chrome["ids"], chrome["inkIds"], chrome["rowText"]))
+        rec("6b ids in bytes", bool(chrome["rawPillIds"]),
+            "deployed markup carries the row ids: %s" % chrome["rawPillIds"])
+        rec("6b avionics font", bool(avionics),
+            "header='%s' ink0='%s'" % (chrome["headerFont"],
+                                       chrome["inkFonts"][0] if chrome["inkFonts"] else None))
+        rec("6b frosted glass", chrome["headerBg"] == "rgba(15, 23, 42, 0.85)"
+            and chrome["backdrop"] == "blur(8px)" and chrome["rawGlass"],
+            "bg=%s backdrop=%s raw-rule=%s z=%s"
+            % (chrome["headerBg"], chrome["backdrop"], chrome["rawGlass"], chrome["zIndex"]))
+        rec("6b popover sibling", chrome["helpPos"] == "fixed",
+            "#help-pop position=%s (sibling of <header>, above the map)" % chrome["helpPos"])
+
         rec("no page errors", not errors, "errors=%d %s" % (len(errors), errors[:3]))
         browser.close()
 
