@@ -4,6 +4,8 @@
 // America/Chicago, past_days=1, forecast_days=2.
 
 const DEFAULT_POINT = { lat: 46.22, lon: -93.657 };
+// Stage 6A: fixed shore sample (South Harbor Township / Isle MN, on land).
+const SHORE_POINT = { lat: 46.13, lon: -93.57 };
 
 const API = 'https://api.open-meteo.com/v1/forecast';
 const HOURLY = 'wind_speed_10m,wind_direction_10m,wind_gusts_10m';
@@ -228,10 +230,41 @@ function buildUrl(lat, lon, horizon) {
     `&wind_speed_unit=mph&timezone=America%2FChicago&past_days=1&forecast_days=${days}`;
 }
 
+// Stage 6A dual-location variant: comma-joined coords, one request, forecast_days last.
+function buildDualUrl(lake, shore, horizon) {
+  const days = horizon === '7d' ? 7 : 2;
+  return `${API}?latitude=${lake.lat},${shore.lat}&longitude=${lake.lon},${shore.lon}` +
+    `&hourly=${HOURLY}` +
+    `&minutely_15=${MINUTELY}` +
+    `&wind_speed_unit=mph&timezone=America%2FChicago&past_days=1&forecast_days=${days}`;
+}
+
 async function fetchWind(lat, lon, horizon) {
   const res = await fetch(buildUrl(lat, lon, horizon), { cache: 'no-store' });
   if (!res.ok) throw new Error(`open-meteo HTTP ${res.status}`);
   return res.json();
+}
+
+async function fetchWindTwo(lake, shore, horizon) {
+  const res = await fetch(buildDualUrl(lake, shore, horizon), { cache: 'no-store' });
+  if (!res.ok) throw new Error(`open-meteo HTTP ${res.status}`);
+  return res.json();
+}
+
+// Stage 6A: the live dual response is an ARRAY of 2 location objects. Index 0 has
+// no location_id and index 1 does, so key by position, never by location_id.
+function parseTwoLocations(json) {
+  if (!Array.isArray(json) || json.length < 2) return { lake: null, shore: null };
+  return { lake: json[0], shore: json[1] };
+}
+
+// A location object is usable only if its active source carries real wind speeds.
+function hasWindSpeed(json) {
+  const m = json && json.minutely_15;
+  const h = json && json.hourly;
+  const src = m && m.time && m.time.length > 1 ? m : h;
+  const sp = src && src.wind_speed_10m;
+  return Array.isArray(sp) && sp.some((v) => v != null && Number.isFinite(Number(v)));
 }
 
 // ?lat=&lon= override, else the lake-wide default point.
@@ -245,65 +278,93 @@ function pointFromQuery(search) {
   };
 }
 
+// One raw location object -> 15-min series for the 24h window (native minutely_15
+// when present, else hourly expanded 4x). Single path shared by lake and shore.
+function seriesFor24(json, gamma) {
+  const m = json && json.minutely_15;
+  const hourly = (json && json.hourly) || {};
+  if (m && m.time && m.time.length > 1) {
+    return buildSeriesFrom(m.time, m.wind_speed_10m || [], m.wind_direction_10m || [],
+      m.wind_gusts_10m || [], gamma, STEP_H);
+  }
+  const f = interpolate15(hourly, gamma);
+  return buildSeriesFrom(f.times, f.speeds, f.dirs, f.gusts, gamma, STEP_H);
+}
+
+// One raw location object -> 7-day assembled series. Trust native minutely_15
+// through tomorrow (the past_days=1 seed is kept so t_eff crosses midnight);
+// beyond 48 h we own the interpolation. Single path shared by lake and shore.
+function seriesFor7d(json, gamma, today) {
+  const m = json && json.minutely_15;
+  const hourly = (json && json.hourly) || {};
+  const native = m && m.time && m.time.length > 1
+    ? buildSeriesFrom(m.time, m.wind_speed_10m || [], m.wind_direction_10m || [],
+        m.wind_gusts_10m || [], gamma, STEP_H)
+    : (() => {
+        const f = interpolate15(hourly, gamma);
+        return buildSeriesFrom(f.times, f.speeds, f.dirs, f.gusts, gamma, STEP_H);
+      })();
+  const through = addDays(today, 1);
+  const from = addDays(today, 2);
+  const kept = native.filter((e) => e.time.slice(0, 10) <= through);
+  const expanded = expandHourlyVector(
+    hourlySamples(hourly).filter((e) => e.time.slice(0, 10) >= from), gamma);
+  const series = kept.concat(expanded);
+  const teff = computeTeff(series, STEP_H); // one pass over the whole series
+  for (let i = 0; i < series.length; i++) series[i].tEffH = teff[i];
+  return series;
+}
+
 // Full ingest: fetch + parse + gamma + t_eff. Prefers native minutely_15; falls
 // back to hourly expanded 4x. horizon '24h' (default) is the single-day window;
 // '7d' assembles native minutely_15 through tomorrow (plus the past_days=1 seed)
 // with vector-blended hourly frames for days 3-7, then slices 7 local days.
+// Stage 6A: one batched request returns [lake, shore]; shoreDay is built through
+// the same series path and is null whenever the shore payload is unusable.
 async function ingest(opts = {}) {
   const point = opts.point || DEFAULT_POINT;
   const gamma = opts.gamma != null ? opts.gamma : 0;
   const horizon = opts.horizon === '7d' ? '7d' : '24h';
-  const json = opts.json || await fetchWind(point.lat, point.lon, horizon);
-  const m = json && json.minutely_15;
-  const hourly = (json && json.hourly) || {};
   const now = opts.now || new Date();
   const today = chicagoNow(now).date;
 
+  let payload;
+  if (opts.json != null) {
+    payload = opts.json;
+  } else {
+    try {
+      payload = await fetchWindTwo(point, SHORE_POINT, horizon);
+    } catch (e) {
+      console.warn(`wind fetch failed: ${e.message}`);
+      throw e;
+    }
+  }
+  const { lake, shore } = parseTwoLocations(payload);
+  const json = lake || payload; // legacy/single object stays the lake, as before
+  const shoreOk = shore && hasWindSpeed(shore);
+
   if (horizon === '7d') {
-    const native = m && m.time && m.time.length > 1
-      ? buildSeriesFrom(m.time, m.wind_speed_10m || [], m.wind_direction_10m || [],
-          m.wind_gusts_10m || [], gamma, STEP_H)
-      : (() => {
-          const f = interpolate15(hourly, gamma);
-          return buildSeriesFrom(f.times, f.speeds, f.dirs, f.gusts, gamma, STEP_H);
-        })();
-    // Trust native minutely_15 through tomorrow (the past_days=1 seed is kept so
-    // t_eff crosses midnight); beyond 48 h we own the interpolation.
-    const through = addDays(today, 1);
-    const from = addDays(today, 2);
-    const kept = native.filter((e) => e.time.slice(0, 10) <= through);
-    const expanded = expandHourlyVector(
-      hourlySamples(hourly).filter((e) => e.time.slice(0, 10) >= from), gamma);
-    const series = kept.concat(expanded);
-    const teff = computeTeff(series, STEP_H); // one pass over the whole series
-    for (let i = 0; i < series.length; i++) series[i].tEffH = teff[i];
+    const series = seriesFor7d(json, gamma, today);
     const day = selectRange(series, today, 7);
+    const shoreDay = shoreOk ? selectRange(seriesFor7d(shore, gamma, today), today, 7) : null;
     return {
       point, gamma, series, day, currentIndex: currentIndex(day, now),
-      raw: json, stepMin: 15, horizon,
+      raw: json, stepMin: 15, horizon, shoreDay,
     };
   }
 
-  let series;
-  if (m && m.time && m.time.length > 1) {
-    series = buildSeriesFrom(
-      m.time, m.wind_speed_10m || [], m.wind_direction_10m || [],
-      m.wind_gusts_10m || [], gamma, STEP_H,
-    );
-  } else {
-    const f = interpolate15(hourly, gamma);
-    series = buildSeriesFrom(f.times, f.speeds, f.dirs, f.gusts, gamma, STEP_H);
-  }
+  const series = seriesFor24(json, gamma);
   const day = selectDay(series, today);
+  const shoreDay = shoreOk ? selectDay(seriesFor24(shore, gamma), today) : null;
   return {
     point, gamma, series, day, currentIndex: currentIndex(day, now),
-    raw: json, stepMin: 15, horizon,
+    raw: json, stepMin: 15, horizon, shoreDay,
   };
 }
 
 module.exports = {
-  DEFAULT_POINT, API, gammaToGrid, bearingDelta, lerpAngle, computeTeff, seedTeff,
+  DEFAULT_POINT, SHORE_POINT, API, gammaToGrid, bearingDelta, lerpAngle, computeTeff, seedTeff,
   buildSeries, buildSeriesFrom, interpolate15, expandHourlyVector,
-  chicagoNow, selectDay, selectRange, currentIndex, buildUrl, fetchWind, pointFromQuery, ingest,
-  firstDaySlice,
+  chicagoNow, selectDay, selectRange, currentIndex, buildUrl, buildDualUrl, fetchWind, fetchWindTwo,
+  parseTwoLocations, pointFromQuery, ingest, firstDaySlice,
 };
