@@ -175,14 +175,22 @@ function normalizeDeg(deg) {
   return d < 0 ? d + 360 : d;
 }
 
-// "Wind: 14 mph · Gusts 26 mph" (0 decimals). Any missing/short speed -> calm.
-function windLine(speedMph, gustMph) {
-  const s = Number(speedMph);
-  if (!Number.isFinite(s) || s < CALM_MPH) return 'Wind: calm';
-  const g = Number(gustMph);
-  return Number.isFinite(g)
-    ? `Wind: ${Math.round(s)} mph · Gusts ${Math.round(g)} mph`
-    : `Wind: ${Math.round(s)} mph`;
+// Stage 6B: three-pill marine wind row. Integer display model for the header:
+// lake/shore/gust speeds plus the lake pill's WIND_HEAT tier as a .55-alpha fill
+// over the frosted glass (white ink on every tier, by measurement). A missing or
+// malformed value (e.g. no shore series) renders an em dash.
+function windPills(lakeMph, shoreMph, gustMph) {
+  const int = (v) => {
+    if (v == null || v === '') return '—';
+    const n = Number(v);
+    return Number.isFinite(n) ? String(Math.round(n)) : '—';
+  };
+  const c = windHeatColor(lakeMph);
+  return {
+    lake: int(lakeMph), shore: int(shoreMph), gust: int(gustMph),
+    lakeTint: `rgba(${c[0]}, ${c[1]}, ${c[2]}, 0.55)`,
+    lakeBorder: `rgb(${c[0]}, ${c[1]}, ${c[2]})`,
+  };
 }
 
 // Compass metadata. Text fields describe the SOURCE (fromDeg); arrowDeg points
@@ -326,7 +334,7 @@ module.exports = {
   SECTORS, haversineM, bearing8, centroidOfCorners, sectorFor,
   nameSpot, describePin, sectorPhrase, sectorName, shortPlace, formatHeadline,
   FEATURE_RADIUS_M, SHORE_RADIUS_M,
-  CALM_MPH, CALM_TIER_MPH, CALM_HS_FT, normalizeDeg, windLine, compass,
+  CALM_MPH, CALM_TIER_MPH, CALM_HS_FT, normalizeDeg, windPills, compass,
   comfortTier, formatClockLocal, formatPillTime, dayLabel,
   WIND_HEAT, windHeatColor, windHeatGradient,
 };

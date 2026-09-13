@@ -432,5 +432,41 @@ check('respects [start, end) so a block never sees a neighbouring day', () => {
   assert.deepStrictEqual(tickWinds([], 0, 0), []);
 });
 
+console.log('\n== [14] stage-6b: three-pill marine header markup ==');
+check('three-pill row ids present; #wind-info/#frame-info/.sep gone', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  for (const id of ['secondary', 'three', 'pill-shore', 'shore', 'shore-u',
+    'pill-lake', 'lake', 'lake-u', 'pill-gust', 'gust', 'gust-u',
+    'arrow', 'dot', 'mph', 'help', 'help-pop']) {
+    assert.ok(html.includes(`id="${id}"`), `missing #${id}`);
+  }
+  assert.ok(!html.includes('id="wind-info"'), '#wind-info must be deleted');
+  assert.ok(!html.includes('id="frame-info"'), '#frame-info must be deleted');
+  assert.ok(!/class="sep"/.test(html), 'the old #secondary .sep must be gone');
+  assert.ok(!/>Wind:</.test(html), 'the row must not carry a "Wind:" prefix');
+  assert.ok(/aria-controls="help-pop"/.test(html), '#help must control #help-pop');
+  assert.ok(html.indexOf('</header>') < html.indexOf('id="help-pop"'),
+    '#help-pop must be a SIBLING after </header>, never inside its clip box');
+  assert.ok(html.indexOf('id="help-pop"') < html.indexOf('<div id="map">'),
+    '#help-pop must be appended to <body>, not #map');
+});
+check('help popover copy is exact and the three token sizes are pinned', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  for (const line of [
+    '• Shore: Inland forecast accounting for terrain friction (matches phone apps).',
+    '• Lake: 10m open-water wind driving wave growth (typically 20–60% higher; median +33% in our data).',
+    '• Gust: Peak 3-5s open-water bursts indicating squall risk.',
+  ]) {
+    assert.ok(html.includes(line), `missing copy: ${line}`);
+  }
+  assert.ok(/#shore, #lake, #gust \{ font-size: 13px; font-weight: 700; color: #f8fafc/.test(html),
+    'numerals must be 13px/700/#f8fafc');
+  assert.ok(/#shore-u, #gust-u \{ font-size: 10px; font-weight: 500; color: #cbd5e1/.test(html),
+    'shore/gust labels must be 10px/500/#cbd5e1 (no opacity)');
+  assert.ok(/#lake-u \{ font-size: 10px; font-weight: 500; color: #f8fafc/.test(html),
+    'lake label must be white: #cbd5e1 over the tier tint measured 3.58:1 (amber), white >=5.08:1 on every tier');
+  assert.ok(/padding: 2px 6px/.test(html), 'pills must use the 2px 6px fit padding');
+});
+
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);
