@@ -12,7 +12,7 @@
 <link rel="icon" type="image/svg+xml" href="public/favicon.svg">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark; --header-h: calc(72px + env(safe-area-inset-top, 0px)); }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body { display: flex; flex-direction: column; background: #0d1b2a; color: #e8f0f7;
@@ -22,20 +22,31 @@
      row 1 = range + tier chip, row 2 = peak line at the column's full width so the
      location label never truncates on a 360 px phone, row 3 = wind + H/L. */
   /* Stage 6B: the header floats over the map (fixed, z-index 1001 > Leaflet's
-     1000) as a frosted glass band. #map extends under it; fitLake() is padded
-     [12,84] so the lake edge stays clear of the band. */
+     1000) as a frosted glass band. #map extends under it; fitLake() reserves the
+     live header height + 12 px so the lake edge stays clear of the band.
+     Stage 6B.2: the band is 72 px of CONTENT (it grows into the notch inset
+     instead of clipping) and the top padding keeps row 1 off the bezel. */
   header { position: fixed; top: 0; left: 0; right: 0; z-index: 1001;
-           padding: 2px 10px; display: flex; align-items: center;
-           gap: 8px; height: 72px; min-height: 72px; max-height: 72px;
+           padding: max(6px, env(safe-area-inset-top, 0px)) 10px 2px;
+           display: flex; align-items: center;
+           gap: 8px; height: var(--header-h); min-height: var(--header-h);
+           max-height: var(--header-h);
            overflow: hidden; background: rgba(15,23,42,.85);
            -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
            border-bottom: 1px solid rgba(255,255,255,.1); color: #f8fafc;
            font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; }
   @supports not (backdrop-filter: blur(1px)) { header { background: #0f172a; } }
+  /* 6B.2: the map now starts at y=0 (the header is fixed), so Leaflet's own top
+     controls would sit UNDER the band (measured y=10 vs the pre-6B y=82).
+     Offset the whole top strip below the header + 10 px. */
+  .leaflet-top { top: calc(var(--header-h) + 10px); }
   header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px;
               position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .head-text { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap;
-               align-items: baseline; gap: 2px 8px; }
+               align-content: center; align-items: baseline; gap: 2px 8px; }
+  /* 6B.2: the 52 px reservation for the ? pill lives on the WIND ROW ONLY — on the
+     whole column it squeezed row 1 until the tier chip wrapped, which made
+     .head-text 76 px tall inside a 64 px content box and clipped row 1. */
   #verdict { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 0 1 auto; }
   #verdict-range { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
   /* Peak and wind get a row each: sharing a row clipped the location at 360 px. */
@@ -52,7 +63,8 @@
      the lake pill is tinted by WIND_HEAT at .55 alpha (white ink on every tier, by
      measurement). Pills are 2px 6px to fit the widest state inside 232 px @360. */
   #three { flex: 1 1 auto; min-width: 0; align-self: center; display: flex;
-           align-items: center; white-space: nowrap; overflow: hidden; }
+           align-items: center; white-space: nowrap; overflow: hidden;
+           padding-right: 52px; /* keep the pills clear of the ? pill (44 + 8) */ }
   #three .pill { display: inline-flex; align-items: baseline; gap: 3px; flex: 0 0 auto;
                  border-radius: 999px; padding: 2px 6px; line-height: 1.4; }
   #pill-shore, #pill-gust { background: rgba(148,163,184,.18);
@@ -69,22 +81,27 @@
   #lake-u { font-size: 10px; font-weight: 500; color: #f8fafc;
             font-variant-numeric: tabular-nums; line-height: 1.2; }
   #arrow { flex: 0 0 auto; width: 16px; height: 12px; display: inline-block;
-           margin: 0 3px; color: #94a3b8; }
+           align-self: center; margin: 0 3px; color: #94a3b8; }
   #arrow svg { display: block; width: 16px; height: 12px; }
   #arrow path { fill: none; stroke: currentColor; stroke-width: 1.5;
                 stroke-linecap: round; stroke-linejoin: round; }
   #dot { flex: 0 0 auto; margin: 0 4px; font-size: 11px; color: #94a3b8; line-height: 1; }
   #mph { flex: 0 1 auto; min-width: 0; overflow: hidden; font-size: 10px; font-weight: 500;
          color: #cbd5e1; font-variant-numeric: tabular-nums; line-height: 1.2; }
-  #help { flex: 0 0 auto; align-self: center; width: 44px; height: 44px;
-          min-width: 44px; min-height: 44px; border-radius: 50%; border: 1px solid #475569;
-          background: transparent; color: #94a3b8; padding: 0;
-          font: 700 18px/1 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+  /* 6B.2: absolutely positioned so the 44 px hit box cannot inflate the text
+     column — in flow it stretched row 3 to 44 px, which pushed .head-text past
+     the 68 px content box and clipped row 1 at y=-5.5. Right offset = 10 px
+     header padding + 48 px #refresh + 8 px gap. */
+  #help { position: absolute; bottom: 2px; right: 66px;
+          width: 44px; height: 44px;
+          min-width: 44px; min-height: 44px; border-radius: 50%; border: 1px solid rgba(148,163,184,.35);
+          background: rgba(148,163,184,.14); color: #cbd5e1; padding: 0;
+          font: 600 14px/1 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
           display: inline-flex; align-items: center; justify-content: center;
           touch-action: manipulation; }
   /* #help-pop is a SIBLING of <header>: a child of the overflow:hidden band is
      sliced at 72 px. Fixed + z 1002 keeps it above Leaflet's 1000 controls. */
-  #help-pop { position: fixed; top: 78px; right: 10px; z-index: 1002;
+  #help-pop { position: fixed; top: calc(var(--header-h) + 6px); right: 10px; z-index: 1002;
               width: min(300px, calc(100% - 20px)); padding: 8px 10px; border-radius: 8px;
               background: rgba(15,23,42,.97); border: 1px solid rgba(255,255,255,.14);
               box-shadow: 0 6px 18px rgba(0,0,0,.5); color: #cbd5e1;
@@ -113,7 +130,7 @@
   #map { flex: 1 1 auto; min-height: 0; height: auto; overflow: hidden; background: #14283b; position: relative; }
   /* On-map wind badge, docked top-right (clear of the top-left Leaflet zoom control
      and the bottom-right attribution strip). */
-  #wind-badge { position: absolute; top: 84px; right: 12px; z-index: 500; display: flex;
+  #wind-badge { position: absolute; top: calc(var(--header-h) + 12px); right: 12px; z-index: 500; display: flex;
                 align-items: center; gap: 6px; height: 32px; border-radius: 16px;
                 background: rgba(16,38,58,.85); padding-right: 12px; }
   #wind-badge-disc { width: 32px; height: 32px; display: flex; align-items: center;
@@ -150,7 +167,7 @@
   .deck-track{ overflow: visible; position: relative; } /* pill floats above; play overlays */
   .deck-track{ height: 62px; display: flex; align-items: stretch; }
   /* Horizon micro-pill: lives in the map corner, clear of the zoom control + wind badge. */
-  #horizon { position: absolute; top: 84px; left: 56px; z-index: 1000; display: flex; gap: 4px; }
+  #horizon { position: absolute; top: calc(var(--header-h) + 12px); left: 56px; z-index: 1000; display: flex; gap: 4px; }
   #horizon button { height: 28px; min-height: 28px; padding: 0 9px; background: rgba(16,38,58,.85);
                     color: #e8f0f7; border: 1px solid #33506b; border-radius: 14px;
                     font: 11px/1 system-ui, sans-serif; touch-action: manipulation; }
