@@ -11,7 +11,10 @@ const SCALE_FT = 6.0;
 const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 // CARTO's keyless basemaps now stamp "API KEY REQUIRED" on the tiles, so the muted
 // look is achieved by desaturating standard OSM tiles (see .leaflet-tile-pane in index.html).
-const TILE_ATTRIBUTION = '&copy; OpenStreetMap contributors';
+/* 6B.4: compact docked attribution — our own markup (no Leaflet prefix, see
+   setPrefix(false) below), so the string is short enough to share the deck line
+   with the legend: ~110 px on the right vs the legend on the left. */
+const TILE_ATTRIBUTION = '<a href="https://openstreetmap.org" target="_blank">© OpenStreetMap</a> · <a href="https://leafletjs.com" target="_blank">Leaflet</a>';
 const TILE_MAX_ZOOM = 19;
 const OVERLAY_OPACITY = ui.OVERLAY_OPACITY;
 const PLAY_INTERVAL_MS = 333;
@@ -567,6 +570,9 @@ async function mount(deps) {
     zoomAnimation: true,
     wheelPxPerZoomLevel: 90,
   });
+  // 6B.4: drop Leaflet's default "Leaflet |" prefix — TILE_ATTRIBUTION carries its own
+  // (shorter) Leaflet link, and the doubled credit was what made the string too wide.
+  if (map.attributionControl) map.attributionControl.setPrefix(false);
   L.tileLayer(TILE_URL, {
     maxZoom: TILE_MAX_ZOOM, attribution: TILE_ATTRIBUTION, detectRetina: true,
   }).addTo(map);

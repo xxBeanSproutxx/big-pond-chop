@@ -230,11 +230,12 @@
      painted behind the numbers (DOM order). */
   .day-heat { position: absolute; left: 3px; right: 3px; bottom: 2px; height: 20px;
               border-radius: 3px; }
-  /* Stage 5L/5M: the wave colour bar lives in a non-interactive card at the map's bottom-left.
-     Reid asked for bottom:78px, but the card's 78-111px band crosses the OSM attribution band
-     (74-91px from the map's bottom, x 156-390) in x 156-176. Measured clearance at 98px is
-     ~7px, so the card is docked at 98px. */
-  #legend-card { position: absolute; left: 10px; bottom: 98px; z-index: 500; pointer-events: none;
+  /* Stage 5L/5M. 6B.4: docked to the deck line (deck-h + 4 px, left 8 px) — the old
+     98 px lift existed only because the full-width OSM attribution band crossed the
+     card; the attribution is now compact (right, ~110 px) so nothing collides and
+     the southern bays are clear. */
+  #legend-card { position: absolute; left: 8px; bottom: calc(var(--deck-h) + 4px); margin: 0;
+                 z-index: 500; pointer-events: none;
                  background: rgba(16,38,58,.85); border-radius: 8px; padding: 6px 8px; }
   #legend-card-bar { width: 150px; height: 11px; border-radius: 3px; border: 1px solid #33506b; }
   #legend-card-ticks { width: 150px; margin-top: 2px; display: flex; justify-content: space-between;
@@ -272,13 +273,19 @@
   /* Muted basemap: CARTO's keyless tiles now stamp "API KEY REQUIRED", so the tile pane
      itself is desaturated instead — kills the green/wetland clash under the wave overlay. */
   .leaflet-tile-pane { filter: grayscale(.9) saturate(.35) brightness(1.04) contrast(.94); }
-  /* Stage 5J / 6B.3: lift Leaflet's attribution clear of the amber now-pill and its
-     needle, which rise ABOVE the deck into the map. Measured: the corner is positioned
-     against #map (whose bottom edge IS the deck's top), so this lift resolves to 68 px
-     of real clearance above the deck — verified at 360 and 390 (attribution bottom 670
-     vs deck top 738), with the string floating clear of the amber pill. The deck's own
-     safe-area growth needs no term here: the map's bottom tracks it either way. */
+  /* Stage 5J / 6B.3 / 6B.4: dock the attribution to the deck line. The corner is
+     positioned against #map (whose bottom edge IS the deck's top), so deck-h + 4 px
+     resolves to 4 px of real clearance above the deck — the string now shares the
+     bottom line with the legend instead of floating 68 px up over the southern bays. */
   .leaflet-bottom { bottom: calc(var(--deck-h) + 6px); }
+  .leaflet-bottom.leaflet-right { bottom: calc(var(--deck-h) + 4px); right: 6px; margin: 0; }
+  /* 6B.4: no white box, no shadow — muted 9 px text that sits on the basemap itself.
+     The dark text-shadow is a legibility aid only (the desaturated tiles are light, so
+     9 px #94a3b8 alone measures ~2.6:1); it adds no box and no border. */
+  .leaflet-control-attribution { background: none !important; box-shadow: none !important;
+                                 color: #94a3b8; font-size: 9px;
+                                 text-shadow: 0 0 2px rgba(15,23,42,.9), 0 0 1px rgba(15,23,42,.9); }
+  .leaflet-control-attribution a { color: #94a3b8; }
   #field { display: none; }
 </style>
 </head>
