@@ -575,9 +575,13 @@ async function mount(deps) {
     llBounds, { opacity: OVERLAY_OPACITY }).addTo(map);
   // Auto-fit the lake edge-to-edge: no static setView/zoom, padding keeps the
   // east/west shorelines off the viewport edges on portrait phones.
-  // 6B: the header floats over the map, so reserve its 72 px band + 12 px clearance.
+  // 6B.2: reserve the LIVE header band (72 px of content + any notch inset) plus a
+  // 12 px clearance, so the lake edge stays visible under the floating band on any
+  // device instead of a hard-coded 84 px.
+  const headerBand = () => Math.round((document.querySelector('header') || {}).getBoundingClientRect
+    ? document.querySelector('header').getBoundingClientRect().height : 72);
   const fitLake = () => map.fitBounds(llBounds,
-    { paddingTopLeft: [12, 84], paddingBottomRight: [12, 12], maxZoom: 12 });
+    { paddingTopLeft: [12, headerBand() + 12], paddingBottomRight: [12, 12], maxZoom: 12 });
   fitLake();
   // The flex layout can settle after the first paint; refit once the container is real.
   requestAnimationFrame(() => map.invalidateSize());
