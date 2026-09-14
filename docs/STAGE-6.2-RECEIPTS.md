@@ -139,6 +139,26 @@ SUMMARY: 23 ok, 2 FAIL
 19.8 one dual-location request · 19.9 badge values == API values · 19.10 corners + zoom dock ·
 19.11 continuous minute scrub + settle · 19.12 glass/overlay clearance.
 
+## 6. Ship receipt
+
+- Committed on `main`: **`1a86de0`** — "6.2: header de-clutter (two badges), zoom docked
+  bottom-right, continuous minute scrubbing"; tag **`stage-6.2-polish`**; `origin/main == 1a86de0`.
+- GitHub Pages build for `1a86de0`: **built** (2026-09-14 12:49Z).
+- Deployed-byte probe (`curl` of the live `index.html`, 25,790 B): carries `id="pill-lake"`,
+  `id="pill-gust"`, `<span class="unit">mph</span>`, the new `.leaflet-top.leaflet-left { top:
+  auto; bottom: 20px … }` rule and `left: 12px;` on `#horizon`; carries **zero** `id="pill-shore"`
+  / `id="arrow"` / `id="help"` / `id="help-pop"` elements (the only `help-pop` string left in the
+  served file is the CSS comment that says it is gone).
+- **`live_smoke.py` against production: 16 ok / 0 FAIL** — including `6.2 row live` (dead ids
+  none, pill `tabular-nums`), `6.2 row in bytes`, `6.2 zoom docked BR` (right-vs-attribution 0,
+  gap 3.41 px, bottom half), `6.2 horizon top-left` (12.00 px), 7-day horizon 7 blocks / 2,310 px,
+  and `no page errors`.
+- Follow-up: `live_smoke.py`'s deployed-bytes probe now matches `id="help-pop"` / `id="pill-shore"`
+  (element ids) instead of the bare strings, so a comment that *names* a deleted id can no longer
+  masquerade as a leftover element.
+- Rollback: `git revert 1a86de0` or reset to `2d11a8b` (tag `stage-6.1-docked`); `stage-6-live`
+  (`f3e415f`) also remains.
+
 ---
 
 ## 4. Files changed
