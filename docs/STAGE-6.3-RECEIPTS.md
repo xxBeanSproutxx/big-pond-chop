@@ -152,8 +152,11 @@ the throttled target index (`expectedIdx`) — harness `[16]/[17] final` lines: 
   ([19.4]/[19.5] gust clauses), `live_smoke.py` (DOM absence + deployed-bytes absence + row text).
 - **H1** header 72.00 px, ink ≤ available at all four viewport/viewport-profile combos —
   `[19.1]–[19.3]` green (slack 168.8–213.3 px). **H2** `[17 mph]` badge unchanged — `[19.5]/[19.6]`
-  (lake unit white, contrast ≥ 5.11:1). **H3** rendered `[24 Gust]` — `[19.4]`, plus live-smoke
-  run post-deploy.
+  (lake unit white, contrast ≥ 5.11:1). **H3** rendered `[24 Gust]` — `[19.4]`; post-deploy live
+  smoke **16 ok / 0 FAIL** (`6.2 row live` green: `.unit` absent, `aria="Gust 33 mph"`,
+  `gust=['gust','gust-u']`); the badge's flex gap verified pixel-side on production
+  (3.00 px = the lake badge's 3.00 px, so the visual space is real despite textContent
+  joining the spans as `33Gust`).
 
 ## 5. Verification matrix (§6.2)
 
@@ -164,7 +167,7 @@ the throttled target index (`expectedIdx`) — harness `[16]/[17] final` lines: 
 | `[20]` | **all gates ok=True** — `[20.1]`–`[20.6]` ✅, `[20.7a]` 0 / p90 16.8 ✅, `[20.7b]` 0 / p90 16.9 / max 24.1 ✅ (warmed), `[20.7c]` 0 / 17.1 ✅, `[20.7d]` advance 1.000 ✅ |
 | `stage5_check.py` full | **26 ok, 0 FAIL** — `[17]` ✅, `[19]` ✅, suites 4/4, page errors 0 (`tmp/s63-harness-ship.log`) |
 | `scrub_bench.py` | **all PASS** ×3 — median 16.6, swaps 0, `tapeTx>=moves-1` ✓ |
-| `live_smoke.py` | pending deploy (run post-push) |
+| `live_smoke.py` | **16 ok, 0 FAIL** post-deploy (first run surfaced a check-regex artifact: textContent joins the spans as `33Gust`; the visual space is the CSS flex gap — `\s*` allowed, gap verified pixel-side) |
 
 `[9]` playback perf ok (canvas 780, frameMs avg 44.2 — path untouched by 6.3);
 `[10]/[11]` radar smoothing unchanged; `[13]` lazy 7d ok; `[14]` live seam pass.
