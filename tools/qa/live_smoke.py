@@ -9,6 +9,7 @@ Run:  /home/reid/.hermes/hermes-agent/venv/bin/python tools/qa/live_smoke.py [--
 Exit 0 always (findings, not crashes) — read the printed SUMMARY line.
 """
 import argparse
+import re
 import sys
 
 URL = "https://xxbeansproutxx.github.io/big-pond-chop/"
@@ -125,6 +126,11 @@ def main():
             const fam = ['#lake', '#mph', '#gust', '#gust-u']
               .map(s => { const el = q(s); return el ? getComputedStyle(el).fontFamily : null; });
             const raw = document.documentElement.outerHTML;
+            // 6.3 item 4: the gust badge drops its .unit span -> "24 Gust". Slice the
+            // deployed markup from the badge to the next sibling so the check cannot
+            // accidentally pick up the lake badge's (still present) .unit span.
+            const rawGustBadge = raw.slice(raw.indexOf('id="pill-gust"'),
+                                           raw.indexOf('id="refresh"'));
             const map = document.getElementById('map').getBoundingClientRect();
             const z = q('.leaflet-control-zoom');
             const zr = z ? z.getBoundingClientRect() : null;
@@ -140,6 +146,10 @@ def main():
                       raw.includes('id="three"'),
               rawDead: ['id="help-pop"', 'id="pill-shore"', 'id="arrow"', 'id="help"']
                          .filter(s => raw.includes(s)),
+              gustUnitAbsent: q('#pill-gust .unit') === null,
+              gustWord: q('#gust-u') ? q('#gust-u').textContent.trim() : null,
+              gustAria: q('#pill-gust') ? q('#pill-gust').getAttribute('aria-label') : null,
+              rawGustNoUnit: !rawGustBadge.includes('class="unit"'),
               rawAvionics: raw.includes('Inter') && raw.includes('Roboto') &&
                            raw.includes('sans-serif'),
               rawGlass: raw.includes('rgba(15,23,42,.85)') ||
@@ -161,11 +171,16 @@ def main():
                     and all(f and "Inter" in f and "Roboto" in f and "sans-serif" in f
                             for f in ([chrome["headerFont"]] + chrome["inkFonts"])))
         zoom = chrome["zoom"]
-        rec("6.2 row live", all(chrome["ids"]) and not chrome["dead"],
-            "ids=%s dead=%s row='%s' pill-tabular=%s"
-            % (chrome["ids"], chrome["dead"] or "none", chrome["rowText"], chrome["pillTabular"]))
-        rec("6.2 row in bytes", bool(chrome["rawRow"]) and not chrome["rawDead"],
-            "deployed markup carries the two badges: %s (dead=%s)"
+        gust_live = (chrome["gustUnitAbsent"] and chrome["gustWord"] == "Gust"
+                     and bool(re.fullmatch(r"Gust \d+ mph", chrome["gustAria"] or ""))
+                     and bool(re.search(r"\d+ Gust$", chrome["rowText"] or "")))
+        rec("6.2 row live", all(chrome["ids"]) and not chrome["dead"] and gust_live,
+            "ids=%s dead=%s row='%s' pill-tabular=%s gust=[24 Gust] unit-absent=%s aria='%s'"
+            % (chrome["ids"], chrome["dead"] or "none", chrome["rowText"], chrome["pillTabular"],
+               chrome["gustUnitAbsent"], chrome["gustAria"]))
+        rec("6.2 row in bytes", bool(chrome["rawRow"]) and not chrome["rawDead"]
+            and bool(chrome["rawGustNoUnit"]),
+            "deployed markup carries the two badges + [24 Gust] (no .unit): %s (dead=%s)"
             % (chrome["rawRow"], chrome["rawDead"] or "none"))
         rec("6.2 avionics font", bool(avionics),
             "header='%s' ink0='%s'" % (chrome["headerFont"],
