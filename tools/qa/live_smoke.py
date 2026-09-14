@@ -138,7 +138,7 @@ def main():
                       .filter(id => !!document.getElementById(id)),
               rawRow: raw.includes('id="pill-lake"') && raw.includes('id="pill-gust"') &&
                       raw.includes('id="three"'),
-              rawDead: ['help-pop', 'pill-shore', 'id="arrow"', 'id="help"']
+              rawDead: ['id="help-pop"', 'id="pill-shore"', 'id="arrow"', 'id="help"']
                          .filter(s => raw.includes(s)),
               rawAvionics: raw.includes('Inter') && raw.includes('Roboto') &&
                            raw.includes('sans-serif'),
