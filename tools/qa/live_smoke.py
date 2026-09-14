@@ -173,7 +173,9 @@ def main():
         zoom = chrome["zoom"]
         gust_live = (chrome["gustUnitAbsent"] and chrome["gustWord"] == "Gust"
                      and bool(re.fullmatch(r"Gust \d+ mph", chrome["gustAria"] or ""))
-                     and bool(re.search(r"\d+ Gust$", chrome["rowText"] or "")))
+                     # textContent concatenates adjacent spans ("33Gust"); the visual space
+                     # is the pill's 3px flex gap (verified pixel-side), so allow \s*.
+                     and bool(re.search(r"\d+\s*Gust$", chrome["rowText"] or "")))
         rec("6.2 row live", all(chrome["ids"]) and not chrome["dead"] and gust_live,
             "ids=%s dead=%s row='%s' pill-tabular=%s gust=[24 Gust] unit-absent=%s aria='%s'"
             % (chrome["ids"], chrome["dead"] or "none", chrome["rowText"], chrome["pillTabular"],
