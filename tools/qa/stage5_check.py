@@ -1656,13 +1656,11 @@ S62_GEOMETRY_JS = r"""
         fontVariantNumeric: s.fontVariantNumeric, fontFamily: s.fontFamily,
         text: el.textContent, w: +el.getBoundingClientRect().width.toFixed(2)};
     });
+  // 6.3 item 4: the gust badge deliberately carries no .unit span ("24 Gust"). Its
+  // PRESENCE is now the defect, and styles.gustUnit no longer exists.
   const gustUnitEl = document.querySelector('#pill-gust .unit');
-  if (!gustUnitEl) { missing.push('#pill-gust .unit'); }
-  styles.gustUnit = gustUnitEl ? (function () {
-    const s = getComputedStyle(gustUnitEl);
-    return {color: s.color, fontSize: s.fontSize, fontWeight: s.fontWeight,
-            text: gustUnitEl.textContent,
-            w: +gustUnitEl.getBoundingClientRect().width.toFixed(2)}; })() : null;
+  if (gustUnitEl) { missing.push('#pill-gust .unit must be absent'); }
+  styles.gustUnit = null;
   const hs = header ? getComputedStyle(header) : null;
   const mapEl = g('map'), mapR = R(mapEl, '#map');
   const horizon = R(g('horizon'), '#horizon');
@@ -1744,7 +1742,6 @@ S62_CONTRAST_JS = r"""
   out['#mph unit vs #pill-lake'] = ratio(P('#mph'), lake);
   out['#gust numeral vs #pill-gust'] = ratio(P('#gust'), gust);
   out['#gust-u label vs #pill-gust'] = ratio(P('#gust-u'), gust);
-  out['gust .unit vs #pill-gust'] = ratio(P('#pill-gust .unit'), gust);
   out['#dot vs header glass'] = ratio(P('#dot'), GLASS);
   const keys = Object.keys(out);
   const min = Math.min.apply(null, keys.map((k) => out[k]));
@@ -1904,15 +1901,13 @@ def check_marine_header(pw, port):
              "[19.1] %s @%dx%d header_h=%s scrollH=%s clientH=%s"
              % (name, w, h, hd and hd["r"]["h"], hd and hd["scrollHeight"],
                 hd and hd["clientHeight"]))
-        # [19.2] the row fits its box and both units keep their ink
+        # [19.2] the row fits its box and the lake unit keeps its ink (gust has no unit)
         mph_w = st.get("mph") and st["mph"]["w"]
-        gu_w = st.get("gustUnit") and st["gustUnit"]["w"]
         emit(three is not None and three["scrollWidth"] <= three["clientWidth"]
-             and mph_w is not None and mph_w >= 17.0
-             and gu_w is not None and gu_w >= 17.0,
-             "[19.2] %s @%dx%d #three sw=%s cw=%s mph_w=%s gust-unit_w=%s (>=17)"
+             and mph_w is not None and mph_w >= 17.0,
+             "[19.2] %s @%dx%d #three sw=%s cw=%s mph_w=%s (>=17)"
              % (name, w, h, three and three["scrollWidth"], three and three["clientWidth"],
-                mph_w, gu_w))
+                mph_w))
         # [19.3] ink stays inside the available width
         slack = (three["avail"] - three["ink"]) if (three and three["ink"] is not None
                  and three["avail"] is not None) else None
@@ -1925,7 +1920,7 @@ def check_marine_header(pw, port):
         lake_k, gust_k = geo["badges"][0]["kids"], geo["badges"][1]["kids"]
         emit(kids == ["pill-lake", "dot", "pill-gust"]
              and lake_k == ["lake", "mph"]
-             and gust_k == ["gust", "unit", "gust-u"]
+             and gust_k == ["gust", "gust-u"]
              and geo["badgesInside"] and not geo["deadIds"] and geo["timePill"],
              "[19.4] %s @%dx%d row=%s lake=%s gust=%s inside=%s dead-ids=%s pill='%s'"
              % (name, w, h, kids, lake_k, gust_k, geo["badgesInside"], geo["deadIds"],
@@ -1936,18 +1931,18 @@ def check_marine_header(pw, port):
                       and st[k]["fontVariantNumeric"] == "tabular-nums"
                       for k in ("lake", "gust"))
         units_ok = all(st.get(k) and st[k]["fontSize"] == "10px"
-                       and st[k]["fontWeight"] == "500" for k in ("mph", "gustUnit", "gustLabel"))
+                       and st[k]["fontWeight"] == "500" for k in ("mph", "gustLabel"))
         white_ok = st.get("mph") and st["mph"]["color"] == "rgb(248, 250, 252)"
-        slate_ok = st.get("gustUnit") and st["gustUnit"]["color"] == "rgb(203, 213, 225)"
+        slate_ok = st.get("gustLabel") and st["gustLabel"]["color"] == "rgb(203, 213, 225)"
         font_ok = st.get("lake") and all(t in st["lake"]["fontFamily"]
                                          for t in ("Inter", "Roboto", "sans-serif"))
         emit(nums_ok and units_ok and white_ok and slate_ok and font_ok,
-             "[19.5] %s @%dx%d numerals=%s/%s units=%s/%s lake-unit=%s gust-unit=%s font=%s"
+             "[19.5] %s @%dx%d numerals=%s/%s units=%s/%s lake-unit=%s gust-label=%s font=%s"
              % (name, w, h, st.get("lake") and st["lake"]["fontSize"],
                 st.get("lake") and st["lake"]["fontWeight"],
                 st.get("mph") and st["mph"]["fontSize"],
-                st.get("gustUnit") and st["gustUnit"]["fontSize"],
-                st.get("mph") and st["mph"]["color"], st.get("gustUnit") and st["gustUnit"]["color"],
+                st.get("gustLabel") and st["gustLabel"]["fontSize"],
+                st.get("mph") and st["mph"]["color"], st.get("gustLabel") and st["gustLabel"]["color"],
                 st.get("lake") and st["lake"]["fontFamily"]))
         # [19.6] contrast: white on the tier tint, slate on the neutral fill, >= 4.5:1
         emit(con["min"] >= 4.5,
@@ -2162,6 +2157,392 @@ def check_marine_header(pw, port):
 
 
 # --------------------------------------------------------------------------- #
+# [20] 6.3: water-mask cleansing + map containment + 60 fps scrub profiles
+# --------------------------------------------------------------------------- #
+S63_SHOTS = ROOT / "tmp" / "s63-shots"
+S63_SHOTS.mkdir(parents=True, exist_ok=True)
+# Pinned 2026-09-14 on the 6.2 tree (blob 33aa6e52…) vs the item-1 tree (blob 34e5900e…):
+#   series  _s6_series(today, 25.0, 12.0, 38.0) (constant 25/12/38, lake dir 270), ?frame=40
+#   6.2 -> item-1 runtime deltas: p10Ft 1.069 -> 1.129, hsFt 2.871 -> 2.871,
+#     peak text "Peak: 4.8 ft · Sunset Bay" unchanged
+#   the 5 dropped centroids: old __bpcTap=True + overlay alpha 255; new False + alpha 0
+#   old-blob click flash: none; new: "land — no wave data here" (LAND_FLASH)
+S63_P10_MIN = 1.069
+S63_HS = "2.871"
+S63_PEAK = "Peak: 4.8 ft · Sunset Bay"
+
+# Adapted from tmp/s63_centroid_probe.py PROBE_JS: tap result + overlay alpha at each
+# dropped centroid, projected through the app's own map.
+S63_CENTROID_JS = r"""(centroids) => {
+  const img = document.querySelector('.leaflet-image-layer');
+  const map = window.__bpcMap;
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  const g = c.getContext('2d');
+  g.drawImage(img, 0, 0);
+  const r = img.getBoundingClientRect();
+  const out = [];
+  for (const [lat, lon] of centroids) {
+    const tap = window.__bpcTap(lat, lon);
+    const p = map.latLngToContainerPoint([lat, lon]);
+    const nx = (p.x - r.x) / r.width, ny = (p.y - r.y) / r.height;
+    const ix = Math.max(0, Math.min(c.width - 1, Math.round(nx * c.width)));
+    const iy = Math.max(0, Math.min(c.height - 1, Math.round(ny * c.height)));
+    const px = g.getImageData(ix, iy, 1, 1).data;
+    out.push({lat: lat, lon: lon, tap: tap, alpha: px[3],
+              cx: Math.round(p.x), cy: Math.round(p.y)});
+  }
+  return out;
+}"""
+
+# C1/C3/C5 containment state: fit floor, pan box and the px distance of the view
+# (and the clamped centre) beyond it. All px via map.project at the live zoom.
+S63_CONTAIN_JS = r"""() => {
+  const m = window.__bpcMap, b = m.options.maxBounds, z = m.getZoom(), sz = m.getSize();
+  const proj = (ll) => m.project(ll, z);
+  const bnw = proj([b.getNorth(), b.getWest()]), bse = proj([b.getSouth(), b.getEast()]);
+  const v = m.getBounds();
+  const vnw = proj([v.getNorth(), v.getWest()]), vse = proj([v.getSouth(), v.getEast()]);
+  const halfW = sz.x / 2, halfH = sz.y / 2;
+  const cp = proj(m.getCenter());
+  const clx = Math.min(Math.max(cp.x, bnw.x + halfW), bse.x - halfW);
+  const cly = Math.min(Math.max(cp.y, bnw.y + halfH), bse.y - halfH);
+  return {minZoom: m.getMinZoom(), zoom: z,
+          n: b.getNorth(), s: b.getSouth(), e: b.getEast(), w: b.getWest(),
+          cpx: cp.x, cpy: cp.y, clx: clx, cly: cly,
+          centreErr: Math.hypot(cp.x - clx, cp.y - cly),
+          overshoot: Math.max(0, bnw.y - vnw.y, vse.y - bse.y, bnw.x - vnw.x, vse.x - bse.x)};
+}"""
+
+# C4 zoom floor: lake px width at the live zoom and at the fit zoom.
+S63_WIDTH_JS = r"""(b) => {
+  const m = window.__bpcMap;
+  const mid = (b[0] + b[1]) / 2;
+  const width = (z) => m.project([mid, b[3]], z).x - m.project([mid, b[2]], z).x;
+  const z = m.getZoom(), fitZ = m.getMinZoom();
+  return {zoom: z, fitZoom: fitZ, wNow: width(z), wFit: width(fitZ)};
+}"""
+
+# Adapted from tmp/s63_attrib.py AUDIT: long tasks, blob/encode counts, per-frame deltas
+# and the live #track-tape computed transform (for G4). Installed before navigation.
+# The transform read is gated on __c.sampleTf so only the flick profile pays the
+# getComputedStyle cost (G3's max <= 20 ms is measured without it).
+S63_AUDIT_JS = r"""
+(function () {
+  window.__c = {long: [], created: 0, imgSrc: 0, frames: [], tf: [], sampleTf: false,
+                baseline: false, t: performance.now()};
+  try {
+    new PerformanceObserver((l) => { for (const e of l.getEntries())
+        window.__c.long.push(+e.duration.toFixed(1)); }).observe({entryTypes: ['longtask']});
+  } catch (e) {}
+  try {
+    const cou = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = function (b) { window.__c.created++; return cou(b); };
+    const d = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+    Object.defineProperty(HTMLImageElement.prototype, 'src', {
+      get: d.get, set: function (v) { window.__c.imgSrc++; return d.set.call(this, v); },
+      configurable: true });
+  } catch (e) {}
+  const tick = () => {
+    const t = performance.now();
+    if (window.__c.baseline) {  // drop the frame interrupted by the reset evaluate
+      window.__c.baseline = false;
+      window.__c.t = t;
+      requestAnimationFrame(tick);
+      return;
+    }
+    window.__c.frames.push(+(t - window.__c.t).toFixed(1));
+    window.__c.t = t;
+    if (window.__c.sampleTf) {
+      try {
+        const el = document.getElementById('track-tape');
+        if (el) window.__c.tf.push(getComputedStyle(el).transform);
+      } catch (e) {}
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+})();
+"""
+
+S63_LOAD_JS = ("() => { var p = document.getElementById('time-pill');"
+               " var i = document.querySelector('.leaflet-image-layer');"
+               " return !!p && p.textContent.trim() !== '\u2014' &&"
+               " document.getElementById('track-days').children.length >= 1 &&"
+               " !!i && i.naturalWidth > 0; }")
+
+
+def _s63_profile(page, kind, shot=None):
+    """One drag profile (adapted from tmp/s63_attrib.py) with the per-frame tape
+    transform sampled for G4. Returns frame stats + encode/long-task context."""
+    tl = page.evaluate("() => { const r = document.getElementById('timeline').getBoundingClientRect();"
+                       " return {cx: r.x + r.width / 2, y: r.y + r.height / 2}; }")
+    x0, y = tl["cx"], tl["y"]
+    page.mouse.move(x0, y)
+    page.mouse.down()
+    # Reset AFTER pointerdown so the sampling window is the drag itself, not the
+    # CDP round trip that delivered the down event.
+    page.evaluate("(sample) => { const c = window.__c; c.long = []; c.created = 0; c.imgSrc = 0;"
+                  " c.frames = []; c.tf = []; c.sampleTf = sample; c.baseline = true;"
+                  " c.t = performance.now(); }",
+                  kind == "flick")
+    t0 = time.perf_counter()
+    if kind == "slow":
+        # 6 px per step with a 30 ms pacing wait: the achieved velocity is 6 px / (30+rt) ms
+        # ~= the §3.1 baseline table's 0.127 px/ms (the wait absorbs the CDP round trip so the
+        # velocity is env-independent; a 12 ms wait measures ~0.35 px/ms on this box and would
+        # silently test the fast path instead of the throttled one).
+        for i in range(40):
+            page.mouse.move(x0 - (i + 1) * 6, y)
+            page.wait_for_timeout(30)
+    elif kind == "flick":
+        page.mouse.move(x0 - 240, y, steps=40)
+    elif kind == "hold":
+        page.mouse.move(x0 - 30, y, steps=5)
+        page.wait_for_timeout(2500)
+    drag_ms = (time.perf_counter() - t0) * 1000.0
+    c = page.evaluate("() => ({long: window.__c.long, created: window.__c.created,"
+                      " imgSrc: window.__c.imgSrc, frames: window.__c.frames.slice(),"
+                      " tf: window.__c.tf.slice()})")
+    if shot:  # after the sample snapshot, so the shot's latency is not in the frame data
+        page.screenshot(path=str(shot))
+    page.mouse.up()
+    page.wait_for_timeout(400)
+    fr = sorted(c["frames"])
+    pct = lambda q: fr[min(len(fr) - 1, int(q * len(fr)))] if fr else 0.0
+    tf = c["tf"]
+    advances = sum(1 for i in range(1, len(tf)) if tf[i] != tf[i - 1])
+    return {"kind": kind, "drag_ms": drag_ms, "frames": len(fr),
+            "p50": pct(0.5), "p90": pct(0.9), "max": (max(fr) if fr else 0.0),
+            "over33": sum(1 for f in fr if f > 33.0),
+            "long": c["long"], "blob": c["created"], "imgSrc": c["imgSrc"],
+            "adv_ratio": (advances / (len(tf) - 1)) if len(tf) > 1 else 0.0,
+            "matrix_form": all(t.startswith("matrix(") for t in tf), "tf_n": len(tf)}
+
+
+def check_stage63(pw, port):
+    """6.3 [20]: drive the item-1 water-mask cleanse (dropped satellite centroids read
+    as land), the item-2 containment gates C1-C4 and the item-3 scrub profiles G1-G4,
+    all against the pinned crafted series and a ?frame=40 load."""
+    base = "http://127.0.0.1:%d/index.html" % port
+    today = datetime.now(CHICAGO).date()
+    body = _s6_series(today, 25.0, 12.0, 38.0)
+    warp = json.loads((ROOT / "public/warp.v1.json").read_text())
+    lb = ll_bounds(warp)                                   # [[S, W], [N, E]]
+    s_lat, w_lon = lb[0][0], lb[0][1]
+    n_lat, e_lon = lb[1][0], lb[1][1]
+    mid_lng = (w_lon + e_lon) / 2.0
+    mask = json.loads((ROOT / "public/mask.v1.json").read_text())
+    cents = [[c["centroid_lat"], c["centroid_lon"]] for c in mask["dropped"]]
+
+    browser = pw.chromium.launch()
+    errors = []
+
+    def fresh(w, h, audit=False):
+        ctx = browser.new_context(viewport={"width": w, "height": h}, device_scale_factor=2)
+        ctx.add_init_script(INIT_SCRIPT)
+        if audit:
+            ctx.add_init_script(S63_AUDIT_JS)
+        p = ctx.new_page()
+        p.on("pageerror", lambda e: errors.append("pageerror: %s" % e))
+        p.on("console",
+             lambda m: errors.append("console: %s" % m.text) if m.type == "error" else None)
+        p.route("**/api.open-meteo.com/**",
+                lambda r: r.fulfill(status=200, content_type="application/json",
+                                    body=json.dumps(body)))
+        p.goto(base + "?frame=40", wait_until="domcontentloaded")
+        p.wait_for_function(S63_LOAD_JS, timeout=120000)
+        p.wait_for_timeout(600)
+        return ctx, p
+
+    all_ok = [True]
+    fails = []
+
+    def emit(ok, line):
+        if not ok:
+            all_ok[0] = False
+            fails.append(line.split()[0])
+        print("        20 %s" % line, flush=True)
+        return ok
+
+    def gate(num, label, fn, *args):
+        try:
+            return fn(*args)
+        except Exception as exc:  # noqa: BLE001 - QA records, never aborts
+            emit(False, "[%s] %s EXCEPTION %s: %s"
+                 % (num, label, type(exc).__name__, str(exc).splitlines()[0]))
+            return None
+
+    # C1/C2 are "after load at 360x800 and 390x844", so each viewport gets a fresh
+    # load. (The resize refit path is a separate gap: fitLake reads getZoom() mid
+    # zoom-animation on a resize, so a resized page keeps the previous viewport's
+    # floor -- noted, not part of C1/C2.)
+    ctx390, page = fresh(390, 844)
+    ctx360, page360 = fresh(360, 800)
+
+    # ---- [20.1] P4/P5: dropped centroids are land, no wave colour, click flashes ----
+    def c20_1():
+        res = page.evaluate(S63_CENTROID_JS, cents)
+        all_land = all(r["tap"] is False for r in res)
+        all_zero = all(r["alpha"] == 0 for r in res)
+        cand = [r for r in res if 120 < r["cy"] < 700] or res
+        first = cand[0]
+        page.mouse.click(first["cx"], first["cy"])
+        page.wait_for_timeout(150)
+        flash = page.evaluate("() => (document.getElementById('readout') || {}).textContent")
+        emit(all_land and all_zero and flash is not None and LAND_FLASH in flash,
+             "[20.1] item-1 centroids n=%d tap=%s alpha=%s click@(%.0f,%.0f) flash=%r"
+             % (len(res), [r["tap"] for r in res], [r["alpha"] for r in res],
+                first["cx"], first["cy"], flash))
+    gate("20.1", "item-1 centroids", c20_1)
+
+    # ---- [20.2] P4: p10 moved up/flat, peak unmoved --------------------------------
+    def c20_2():
+        st = page.evaluate(r"""() => {
+          const b = document.body.dataset;
+          const el = document.getElementById('verdict-peak');
+          return {p10: b.p10Ft, hs: b.hsFt,
+                  peak: el ? el.textContent.replace(/\s+/g, ' ').trim() : null};
+        }""")
+        try:
+            p10 = float(st["p10"])
+        except (TypeError, ValueError):
+            p10 = float("nan")
+        emit(math.isfinite(p10) and p10 >= S63_P10_MIN and st["hs"] == S63_HS
+             and st["peak"] == S63_PEAK,
+             "[20.2] item-1 stats p10Ft=%s (>=%s) hsFt=%s peak=%r"
+             % (st["p10"], S63_P10_MIN, st["hs"], st["peak"]))
+    gate("20.2", "item-1 stats", c20_2)
+
+    # ---- [20.3] C1: fit zoom is the floor + the lake is inside the pan box ---------
+    def c1_on(p, w, h):
+        g = p.evaluate(S63_CONTAIN_JS)
+        box_ok = (g["n"] >= n_lat - 1e-4 and g["s"] <= s_lat + 1e-4
+                  and g["e"] >= e_lon - 1e-4 and g["w"] <= w_lon + 1e-4)
+        return emit(abs(g["minZoom"] - g["zoom"]) < 1e-9 and box_ok,
+                    "[20.3] C1 @%dx%d minZoom=%.4f zoom=%.4f box[n=%.5f s=%.5f e=%.5f w=%.5f] "
+                    "lake[n=%.5f s=%.5f e=%.5f w=%.5f]"
+                    % (w, h, g["minZoom"], g["zoom"], g["n"], g["s"], g["e"], g["w"],
+                       n_lat, s_lat, e_lon, w_lon))
+
+    def c20_3():
+        c1_on(page360, 360, 800)
+        c1_on(page, 390, 844)
+    gate("20.3", "C1 fit floor", c20_3)
+
+    # ---- [20.4] C2: north edge stays >= 96 px below the top before/after a drag -----
+    def c2_on(p, w, h):
+        y0 = p.evaluate("(q) => window.__bpcMap.latLngToContainerPoint([q[0], q[1]]).y",
+                        [n_lat, mid_lng])
+        sz = p.evaluate("() => { const s = window.__bpcMap.getSize();"
+                        " return {x: s.x / 2, y: s.y / 2}; }")
+        p.mouse.move(sz["x"], sz["y"])
+        p.mouse.down()
+        for i in range(8):
+            p.mouse.move(sz["x"], sz["y"] + (i + 1) * 20)
+        p.mouse.up()
+        p.wait_for_timeout(600)
+        y1 = p.evaluate("(q) => window.__bpcMap.latLngToContainerPoint([q[0], q[1]]).y",
+                        [n_lat, mid_lng])
+        if w == 390:
+            p.screenshot(path=str(S63_SHOTS / "c2-after-drag.png"))
+        emit(y0 >= 96.0 and y1 >= 96.0,
+             "[20.4] C2 @%dx%d north-edge y before=%.1f after-drag=%.1f (>=96)"
+             % (w, h, y0, y1))
+
+    def c20_4():
+        c2_on(page360, 360, 800)
+        c2_on(page, 390, 844)
+    gate("20.4", "C2 header clearance", c20_4)
+
+    # ---- [20.5] C3: rubber-band past the east edge, settle inside the box ----------
+    def c20_5():
+        page.evaluate("() => { const m = window.__bpcMap; m.setZoom(m.getMinZoom() + 1); }")
+        page.wait_for_timeout(500)
+        sz = page.evaluate("() => { const s = window.__bpcMap.getSize(); return {x: s.x, y: s.y}; }")
+        page.mouse.move(sz["x"] / 2, sz["y"] / 2)
+        page.mouse.down()
+        over = []
+        for i in range(40):
+            page.mouse.move(sz["x"] / 2 - (i + 1) * 24, sz["y"] / 2)
+            over.append(page.evaluate(S63_CONTAIN_JS)["overshoot"])
+            if i == 20:
+                page.screenshot(path=str(S63_SHOTS / "c3-mid-drag.png"))
+        mid = max(over)
+        page.mouse.up()
+        page.wait_for_timeout(250)
+        st = page.evaluate(S63_CONTAIN_JS)
+        emit(math.isfinite(mid) and st["centreErr"] <= 0.5 and st["overshoot"] <= 5.0,
+             "[20.5] C3 max-overshoot-during=%.1fpx settled centre-err=%.2fpx beyond-box=%.2fpx "
+             "(settled PASS: err<=0.5 + beyond<=5)"
+             % (mid, st["centreErr"], st["overshoot"]))
+    gate("20.5", "C3 rubber band", c20_5)
+
+    # ---- [20.6] C4: zoom-out attempts cannot shrink the lake below the fit ---------
+    # NOTE: 95% of the raw map width is unreachable -- the fit reserves 24 px (12+12), so
+    # the physical fit width is ~91-94% of the container; the bar is "zoom-out attempts
+    # must not shrink the lake below the fit", which also catches a STATIC floor (a static
+    # 10.3 floor on a 10.4 fit = 93.3% < 95%).
+    def c20_6():
+        b = [n_lat, s_lat, w_lon, e_lon]
+        g0 = page.evaluate(S63_WIDTH_JS, b)
+        fit_z, w_fit = g0["fitZoom"], g0["wFit"]
+        for _ in range(3):
+            page.evaluate("() => window.__bpcMap.zoomOut()")
+            page.wait_for_timeout(400)
+        g1 = page.evaluate(S63_WIDTH_JS, b)
+        ratio = (g1["wNow"] / w_fit) if w_fit else 0.0
+        emit(g1["zoom"] >= fit_z - 1e-9 and g1["wNow"] >= 0.95 * w_fit,
+             "[20.6] C4 fitZoom=%.4f zoom-after-3x-out=%.4f lake-w fit=%.1f now=%.1f "
+             "ratio=%.3f (>=0.95)"
+             % (fit_z, g1["zoom"], w_fit, g1["wNow"], ratio))
+    gate("20.6", "C4 zoom floor", c20_6)
+
+    # ---- [20.7] G1-G4: scrub profiles on a fresh instrumented page -----------------
+    def c20_7():
+        ctx2, p2 = fresh(390, 844, audit=True)
+        p2.wait_for_timeout(300)
+
+        # Protocol order matches the run that produced the 6.2 numbers' state machine:
+        # flick first (full headroom, so G4 can require >=95% advance), then slow (lands on
+        # the clamp), then hold (a clamped no-op drag, exactly like §3.1's hold row).
+        flick = _s63_profile(p2, "flick", S63_SHOTS / "g-flick-mid.png")
+        slow = _s63_profile(p2, "slow")
+        hold = _s63_profile(p2, "hold")
+        p2.close()
+        ctx2.close()
+
+        emit(flick["over33"] == 0 and flick["p90"] <= 20.0,
+             "[20.7a] G1 flick frames=%d >33ms=%d p50=%.1f p90=%.1f max=%.1f "
+             "longtasks=%d blobURLs=%d imgSrc=%d (target >33=0 p90<=20)"
+             % (flick["frames"], flick["over33"], flick["p50"], flick["p90"], flick["max"],
+                len(flick["long"]), flick["blob"], flick["imgSrc"]))
+        emit(slow["over33"] <= 2 and slow["p90"] <= 25.0,
+             "[20.7b] G2 slow frames=%d >33ms=%d p50=%.1f p90=%.1f max=%.1f "
+             "longtasks=%d blobURLs=%d imgSrc=%d (target >33<=2 p90<=25)"
+             % (slow["frames"], slow["over33"], slow["p50"], slow["p90"], slow["max"],
+                len(slow["long"]), slow["blob"], slow["imgSrc"]))
+        emit(hold["p90"] <= 17.0 and hold["max"] <= 20.0,
+             "[20.7c] G3 hold frames=%d >33ms=%d p50=%.1f p90=%.1f max=%.1f "
+             "longtasks=%d blobURLs=%d imgSrc=%d (target p90<=17 max<=20)"
+             % (hold["frames"], hold["over33"], hold["p50"], hold["p90"], hold["max"],
+                len(hold["long"]), hold["blob"], hold["imgSrc"]))
+        emit(flick["adv_ratio"] >= 0.95 and flick["matrix_form"],
+             "[20.7d] G4 tape flick samples=%d advance=%.3f (>=0.95) matrix-form=%s"
+             % (flick["tf_n"], flick["adv_ratio"], flick["matrix_form"]))
+    gate("20.7", "G1-G4 profiles", c20_7)
+
+    ne = len(errors)
+    if ne:
+        emit(False, "[20.err] page errors=%d %s" % (ne, errors[:3]))
+    ctx360.close()
+    ctx390.close()
+    browser.close()
+    record(20, "6.3 gates", all_ok[0],
+           "all gates ok=%s%s" % (all_ok[0], "" if all_ok[0] else " failing=%s" % fails))
+
+
+# --------------------------------------------------------------------------- #
 # main
 # --------------------------------------------------------------------------- #
 def main():
@@ -2214,6 +2595,7 @@ def main():
             safe("7b", "touch ergonomics", check_touch_ergonomics, page)
             safe(18, "timeline labels (5L)", check_timeline_labels, page)
             safe(19, "6.2 polish pass", check_marine_header, pw, port)
+            safe(20, "6.3 gates", check_stage63, pw, port)
             safe(9, "playback perf", check_playback, page, warp)
             now_ups = safe(10, "radar smoothing", check_smoothing, page, meta, warp)
             if now_ups:

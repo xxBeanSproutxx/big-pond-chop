@@ -22,6 +22,12 @@ const FRAME_MINUTES = 15;
 const FRAME_CACHE_MAX = 8;
 const MAP_PAINT_MIN_MS = 72; // ~13.9 fps: drag-time overlay repaint throttle (12-15 fps band)
 const STICKY_INSET = 56;    // 5L: sticky day header clears the 48 px #play button at the window edge
+// 6.3 velocity gate (D3.3): suspend map encodes while the finger flies, catch up when it slows.
+const V_HI = 0.25;           // px/ms: at/above this a drag paint is suspended
+const V_LO = 0.08;           // px/ms: first frame back below this forces one catch-up paint
+const V_EMA_ALPHA = 0.3;     // EMA smoothing for the per-move velocity
+const SUSPEND_MAX_MS = 1200; // anti-freeze: one paint per 1.2 s of continuous suspension
+const DRAG_RASTER_W = 512;   // 6.3 D3.5: drag-time raster width in device px (rest width 780)
 
 // ---- affine warp ----
 function gridToLonlat(warp, col, row) {
@@ -421,6 +427,7 @@ async function mount(deps) {
   const lakeEl = document.getElementById('lake');
   const gustEl = document.getElementById('gust');
   const pillLakeEl = document.getElementById('pill-lake');
+  const pillGustEl = document.getElementById('pill-gust');
   const verdictRange = document.getElementById('verdict-range');
   const verdictPeak = document.getElementById('verdict-peak');
   const comfortChip = document.getElementById('comfort-chip');
@@ -589,6 +596,7 @@ async function mount(deps) {
   let bootHidden = false;
   let readoutTimer = null;
   let mapReady = false;
+  let scheduleRefit = () => {}; // 6.3 item 2: assigned once the map exists (debounced fitLake)
 
   function setupMap() {
     if (mapReady) return;
@@ -600,6 +608,7 @@ async function mount(deps) {
     touchZoom: true,
     zoomAnimation: true,
     wheelPxPerZoomLevel: 90,
+    maxBoundsViscosity: 0.75, // 6.3 D2.3: rubber-band feel at the pan box edges
   });
   // 6B.4: drop Leaflet's default "Leaflet |" prefix — TILE_ATTRIBUTION carries its own
   // (shorter) Leaflet link, and the doubled credit was what made the string too wide.
@@ -617,8 +626,33 @@ async function mount(deps) {
   // device instead of a hard-coded 84 px.
   const headerBand = () => Math.round((document.querySelector('header') || {}).getBoundingClientRect
     ? document.querySelector('header').getBoundingClientRect().height : 72);
-  const fitLake = () => map.fitBounds(llBounds,
-    { paddingTopLeft: [12, headerBand() + 12], paddingBottomRight: [12, 12], maxZoom: 12 });
+  const lakeBounds = L.latLngBounds(llBounds);
+  // 6.3: animate:false — the fit must be READ back synchronously (getZoom/getCenter below);
+  // with zoomAnimation a resize refit would measure the previous viewport's fit and install
+  // a stale minZoom floor (Trap 2).
+  const fitOpts = { paddingTopLeft: [12, headerBand() + 12], paddingBottomRight: [12, 12], maxZoom: 12, animate: false };
+  // 6.3 trap: getBoundsZoom reads getMinZoom as its clamp, so a shrink (rotation, chrome
+  // appearing) with a floor already installed returns a zoom that crops the lake.
+  // The setMinZoom(0)-before-measure / setMinZoom(fitZoom)-after order is load-bearing.
+  const fitLake = () => {
+    map.setMinZoom(0);                        // measure the fit free of our own floor
+    map.fitBounds(llBounds, fitOpts);
+    const fitZoom = map.getZoom();            // snapped, post-maxZoom(12)
+    const fitCenter = map.getCenter();        // carries the header offset
+    const halfLat = (lakeBounds.getNorth() - lakeBounds.getSouth()) * (1 + 2 * 0.20) / 2;
+    const halfLng = (lakeBounds.getEast() - lakeBounds.getWest()) * (1 + 2 * 0.20) / 2;
+    map.setMaxBounds(L.latLngBounds(         // pan box re-centred on the FITTED centre
+      [fitCenter.lat - halfLat, fitCenter.lng - halfLng],
+      [fitCenter.lat + halfLat, fitCenter.lng + halfLng]));
+    map.setMinZoom(fitZoom);                  // zoom floor = this viewport's fit
+    if (map.getZoom() < fitZoom) map.setZoom(fitZoom);
+  };
+  // 6.3 Trap 2: a resize/rotation moves the fit and would leave the floor stale.
+  let refitTimer = null;
+  scheduleRefit = () => {
+    if (refitTimer) clearTimeout(refitTimer);
+    refitTimer = setTimeout(fitLake, 175);
+  };
   fitLake();
   // The flex layout can settle after the first paint; refit once the container is real.
   requestAnimationFrame(() => map.invalidateSize());
@@ -646,7 +680,8 @@ async function mount(deps) {
   }
   function desiredDims() {
     const css = Math.max(mapEl.clientWidth || 384, overlayScreenWidth());
-    const w = playing ? playWidth(css) : targetWidth(css, dpr());
+    let w = playing ? playWidth(css) : targetWidth(css, dpr());
+    if (dragRaster) w = Math.min(w, DRAG_RASTER_W); // 6.3 D3.5: cheaper raster while the finger is down
     return pickDisplayDims(bounds, w);
   }
   const frameCache = createFrameCache({
@@ -671,6 +706,15 @@ async function mount(deps) {
   let paintGen = 0;            // bumped per committed paint; stale encodes are dropped
   let inFlightEncode = 0;      // convertToBlob calls not yet settled
   let lastOverlayUrl = null;   // overlay URL dedupe (cache hits re-apply the same blob:)
+  // 6.3 D3.5: drag-class raster. Set on the first drag-move that schedules a paint; a tap
+  // never flips it, so the rest dims survive. Restored before the pointerup settle render.
+  let dragRaster = false;
+  // 6.3 velocity gate state (D3.3): EMA of the per-move drag velocity, in px/ms.
+  let vEma = 0;
+  let lastX = 0;
+  let lastT = 0;
+  let suspended = false;      // paints currently suspended by high velocity
+  let suspendStartMs = 0;     // start of the current suspension (anti-freeze clock)
   let stickyHead = null;       // 5L: wide (24h) day header, clamped in writeTape
   let scrubMinutes = null;     // 6.2: continuous minute position under the reticle mid-drag
 
@@ -715,6 +759,15 @@ async function mount(deps) {
   // A different W×H is a different image even if the URL string repeats.
   function resetOverlayDedupe() { lastOverlayUrl = null; }
 
+  // 6.3: move the canvas to the class desiredDims() now reports (drag vs rest raster).
+  function applyDesiredDims() {
+    const d = desiredDims();
+    if (d.W === canvas.width && d.H === canvas.height) return;
+    canvas.width = d.W;
+    canvas.height = d.H;
+    resetOverlayDedupe(); // same URL at a new W×H is a different image
+  }
+
   // Stage 5H §B1: UI-only drag step. Cheap by construction — text + one transform.
   function scrubUiTo(idx) {
     dragIdx = idx;
@@ -736,6 +789,7 @@ async function mount(deps) {
 
   // Stage 5H §B2: throttled map repaint. Newest index always wins; at most one build in
   // flight (busy skip). Re-arms via rAF until the gate opens or the encode settles.
+  // 6.3: a separate velocity decision sits in front of the (unchanged) shouldPaintMap gate.
   function scheduleMapPaint(idx) {
     pendingPaintIdx = idx;
     if (paintArmed) return;
@@ -746,11 +800,36 @@ async function mount(deps) {
       const target = pendingPaintIdx;
       pendingPaintIdx = null;
       if (target == null) return;
-      if (!shouldPaintMap(performance.now(), lastMapPaintMs, inFlightEncode > 0, MAP_PAINT_MIN_MS)) {
-        scheduleMapPaint(target); // gate closed / busy: keep the newest target stashed
+      // 6.3: the target may already be on screen (a clamped drag, or a drag that came back to
+      // the start). 6.2's cache + overlay-dedupe made this a no-op; the drag raster class
+      // changes the cache key, so skip explicitly instead of burning a redundant encode.
+      if (target === cur) return;
+      const now = performance.now();
+      // 6.3: a SUSTAINED gap between move samples means the finger stopped — decay the EMA
+      // (delta = 0, same alpha) so a suspended fast drag reaches V_LO and D3.3's catch-up
+      // paint can fire. Without this only the 1.2 s anti-freeze ever lifts a suspension
+      // (no moves = no samples = suspended forever). The 120 ms gate keeps a ~1-frame
+      // delivery gap (touch coalescing) from decaying it.
+      if (scrubbing && now - lastT > 120) {
+        vEma *= 0.7;
+        lastX = scrubX;
+      }
+      const busy = inFlightEncode > 0;
+      const highV = scrubbing && vEma >= V_HI; // finger flying: skip encodes
+      if (highV && !suspended) { suspended = true; suspendStartMs = now; }
+      let forced = false;
+      if (suspended && highV) {
+        if (now - suspendStartMs > SUSPEND_MAX_MS) { forced = true; suspendStartMs = now; } // anti-freeze
+      } else if (suspended && !highV) {
+        suspended = false;
+        if (vEma < V_LO) forced = true; // first frame after a suspension: one catch-up paint
+      }
+      if (highV && !forced) { scheduleMapPaint(target); return; } // keep the newest stashed
+      if (forced ? busy : !shouldPaintMap(now, lastMapPaintMs, busy, MAP_PAINT_MIN_MS)) {
+        scheduleMapPaint(target); // busy (forced) or gate closed: re-arm with the newest target
         return;
       }
-      lastMapPaintMs = performance.now();
+      lastMapPaintMs = now;
       paintGen++;
       showFrame(target, paintGen);
     });
@@ -914,6 +993,13 @@ async function mount(deps) {
     // 6.2: the drag baseline in minutes, so the offset is continuous from the very first
     // pointermove (the pill can read 7:04 instead of jumping to 7:00 or 7:15).
     scrubMinutes = cur * (stepMin > 0 ? stepMin : FRAME_MINUTES);
+    // 6.3 velocity gate: gesture start. D3.3 initial condition — presume fast until a sample
+    // says otherwise. An EMA seeded at 0 needs ~4 samples (~66 ms) to cross V_HI, which is
+    // exactly the window a first-frame full raster stall slips through.
+    vEma = V_HI;
+    lastX = e.clientX;
+    lastT = performance.now();
+    suspended = false;
     trackTape.style.transition = 'none'; // drag follows the finger 1:1
   });
   deck.addEventListener('pointermove', (e) => {
@@ -923,6 +1009,14 @@ async function mount(deps) {
     scrubRaf = requestAnimationFrame(() => {
       scrubRaf = 0;
       if (!scrubbing) return;
+      // 6.3: per-move velocity from consecutive real samples (px/ms), EMA-smoothed.
+      const now = performance.now();
+      const v = Math.abs(scrubX - lastX) / Math.max(1, now - lastT);
+      vEma = (1 - V_EMA_ALPHA) * vEma + V_EMA_ALPHA * v;
+      lastX = scrubX;
+      lastT = now;
+      // A real drag-move switches to the cheap drag raster; a tap never reaches here.
+      if (!dragRaster) { dragRaster = true; applyDesiredDims(); }
       // 6.2: continuous drag. The tape translate and the pill clock both run on raw pixel
       // deltas converted to minutes; the canvas keeps querying the 96-frame array via
       // Math.round(minutes / step) inside scrubUiToMinutes (see scheduleMapPaint).
@@ -942,6 +1036,9 @@ async function mount(deps) {
     // continuous minute position is dropped here, so the tape glides from where the finger
     // left it to the quantised frame (the .32 s CSS transition is already restored above).
     scrubMinutes = null;
+    suspended = false;
+    // 6.3 D3.5: restore the rest raster class before the full-width settle render.
+    if (dragRaster) { dragRaster = false; applyDesiredDims(); }
     if (dragIdx != null && frames.length) {
       cancelMapPaint();
       paintGen++; // invalidate any drag encode still in flight
@@ -1102,6 +1199,7 @@ async function mount(deps) {
     const pills = ui.windPills(e.speedMph, null, e.gustMph);
     lakeEl.textContent = pills.lake;
     gustEl.textContent = pills.gust;
+    pillGustEl.setAttribute('aria-label', 'Gust ' + pills.gust + ' mph');
     pillLakeEl.setAttribute('aria-label', `Lake wind ${pills.lake} mph`);
     pillLakeEl.style.setProperty('--tint', pills.lakeTint);
     pillLakeEl.style.setProperty('--tint-bd', pills.lakeBorder);
@@ -1206,8 +1304,8 @@ async function mount(deps) {
     updateScrubUi(cur);
     placeNowTick();
   }
-  window.addEventListener('resize', () => { refreshRailRect(); scheduleRegather(); scheduleTimeline(); resyncTrackUi(); });
-  window.addEventListener('orientationchange', () => { refreshRailRect(); scheduleTimeline(); resyncTrackUi(); });
+  window.addEventListener('resize', () => { refreshRailRect(); scheduleRegather(); scheduleTimeline(); resyncTrackUi(); scheduleRefit(); });
+  window.addEventListener('orientationchange', () => { refreshRailRect(); scheduleTimeline(); resyncTrackUi(); scheduleRefit(); });
   // test hook: same handler the map click uses
   window.__bpcTap = (lat, lon) => placePin(L.latLng(lat, lon));
 

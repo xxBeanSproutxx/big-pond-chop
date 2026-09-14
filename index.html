@@ -174,7 +174,7 @@
               border-radius: 4px; background: #262930; }
   /* Wide filmstrip tape; translated by the single writeTape() path in render.js. */
   #track-tape { position: absolute; left: 0; top: 0; height: 100%;
-                transition: transform .32s linear; }
+                transition: transform .32s linear; will-change: transform; }
   #now-tick       { position: absolute; top: 0; bottom: 0; width: 2px; background: #ffd166;
                     box-shadow: 0 0 0 1px rgba(13,27,42,.6); pointer-events: none; }
   /* Amber pill cursor IS the permanent time indicator, anchored to the centre of the
@@ -285,7 +285,7 @@
           <div id="three" role="group" aria-label="Wind">
             <span id="pill-lake" class="pill" aria-label="Lake wind"><span id="lake">17</span><span id="mph" class="unit">mph</span></span>
             <span id="dot" aria-hidden="true">·</span>
-            <span id="pill-gust" class="pill" aria-label="Gust"><span id="gust">24</span><span class="unit">mph</span><span id="gust-u">Gust</span></span>
+            <span id="pill-gust" class="pill" aria-label="Gust 24 mph"><span id="gust">24</span><span id="gust-u">Gust</span></span>
           </div>
         </div>
       </div>
