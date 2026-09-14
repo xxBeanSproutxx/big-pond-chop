@@ -22,10 +22,7 @@ const FRAME_MINUTES = 15;
 const FRAME_CACHE_MAX = 8;
 const MAP_PAINT_MIN_MS = 72; // ~13.9 fps: drag-time overlay repaint throttle (12-15 fps band)
 const STICKY_INSET = 56;    // 5L: sticky day header clears the 48 px #play button at the window edge
-// 6.3 velocity gate (D3.3): suspend map encodes while the finger flies, catch up when it slows.
-const V_HI = 0.25;           // px/ms: at/above this a drag paint is suspended
-const V_LO = 0.08;           // px/ms: first frame back below this forces one catch-up paint
-const V_EMA_ALPHA = 0.3;     // EMA smoothing for the per-move velocity
+// 6.4 D2.1/D2.2: suspend map encodes while a scrub gesture is live; the valve below caps it.
 const SUSPEND_MAX_MS = 1200; // anti-freeze: one paint per 1.2 s of continuous suspension
 const DRAG_RASTER_W = 512;   // 6.3 D3.5: drag-time raster width in device px (rest width 780)
 
@@ -608,6 +605,7 @@ async function mount(deps) {
     touchZoom: true,
     zoomAnimation: true,
     wheelPxPerZoomLevel: 90,
+    inertia: false, // 6.4 D1.1: no momentum — the release tail collapses to one fixed-duration recoil (SPEC §1.4)
     maxBoundsViscosity: 0.75, // 6.3 D2.3: rubber-band feel at the pan box edges
   });
   // 6B.4: drop Leaflet's default "Leaflet |" prefix — TILE_ATTRIBUTION carries its own
@@ -648,10 +646,22 @@ async function mount(deps) {
     if (map.getZoom() < fitZoom) map.setZoom(fitZoom);
   };
   // 6.3 Trap 2: a resize/rotation moves the fit and would leave the floor stale.
+  // 6.4 D1.4: if the debounce lands mid-pan, re-arm (bounded) so the refit still lands
+  // after the gesture instead of being silently dropped.
   let refitTimer = null;
+  let refitRearms = 0;
   scheduleRefit = () => {
     if (refitTimer) clearTimeout(refitTimer);
-    refitTimer = setTimeout(fitLake, 175);
+    refitRearms = 0;
+    const attempt = () => {
+      if (map && map.dragging && map.dragging.moving() && refitRearms < 40) {
+        refitRearms++;
+        refitTimer = setTimeout(attempt, 175);
+        return;
+      }
+      fitLake();
+    };
+    refitTimer = setTimeout(attempt, 175);
   };
   fitLake();
   // The flex layout can settle after the first paint; refit once the container is real.
@@ -709,12 +719,7 @@ async function mount(deps) {
   // 6.3 D3.5: drag-class raster. Set on the first drag-move that schedules a paint; a tap
   // never flips it, so the rest dims survive. Restored before the pointerup settle render.
   let dragRaster = false;
-  // 6.3 velocity gate state (D3.3): EMA of the per-move drag velocity, in px/ms.
-  let vEma = 0;
-  let lastX = 0;
-  let lastT = 0;
-  let suspended = false;      // paints currently suspended by high velocity
-  let suspendStartMs = 0;     // start of the current suspension (anti-freeze clock)
+  let suspendStartMs = 0;     // 6.4 D2.2: start of the current suspension (valve clock)
   let stickyHead = null;       // 5L: wide (24h) day header, clamped in writeTape
   let scrubMinutes = null;     // 6.2: continuous minute position under the reticle mid-drag
 
@@ -789,7 +794,7 @@ async function mount(deps) {
 
   // Stage 5H §B2: throttled map repaint. Newest index always wins; at most one build in
   // flight (busy skip). Re-arms via rAF until the gate opens or the encode settles.
-  // 6.3: a separate velocity decision sits in front of the (unchanged) shouldPaintMap gate.
+  // 6.4 D2.1: a live scrub suspends encodes outright (D2.2's valve is the only exception).
   function scheduleMapPaint(idx) {
     pendingPaintIdx = idx;
     if (paintArmed) return;
@@ -805,30 +810,18 @@ async function mount(deps) {
       // changes the cache key, so skip explicitly instead of burning a redundant encode.
       if (target === cur) return;
       const now = performance.now();
-      // 6.3: a SUSTAINED gap between move samples means the finger stopped — decay the EMA
-      // (delta = 0, same alpha) so a suspended fast drag reaches V_LO and D3.3's catch-up
-      // paint can fire. Without this only the 1.2 s anti-freeze ever lifts a suspension
-      // (no moves = no samples = suspended forever). The 120 ms gate keeps a ~1-frame
-      // delivery gap (touch coalescing) from decaying it.
-      if (scrubbing && now - lastT > 120) {
-        vEma *= 0.7;
-        lastX = scrubX;
-      }
       const busy = inFlightEncode > 0;
-      const highV = scrubbing && vEma >= V_HI; // finger flying: skip encodes
-      if (highV && !suspended) { suspended = true; suspendStartMs = now; }
-      let forced = false;
-      if (suspended && highV) {
-        if (now - suspendStartMs > SUSPEND_MAX_MS) { forced = true; suspendStartMs = now; } // anti-freeze
-      } else if (suspended && !highV) {
-        suspended = false;
-        if (vEma < V_LO) forced = true; // first frame after a suspension: one catch-up paint
-      }
-      if (highV && !forced) { scheduleMapPaint(target); return; } // keep the newest stashed
-      if (forced ? busy : !shouldPaintMap(now, lastMapPaintMs, busy, MAP_PAINT_MIN_MS)) {
-        scheduleMapPaint(target); // busy (forced) or gate closed: re-arm with the newest target
+      if (scrubbing) {
+        // 6.4 D2.1: no encodes while a scrub is live. The valve (D2.2) opens exactly one
+        // anti-freeze paint per SUSPEND_MAX_MS of continuous suspension.
+        if (!suspendStartMs) suspendStartMs = now;
+        if (now - suspendStartMs < SUSPEND_MAX_MS) { scheduleMapPaint(target); return; }
+        suspendStartMs = now; // valve fired: fall through to one paint
+      } else if (busy || !shouldPaintMap(now, lastMapPaintMs, busy, MAP_PAINT_MIN_MS)) {
+        scheduleMapPaint(target); // busy or gate closed: re-arm with the newest target
         return;
       }
+      if (busy) { scheduleMapPaint(target); return; } // valve paint still waits out an in-flight encode
       lastMapPaintMs = now;
       paintGen++;
       showFrame(target, paintGen);
@@ -993,13 +986,9 @@ async function mount(deps) {
     // 6.2: the drag baseline in minutes, so the offset is continuous from the very first
     // pointermove (the pill can read 7:04 instead of jumping to 7:00 or 7:15).
     scrubMinutes = cur * (stepMin > 0 ? stepMin : FRAME_MINUTES);
-    // 6.3 velocity gate: gesture start. D3.3 initial condition — presume fast until a sample
-    // says otherwise. An EMA seeded at 0 needs ~4 samples (~66 ms) to cross V_HI, which is
-    // exactly the window a first-frame full raster stall slips through.
-    vEma = V_HI;
-    lastX = e.clientX;
-    lastT = performance.now();
-    suspended = false;
+    // 6.4 D3.2: the drag-start trigger queues a neighbour warm, which runs when idle
+    // (prefetchNeighbours no-ops while the gesture is live).
+    schedulePrefetchNeighbours();
     trackTape.style.transition = 'none'; // drag follows the finger 1:1
   });
   deck.addEventListener('pointermove', (e) => {
@@ -1009,12 +998,6 @@ async function mount(deps) {
     scrubRaf = requestAnimationFrame(() => {
       scrubRaf = 0;
       if (!scrubbing) return;
-      // 6.3: per-move velocity from consecutive real samples (px/ms), EMA-smoothed.
-      const now = performance.now();
-      const v = Math.abs(scrubX - lastX) / Math.max(1, now - lastT);
-      vEma = (1 - V_EMA_ALPHA) * vEma + V_EMA_ALPHA * v;
-      lastX = scrubX;
-      lastT = now;
       // A real drag-move switches to the cheap drag raster; a tap never reaches here.
       if (!dragRaster) { dragRaster = true; applyDesiredDims(); }
       // 6.2: continuous drag. The tape translate and the pill clock both run on raw pixel
@@ -1036,7 +1019,7 @@ async function mount(deps) {
     // continuous minute position is dropped here, so the tape glides from where the finger
     // left it to the quantised frame (the .32 s CSS transition is already restored above).
     scrubMinutes = null;
-    suspended = false;
+    suspendStartMs = 0; // 6.4 D2.2: release the valve clock for the next gesture
     // 6.3 D3.5: restore the rest raster class before the full-width settle render.
     if (dragRaster) { dragRaster = false; applyDesiredDims(); }
     if (dragIdx != null && frames.length) {
@@ -1045,6 +1028,11 @@ async function mount(deps) {
       lastMapPaintMs = performance.now();
       showFrame(dragIdx, paintGen);
       dragIdx = null;
+      // 6.4 D3.2: settle paint done; warm the released index's neighbours while idle. Delayed by
+      // 250 ms so the warm-up builds cannot compete with the settle's own cold build + encode/
+      // decode window (measured 2026-09-14: 150.2 ms to the settle's visible paint with the
+      // warm-up inside that window vs 12.4 ms without).
+      setTimeout(schedulePrefetchNeighbours, 250);
     }
   }
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
@@ -1237,6 +1225,20 @@ async function mount(deps) {
     const run = () => { if (playing) frameFor(idx); };
     if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 200 });
     else setTimeout(run, 0);
+  }
+
+  // 6.4 D3.2: warm the neighbours of the shown index so the next scrub/settle is not a cold build.
+  // Never builds while a gesture is live — a 23-41 ms cold build would eat the frame budget the
+  // suspension exists to protect; the drag-start trigger therefore queues and runs when idle.
+  function prefetchNeighbours() {
+    if (!frames.length || scrubbing || playing) return;
+    for (let i = cur - 1; i <= cur + 1; i++) {
+      if (i >= 0 && i < frames.length && i !== cur) frameFor(i);
+    }
+  }
+  function schedulePrefetchNeighbours() {
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(prefetchNeighbours, { timeout: 400 });
+    else setTimeout(prefetchNeighbours, 0);
   }
 
   // rAF-coalesced: many input/tick events collapse into one render of the LATEST index.
