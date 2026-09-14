@@ -115,6 +115,40 @@ function idxFromDrag(dxPx, startIdx, pxf, n) {
   return Math.max(0, Math.min(n - 1, raw));
 }
 
+// ---- 6.2: continuous (minute-level) scrub geometry (pure helpers) ----
+// One minute of tape. The density is quoted in px per DAY, so a single 15-min frame is
+// pxPerDay/96 px and a minute is a 15th of that (24 h @360 px: 0.382 px/min; 7 d: 0.229).
+function pxPerMinute(horizon, windowW, stepMin) {
+  const step = Number(stepMin) > 0 ? Number(stepMin) : FRAME_MINUTES;
+  return pxPerFrame(horizon, windowW) / step;
+}
+
+// Raw pixel drag -> CONTINUOUS minutes (never snapped): dragging LEFT (dx < 0) advances
+// into the future. Clamped to the series so a fling can neither run off the tape nor
+// wrap. A non-positive px/min (a zero-width window during boot) returns the start.
+function minutesFromDrag(dxPx, startMinutes, pxPerMin, maxMinutes) {
+  const ppm = Number(pxPerMin);
+  const lo = 0, hi = Math.max(0, Number(maxMinutes) || 0);
+  const start = Math.max(lo, Math.min(hi, Number(startMinutes) || 0));
+  if (!Number.isFinite(ppm) || ppm <= 0) return start;
+  return Math.max(lo, Math.min(hi, start - Number(dxPx) / ppm));
+}
+
+// Continuous tape translate: the same reticle identity as tapeTranslate(), on the minute
+// grid, so a half-frame drag moves the tape by exactly the finger delta.
+function tapeTranslateMinutes(minutes, pxPerMin, viewportCenterPx) {
+  return Number(viewportCenterPx) - Number(minutes) * Number(pxPerMin);
+}
+
+// The raster engine still works on the 15-min frame array: quantise the continuous minute
+// position to the nearest frame (spec: round(minutes / step)) — never a dummy frame.
+function idxFromMinutes(minutes, stepMin, n) {
+  const step = Number(stepMin) > 0 ? Number(stepMin) : FRAME_MINUTES;
+  const count = Math.max(1, Number(n) || 1);
+  const raw = Math.round((Number(minutes) || 0) / step);
+  return Math.max(0, Math.min(count - 1, raw));
+}
+
 // ---- stage 5D: timeline partitions + 7-day playback cadence (pure helpers) ----
 // One entry per maximal run of equal local date, index = first frame of the run.
 // Derived from the date strings only — never floor(i / framesPerDay).
@@ -384,12 +418,9 @@ async function mount(deps) {
   const horizonEl = document.getElementById('horizon');
   const h24Btn = document.getElementById('h-24h');
   const h7Btn = document.getElementById('h-7d');
-  const shoreEl = document.getElementById('shore');
   const lakeEl = document.getElementById('lake');
   const gustEl = document.getElementById('gust');
   const pillLakeEl = document.getElementById('pill-lake');
-  const helpBtn = document.getElementById('help');
-  const helpPop = document.getElementById('help-pop');
   const verdictRange = document.getElementById('verdict-range');
   const verdictPeak = document.getElementById('verdict-peak');
   const comfortChip = document.getElementById('comfort-chip');
@@ -641,6 +672,7 @@ async function mount(deps) {
   let inFlightEncode = 0;      // convertToBlob calls not yet settled
   let lastOverlayUrl = null;   // overlay URL dedupe (cache hits re-apply the same blob:)
   let stickyHead = null;       // 5L: wide (24h) day header, clamped in writeTape
+  let scrubMinutes = null;     // 6.2: continuous minute position under the reticle mid-drag
 
   // Cached once per gesture / on layout change; never read in the move path.
   function refreshRailRect() {
@@ -656,15 +688,22 @@ async function mount(deps) {
 
   // Single writer for the tape transform: centre the active frame under the fixed reticle.
   // 5L: also clamps the wide day header to the window's left edge so it stays visible.
-  function writeTape(idx) {
-    if (!viewportW) return;
-    const center = viewportW / 2;
-    const tx = tapeTranslate(idx, pxPerFrame(horizon, viewportW), center);
+  function applyTapeTransform(tx) {
     trackTape.style.transform = 'translateX(' + tx + 'px)';
     if (stickyHead) {
       const want = Math.max(6, (-tx) + STICKY_INSET - stickyHead.blockLeft);
       if (stickyHead.el.style.left !== want + 'px') stickyHead.el.style.left = want + 'px';
     }
+  }
+  function writeTape(idx) {
+    if (!viewportW) return;
+    applyTapeTransform(tapeTranslate(idx, pxPerFrame(horizon, viewportW), viewportW / 2));
+  }
+  // 6.2: drag writer — continuous minutes, so the tape follows the finger 1:1 instead of
+  // stepping frame to frame. Same reticle identity and sticky-header clamp.
+  function writeTapeMinutes(minutes) {
+    if (!viewportW) return;
+    applyTapeTransform(tapeTranslateMinutes(minutes, pxPerMinute(horizon, viewportW, stepMin), viewportW / 2));
   }
 
   // Stage 5H §C1: overlay URL dedupe — cache hits re-apply the same blob: URL today.
@@ -680,6 +719,18 @@ async function mount(deps) {
   function scrubUiTo(idx) {
     dragIdx = idx;
     updateScrubUi(idx);
+    scheduleMapPaint(idx);
+  }
+
+  // 6.2: continuous drag step. Same cheap shape (one string + one transform) but the
+  // position is measured in minutes, so the pill reads true minute-level timestamps and
+  // the tape never snaps. The map still paints on the quantised frame index.
+  function scrubUiToMinutes(minutes) {
+    scrubMinutes = minutes;
+    const step = stepMin > 0 ? stepMin : FRAME_MINUTES;
+    const idx = idxFromMinutes(minutes, step, frames.length);
+    dragIdx = idx;
+    updateScrubUiMinutes(minutes);
     scheduleMapPaint(idx);
   }
 
@@ -830,6 +881,22 @@ async function mount(deps) {
     writeTape(idx);
   }
 
+  // 6.2: minute-level feedback for the continuous drag path. The pill reads the TRUE minute
+  // under the reticle (floor frame + residual minutes, DST-safe via ui.formatPillTimeAt)
+  // while the aria index and the map lookup stay on the 15-min frame grid.
+  function updateScrubUiMinutes(minutes) {
+    if (!frames.length || !viewportW) return;
+    const step = stepMin > 0 ? stepMin : FRAME_MINUTES;
+    const total = Math.round(minutes);
+    const i = Math.max(0, Math.min(frames.length - 1, Math.floor(total / step)));
+    const e = frames[i];
+    const text = ui.formatPillTimeAt(e.time, total - i * step) || ui.formatPillTime(e.time);
+    if (timePill.textContent !== text) timePill.textContent = text;
+    trackEl.setAttribute('aria-valuenow', String(idxFromMinutes(total, step, frames.length)));
+    trackEl.setAttribute('aria-valuetext', `${text}, ${ui.dayLabel(e.time, true)}`);
+    writeTapeMinutes(minutes);
+  }
+
   deck.addEventListener('pointerdown', (e) => {
     if (!frames.length) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -844,6 +911,9 @@ async function mount(deps) {
     deck.setPointerCapture(e.pointerId);
     scrubStartX = e.clientX;
     scrubStartIdx = cur;
+    // 6.2: the drag baseline in minutes, so the offset is continuous from the very first
+    // pointermove (the pill can read 7:04 instead of jumping to 7:00 or 7:15).
+    scrubMinutes = cur * (stepMin > 0 ? stepMin : FRAME_MINUTES);
     trackTape.style.transition = 'none'; // drag follows the finger 1:1
   });
   deck.addEventListener('pointermove', (e) => {
@@ -853,9 +923,14 @@ async function mount(deps) {
     scrubRaf = requestAnimationFrame(() => {
       scrubRaf = 0;
       if (!scrubbing) return;
-      const pxf = pxPerFrame(horizon, viewportW);
+      // 6.2: continuous drag. The tape translate and the pill clock both run on raw pixel
+      // deltas converted to minutes; the canvas keeps querying the 96-frame array via
+      // Math.round(minutes / step) inside scrubUiToMinutes (see scheduleMapPaint).
+      const step = stepMin > 0 ? stepMin : FRAME_MINUTES;
+      const ppm = pxPerMinute(horizon, viewportW, step);
+      const maxMin = Math.max(0, (frames.length - 1) * step);
       // 5H: UI-only step (zero drag latency); the map catches up on its own throttle.
-      scrubUiTo(idxFromDrag(scrubX - scrubStartX, scrubStartIdx, pxf, frames.length));
+      scrubUiToMinutes(minutesFromDrag(scrubX - scrubStartX, scrubStartIdx * step, ppm, maxMin));
     });
   });
   function endScrub(e) {
@@ -863,7 +938,10 @@ async function mount(deps) {
     scrubbing = false;
     scrubPointerId = null;
     trackTape.style.transition = ''; // restore the playback glide
-    // 5H §B3: snap to the exact final frame, bypassing throttle + busy skip.
+    // 5H §B3: snap to the exact final frame, bypassing throttle + busy skip. 6.2: the
+    // continuous minute position is dropped here, so the tape glides from where the finger
+    // left it to the quantised frame (the .32 s CSS transition is already restored above).
+    scrubMinutes = null;
     if (dragIdx != null && frames.length) {
       cancelMapPaint();
       paintGen++; // invalidate any drag encode still in flight
@@ -1015,13 +1093,16 @@ async function mount(deps) {
     body.dataset.windMph = e.speedMph.toFixed(1);
     body.dataset.bearingGrid = e.bearingGrid.toFixed(3);
     body.dataset.teffH = e.tEffH.toFixed(2);
-    // During a drag the tape UI is owned by scrubUiTo (newest index); only the map paints.
-    updateScrubUi(scrubbing && dragIdx != null ? dragIdx : cur);
-    const shoreEntry = shoreDay && shoreDay[cur];
-    const pills = ui.windPills(e.speedMph, shoreEntry ? shoreEntry.speedMph : null, e.gustMph);
+    // During a drag the tape UI is owned by the continuous scrub path (newest minute);
+    // only the map paints. Otherwise the snapped frame owns the pill + tape.
+    if (scrubbing && scrubMinutes != null) updateScrubUiMinutes(scrubMinutes);
+    else updateScrubUi(cur);
+    // 6.2: two-badge row — lake (tier-tinted) + gust, each carrying its own unit. The
+    // shore series is still ingested and kept on hand, it is simply not displayed.
+    const pills = ui.windPills(e.speedMph, null, e.gustMph);
     lakeEl.textContent = pills.lake;
-    shoreEl.textContent = pills.shore;
     gustEl.textContent = pills.gust;
+    pillLakeEl.setAttribute('aria-label', `Lake wind ${pills.lake} mph`);
     pillLakeEl.style.setProperty('--tint', pills.lakeTint);
     pillLakeEl.style.setProperty('--tint-bd', pills.lakeBorder);
     const c = ui.compass(e.dirTrueDeg, e.speedMph);
@@ -1118,23 +1199,8 @@ async function mount(deps) {
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
   playBtn.addEventListener('click', () => setPlaying(!playing));
   document.getElementById('card-close').addEventListener('click', dismissPin);
-  // 6B: ? explainer. #help-pop is a sibling of <header> (never sliced by its clip),
-  // so one open/close path can keep aria-expanded in sync and return focus to #help.
-  let helpOpen = false;
-  function setHelpOpen(on) {
-    helpOpen = !!on;
-    helpBtn.setAttribute('aria-expanded', helpOpen ? 'true' : 'false');
-    helpPop.hidden = !helpOpen;
-    if (!helpOpen) helpBtn.focus();
-  }
-  helpBtn.addEventListener('click', () => setHelpOpen(!helpOpen));
-  helpPop.addEventListener('click', (e) => e.stopPropagation());
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && helpOpen) setHelpOpen(false);
-  });
-  document.addEventListener('click', (e) => {
-    if (helpOpen && !helpPop.contains(e.target) && !helpBtn.contains(e.target)) setHelpOpen(false);
-  });
+  // 6.2: the ? explainer and its popover were removed with the shore pill — the two
+  // badges are self-labelling, so there is no popover to open, close, focus or trap.
   // A width change moves the rail mapping: re-place the hairline/playhead + day label.
   function resyncTrackUi() {
     updateScrubUi(cur);
@@ -1267,5 +1333,6 @@ module.exports = {
   landMaskRaster, smoothRaster, cacheKey, frameBytes, createFrameCache, mount,
   offscreenSupported, revokeUrl, shouldPaintResult, shouldPaintMap, encodeOffscreen,
   pxPerDay, pxPerFrame, tapeTranslate, idxFromDrag, dayPartitions, playStep, nextPlayIdx,
+  pxPerMinute, minutesFromDrag, tapeTranslateMinutes, idxFromMinutes,
   tickWinds,
 };

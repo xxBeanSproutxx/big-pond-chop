@@ -238,6 +238,32 @@ check('winter is CST; the fall-back DST day does not throw', () => {
   console.log(`       ${before} / ${after}`);
 });
 
+console.log('\n== [9b] 6.2 minute-level pill clock (formatPillTimeAt) ==');
+check('minutes are always shown; the offset is exact minute arithmetic', () => {
+  assert.strictEqual(ui.formatPillTimeAt('2026-09-11T07:00', 4), '7:04 AM', 'the spec example');
+  assert.strictEqual(ui.formatPillTimeAt('2026-09-11T07:00', 9), '7:09 AM');
+  assert.strictEqual(ui.formatPillTimeAt('2026-09-11T07:00', 14), '7:14 AM');
+  assert.strictEqual(ui.formatPillTimeAt('2026-09-11T19:00', 0), '7:00 PM',
+    'the exact hour keeps its :00 (the compact form is for the snapped path only)');
+  assert.strictEqual(ui.formatPillTimeAt('2026-09-11T19:00', 5.4), '7:05 PM', 'offsets round to whole minutes');
+  assert.strictEqual(ui.formatPillTimeAt('2026-09-11T19:45', 20), '8:05 PM', 'minute overflow rolls the hour');
+  assert.strictEqual(ui.formatPillTimeAt('2026-09-11T23:55', 10), '12:05 AM', 'minute overflow rolls the day');
+});
+check('bad input -> empty; a non-finite offset falls back to the frame clock', () => {
+  assert.strictEqual(ui.formatPillTimeAt('', 5), '');
+  assert.strictEqual(ui.formatPillTimeAt(null, 5), '');
+  assert.strictEqual(ui.formatPillTimeAt('not-a-time', 5), '');
+  assert.strictEqual(ui.formatPillTimeAt('2026-09-11T19:00', NaN), '7:00 PM');
+  assert.strictEqual(ui.formatPillTimeAt('2026-09-11T19:00', undefined), '7:00 PM');
+});
+check('a scrub across the fall-back DST change reads the true local minute', () => {
+  // 2026-11-01: 2:00 AM CDT falls back to 1:00 AM CST. 01:50 CDT + 20 min is 01:10 CST —
+  // the clock goes BACKWARD because the instant did not; the offset is never applied to
+  // the wall-clock string.
+  assert.strictEqual(ui.formatPillTimeAt('2026-11-01T01:50', 20), '1:10 AM');
+  assert.strictEqual(ui.formatPillTimeAt('2026-11-01T00:30', 15), '12:45 AM');
+});
+
 console.log('\n== [10] stage-5b rampGradient ==');
 check('ramp gradient contains the six Hs stops in order', () => {
   const g = ui.rampGradient();

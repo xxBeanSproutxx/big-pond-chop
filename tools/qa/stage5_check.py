@@ -1599,7 +1599,7 @@ def check_seam():
 
 
 # --------------------------------------------------------------------------- #
-# [19] Stage 6C: marine header verification (src-free, route-stubbed)
+# [19] 6.2: UI polish pass — de-cluttered header, docked corners, continuous scrub
 # --------------------------------------------------------------------------- #
 S6_SHOTS = ROOT / "tmp" / "s6-shots"
 S6_SHOTS.mkdir(parents=True, exist_ok=True)
@@ -1607,17 +1607,19 @@ S6_LAKE_LAT, S6_SHORE_LAT = 46.22, 46.13
 # Host set observed on a clean boot: the dual-location ingest must not add a
 # second weather host (see STAGE-6-RECEIPTS for the observation).
 S6_HOSTS_OK = {"127.0.0.1", "api.open-meteo.com", "tile.openstreetmap.org", "unpkg.com"}
-# Row order is Shore / Lake / Gust (the spec's "normal (8/17/24)" reads shore/lake/gust).
+# The 6.2 row is two badges: lake (tier-tinted, carries mph) and gust (neutral, carries mph + Gust).
 S6_STATES = {
     "normal": {"lake": 17.0, "shore": 8.0, "gust": 24.0},
     "wide": {"lake": 27.0, "shore": 12.0, "gust": 38.0},
     "calm": {"lake": 4.0, "shore": 3.0, "gust": 6.0},
 }
+# 6.2: the de-clutter deletes these ids. A single leftover is a FAIL (the probe list
+# lives inside S62_GEOMETRY_JS so it reads the live DOM, not this module).
 
-S6_GEOMETRY_JS = r"""
+S62_GEOMETRY_JS = r"""
 () => {
   // Null-safe: a missing id is NAMED in `missing` and its rect is null, so the
-  // gate reports the element instead of throwing (stage 6C hardening).
+  // gate reports the element instead of throwing.
   const missing = [];
   const R = (el, label) => { if (!el) { missing.push(label || '?'); return null; }
     const r = el.getBoundingClientRect();
@@ -1625,6 +1627,8 @@ S6_GEOMETRY_JS = r"""
             top:+r.top.toFixed(2), bottom:+r.bottom.toFixed(2), right:+r.right.toFixed(2)}; };
   const g = (id) => { const el = document.getElementById(id);
     if (!el) { missing.push('#' + id); } return el; };
+  const kidsOf = (el) => el ? Array.from(el.children).map(function (c) {
+    return c.id || (typeof c.className === 'string' && c.className ? c.className : c.tagName); }) : null;
   const header = document.querySelector('header');
   if (!header) { missing.push('header'); }
   const hr = R(header, 'header');
@@ -1636,35 +1640,45 @@ S6_GEOMETRY_JS = r"""
   const cs3 = three ? getComputedStyle(three) : null;
   const avail = three ? +(three.clientWidth - (parseFloat(cs3.paddingLeft) || 0)
                   - (parseFloat(cs3.paddingRight) || 0)).toFixed(2) : null;
-  const pills = ['pill-shore', 'pill-lake', 'pill-gust'].map(function (id) {
-    const el = g(id), r = R(el, '#' + id);
-    return {id: id, r: r, bg: el ? getComputedStyle(el).backgroundColor : null,
+  const badge = (id) => { const el = g(id), r = R(el, '#' + id);
+    return {id: id, r: r, kids: kidsOf(el),
+            bg: el ? getComputedStyle(el).backgroundColor : null,
             inside: !!(r && hr && r.top >= hr.top - 0.01 && r.bottom <= hr.bottom + 0.01 &&
-                    r.x >= hr.x - 0.01 && r.right <= hr.right + 0.01)};
-  });
+                    r.x >= hr.x - 0.01 && r.right <= hr.right + 0.01)}; };
+  const badges = [badge('pill-lake'), badge('pill-gust')];
   const styles = {};
-  ['shore','shore-u','lake','lake-u','gust','gust-u','mph','dot','help'].forEach(function (id) {
-    const el = g(id);
-    if (!el) { styles[id] = null; return; }
-    const s = getComputedStyle(el);
-    styles[id] = {color: s.color, fontSize: s.fontSize, fontWeight: s.fontWeight,
-                  fontVariantNumeric: s.fontVariantNumeric, fontFamily: s.fontFamily};
-  });
+  [['lake','lake'],['gust','gust'],['mph','mph'],['gustLabel','gust-u'],['dot','dot']]
+    .forEach(function (pair) {
+      const el = g(pair[1]);
+      if (!el) { styles[pair[0]] = null; return; }
+      const s = getComputedStyle(el);
+      styles[pair[0]] = {color: s.color, fontSize: s.fontSize, fontWeight: s.fontWeight,
+        fontVariantNumeric: s.fontVariantNumeric, fontFamily: s.fontFamily,
+        text: el.textContent, w: +el.getBoundingClientRect().width.toFixed(2)};
+    });
+  const gustUnitEl = document.querySelector('#pill-gust .unit');
+  if (!gustUnitEl) { missing.push('#pill-gust .unit'); }
+  styles.gustUnit = gustUnitEl ? (function () {
+    const s = getComputedStyle(gustUnitEl);
+    return {color: s.color, fontSize: s.fontSize, fontWeight: s.fontWeight,
+            text: gustUnitEl.textContent,
+            w: +gustUnitEl.getBoundingClientRect().width.toFixed(2)}; })() : null;
   const hs = header ? getComputedStyle(header) : null;
-  const help = R(g('help'), '#help'), refresh = R(g('refresh'), '#refresh');
-  const mph = R(g('mph'), '#mph');
-  /* 6B.3: the ? is a 20 px micro-badge whose 44 px TOUCH target lives in an invisible
-     ::after (inset: -12px). Measure the declared expansion, not the visual box. */
-  const helpHit = (function () {
-    const el = g('help'); if (!el || !help) return null;
-    const ps = getComputedStyle(el, '::after');
-    const ex = Math.abs(parseFloat(ps.left) || 0), exT = Math.abs(parseFloat(ps.top) || 0);
-    const exR = Math.abs(parseFloat(ps.right) || 0), exB = Math.abs(parseFloat(ps.bottom) || 0);
-    return {w: +(help.w + ex + exR).toFixed(2), h: +(help.h + exT + exB).toFixed(2),
-            left: +(help.x - ex).toFixed(2), expand: ex};
-  })();
-  const mapR = R(g('map'), '#map');
-  const horizon = R(g('horizon'), '#horizon'), badge = R(g('wind-badge'), '#wind-badge');
+  const mapEl = g('map'), mapR = R(mapEl, '#map');
+  const horizon = R(g('horizon'), '#horizon');
+  const windBadge = R(g('wind-badge'), '#wind-badge');
+  const zoomEl = document.querySelector('.leaflet-control-zoom');
+  if (!zoomEl) { missing.push('.leaflet-control-zoom'); }
+  const zoom = zoomEl ? R(zoomEl, '.leaflet-control-zoom') : null;
+  const attribEl = document.querySelector('.leaflet-control-attribution');
+  if (!attribEl) { missing.push('.leaflet-control-attribution'); }
+  const attrib = attribEl ? R(attribEl, 'attribution') : null;
+  const legend = R(g('legend-card'), '#legend-card');
+  const timePillEl = g('time-pill'), tp = R(timePillEl, '#time-pill');
+  const cardEl = document.getElementById('card');
+  const cardR = (cardEl && !cardEl.hidden) ? R(cardEl, '#card') : null;
+  const ov = (a, b) => !!(a && b && a.x < b.right && b.x < a.right && a.y < b.bottom && b.y < a.bottom);
+  const tpCS = timePillEl ? getComputedStyle(timePillEl) : null;
   return {
     missing: missing,
     header: header ? {r: hr, clientHeight: header.clientHeight, scrollHeight: header.scrollHeight} : null,
@@ -1672,25 +1686,46 @@ S6_GEOMETRY_JS = r"""
                   zIndex: hs.zIndex, background: hs.backgroundColor,
                   position: hs.position, fontFamily: hs.fontFamily} : null,
     three: three ? {r: R(three, '#three'), scrollWidth: three.scrollWidth,
-            clientWidth: three.clientWidth, ink: ink, avail: avail} : null,
-    mph: mph ? {r: mph, text: document.getElementById('mph').textContent,
-          scrollWidth: document.getElementById('mph').scrollWidth,
-          clientWidth: document.getElementById('mph').clientWidth} : null,
-    pills: pills, pillsInside: pills.length > 0 && pills.every(function (p) { return p.inside; }),
-    help: help, helpHit: helpHit, refresh: refresh,
-    helpGap: (help && refresh) ? +(refresh.x - help.right).toFixed(2) : null,
-    map: mapR, overlaps: !!(hr && mapR && hr.bottom > mapR.top && hr.top < mapR.bottom),
-    horizonClear: (horizon && hr) ? +(horizon.top - hr.bottom).toFixed(2) : null,
-    badgeClear: (badge && hr) ? +(badge.top - hr.bottom).toFixed(2) : null,
+            clientWidth: three.clientWidth, ink: ink, avail: avail, kids: kidsOf(three)} : null,
+    badges: badges,
+    badgesInside: badges.length > 0 && badges.every(function (b) { return b.inside; }),
     styles: styles,
+    refresh: R(g('refresh'), '#refresh'),
+    map: mapR,
+    overlaps: !!(hr && mapR && hr.bottom > mapR.top && hr.top < mapR.bottom),
+    horizonClear: (horizon && hr) ? +(horizon.top - hr.bottom).toFixed(2) : null,
+    badgeClear: (windBadge && hr) ? +(windBadge.top - hr.bottom).toFixed(2) : null,
+    zoom: zoom, attribution: attrib,
+    corner: (horizon && windBadge && mapR) ? {
+      horizonLeft: +(horizon.x - mapR.x).toFixed(2),
+      horizonTop: +(horizon.top - hr.bottom).toFixed(2),
+      badgeRight: +(mapR.right - windBadge.right).toFixed(2),
+      badgeTop: +(windBadge.top - hr.bottom).toFixed(2),
+    } : null,
+    zoomDock: (zoom && attrib && mapR) ? {
+      rightGapAttrib: +(zoom.right - attrib.right).toFixed(2),
+      bottomAboveMap: +(mapR.bottom - zoom.bottom).toFixed(2),
+      attribTopAboveMap: +(mapR.bottom - attrib.top).toFixed(2),
+      gapToAttrib: +(attrib.top - zoom.bottom).toFixed(2),
+      inBottomHalf: (zoom.y + zoom.h / 2) > (mapR.y + mapR.h / 2),
+      insideMap: zoom.x >= mapR.x - 0.01 && zoom.right <= mapR.right + 0.01 &&
+                 zoom.top >= mapR.top - 0.01 && zoom.bottom <= mapR.bottom + 0.01,
+      overlapsAttrib: ov(zoom, attrib), overlapsLegend: ov(zoom, legend),
+      overlapsBadge: ov(zoom, windBadge), overlapsHorizon: ov(zoom, horizon),
+      overlapsPill: ov(zoom, tp), overlapsCard: ov(zoom, cardR),
+    } : null,
+    deadIds: ["pill-shore","shore","shore-u","arrow","help","help-pop","lake-u"]
+      .filter(function (id) { return !!document.getElementById(id); }),
+    rowText: three ? three.textContent.replace(/\s+/g, ' ').trim() : null,
     lakeText: g('lake') ? document.getElementById('lake').textContent : null,
-    shoreText: g('shore') ? document.getElementById('shore').textContent : null,
-    gustText: g('gust') ? document.getElementById('gust').textContent : null
+    gustText: g('gust') ? document.getElementById('gust').textContent : null,
+    timePill: timePillEl ? {text: timePillEl.textContent, w: tp.w,
+      inkW: timePillEl.scrollWidth, tabular: tpCS.fontVariantNumeric} : null,
   };
 }
 """
 
-S6_CONTRAST_JS = r"""
+S62_CONTRAST_JS = r"""
 () => {
   const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
   const L = (rgb) => 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
@@ -1699,63 +1734,26 @@ S6_CONTRAST_JS = r"""
   const ratio = (a, b) => { const l1 = L(a), l2 = L(b); return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05); };
   const cs = getComputedStyle(document.querySelector('header'));
   const GLASS = over(parse(cs.backgroundColor), [20, 40, 59]);
-  const pills = {};
-  ['pill-shore', 'pill-lake', 'pill-gust'].forEach(function (id) {
-    pills[id] = over(parse(getComputedStyle(document.getElementById(id)).backgroundColor), GLASS);
-  });
-  const P = (id) => parse(getComputedStyle(document.getElementById(id)).color).rgb;
+  const fill = (sel) => over(parse(getComputedStyle(document.querySelector(sel)).backgroundColor), GLASS);
+  // 6.2: two badges. The lake badge carries the .55-alpha WIND_HEAT tier tint (worst case:
+  // the amber tier at 17 mph), the gust badge the neutral slate fill.
+  const lake = fill('#pill-lake'), gust = fill('#pill-gust');
+  const P = (sel) => parse(getComputedStyle(document.querySelector(sel)).color).rgb;
   const out = {};
-  out['#lake numeral vs #pill-lake'] = ratio(P('lake'), pills['pill-lake']);
-  out['#shore numeral vs #pill-shore'] = ratio(P('shore'), pills['pill-shore']);
-  out['#gust numeral vs #pill-gust'] = ratio(P('gust'), pills['pill-gust']);
-  out['#lake-u label vs #pill-lake'] = ratio(P('lake-u'), pills['pill-lake']);
-  out['#shore-u label vs #pill-shore'] = ratio(P('shore-u'), pills['pill-shore']);
-  out['#gust-u label vs #pill-gust'] = ratio(P('gust-u'), pills['pill-gust']);
-  out['#mph unit vs header glass'] = ratio(P('mph'), GLASS);
-  out['#dot vs header glass'] = ratio(P('dot'), GLASS);
-  out['#arrow vs header glass'] = ratio(P('arrow'), GLASS);
-  out['#help glyph vs header glass'] = ratio(P('help'), GLASS);
+  out['#lake numeral vs #pill-lake'] = ratio(P('#lake'), lake);
+  out['#mph unit vs #pill-lake'] = ratio(P('#mph'), lake);
+  out['#gust numeral vs #pill-gust'] = ratio(P('#gust'), gust);
+  out['#gust-u label vs #pill-gust'] = ratio(P('#gust-u'), gust);
+  out['gust .unit vs #pill-gust'] = ratio(P('#pill-gust .unit'), gust);
+  out['#dot vs header glass'] = ratio(P('#dot'), GLASS);
   const keys = Object.keys(out);
   const min = Math.min.apply(null, keys.map((k) => out[k]));
-  return {ratios: out, min: +min.toFixed(2), minPair: keys.filter((k) => out[k] === min)[0]};
+  return {ratios: out, min: +min.toFixed(2), minPair: keys.filter((k) => out[k] === min)[0],
+          lakeTint: getComputedStyle(document.querySelector('#pill-lake')).backgroundColor};
 }
 """
 
-S6_POPOVER_JS = r"""
-() => {
-  // Null-safe by construction: a probe must never throw in a page.evaluate — it
-  // reports which element was missing instead (stage 6C: a navigation mid-check
-  // used to null the whole document and abort the group).
-  const missing = [];
-  const need = (id) => {
-    const el = document.getElementById(id);
-    if (!el) { missing.push('#' + id); }
-    return el;
-  };
-  const rectOf = (el, label) => {
-    if (!el) { missing.push(label); return null; }
-    const r = el.getBoundingClientRect();
-    return {top: +r.top.toFixed(2), bottom: +r.bottom.toFixed(2), left: +r.left.toFixed(2),
-            right: +r.right.toFixed(2), width: +r.width.toFixed(2), height: +r.height.toFixed(2)};
-  };
-  const el = need('help-pop');
-  const header = document.querySelector('header');
-  if (!header) { missing.push('header'); }
-  const help = need('help');
-  const er = rectOf(el, '#help-pop');
-  const hr = rectOf(header, 'header rect');
-  return {missing: missing,
-          hidden: el ? el.hidden : null,
-          parent: el && el.parentElement ? el.parentElement.tagName : null,
-          prev: el && el.previousElementSibling ? el.previousElementSibling.tagName : null,
-          aria: help ? help.getAttribute('aria-expanded') : null,
-          focus: document.activeElement ? document.activeElement.id : null,
-          rect: er, top: er ? er.top : null, bottom: er ? er.bottom : null,
-          headerBottom: hr ? hr.bottom : null};
-}
-"""
-
-S6_IDENTITY_JS = r"""
+S62_IDENTITY_JS = r"""
 async () => {
   const res = await fetch('src/wind.js');
   const src = await res.text();
@@ -1767,8 +1765,24 @@ async () => {
   return {idx: idx, dayLen: data.day.length,
           shoreLen: data.shoreDay ? data.shoreDay.length : null,
           day: data.day[idx] ? data.day[idx].speedMph : null,
-          shore: data.shoreDay ? data.shoreDay[idx].speedMph : null,
           gust: data.day[idx] ? data.day[idx].gustMph : null};
+}
+"""
+
+# 6.2 scrub probe: read the pill + tape while the pointer is still down.
+S62_SCRUB_JS = r"""
+() => {
+  const tape = document.getElementById('track-tape');
+  const tl = document.getElementById('timeline').getBoundingClientRect();
+  const m = new DOMMatrixReadOnly(getComputedStyle(tape).transform);
+  const track = document.getElementById('track');
+  return {pill: document.getElementById('time-pill').textContent,
+          tx: +m.m41.toFixed(3), tlCx: +(tl.x + tl.width / 2).toFixed(2),
+          tlW: +tl.width.toFixed(2), tlY: +(tl.y + tl.height / 2).toFixed(2),
+          idx: parseInt(track.getAttribute('aria-valuenow'), 10),
+          max: parseInt(track.getAttribute('aria-valuemax'), 10),
+          hour: document.body.dataset.hour,
+          transition: getComputedStyle(tape).transitionDuration};
 }
 """
 
@@ -1808,10 +1822,22 @@ def _s6_eq(dom_text, value):
         return False
 
 
+def _pill_minutes(text):
+    """'12:31 AM' -> 31. The 6.2 pill always shows minutes on the drag path."""
+    m = re.match(r"^\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*$", str(text or ""))
+    if not m:
+        return None
+    h = int(m.group(1)) % 12
+    if m.group(3) == "PM":
+        h += 12
+    return h * 60 + int(m.group(2))
+
+
 def check_marine_header(pw, port):
-    """Stage 6C [19]: drive the shipped marine header from crafted dual-location
-    responses (route-intercepted) and verify geometry, typography, contrast,
-    identity, jitter, network shape, popover plumbing and the missing-shore path."""
+    """6.2 [19]: drive the shipped chrome from crafted dual-location responses
+    (route-intercepted) and verify the de-cluttered two-badge row, the docked
+    corners (horizon top-left / zoom bottom-right), the continuous minute-level
+    scrub and the 72 px header ceiling."""
     base = "http://127.0.0.1:%d/index.html" % port
     today = datetime.now(CHICAGO).date()
     vps = ((360, 800), (390, 844))
@@ -1854,9 +1880,6 @@ def check_marine_header(pw, port):
         return ok
 
     def gate(num, label, fn, *args):
-        """Run one numbered gate; an exception (Playwright / Python / a probe that
-        could not read a destroyed document) fails ONLY that gate and the group
-        keeps going.  Never a silent pass: an exception is always a FAIL."""
         try:
             return fn(*args)
         except Exception as exc:  # noqa: BLE001 - QA records, never aborts
@@ -1868,59 +1891,68 @@ def check_marine_header(pw, port):
 
     def layout_block(name, w, h):
         view(w, h)
-        geo = page.evaluate(S6_GEOMETRY_JS)
-        con = page.evaluate(S6_CONTRAST_JS)
+        geo = page.evaluate(S62_GEOMETRY_JS)
+        con = page.evaluate(S62_CONTRAST_JS)
         geos[(name, w)] = geo
         if geo["missing"]:
             emit(False, "[19.probe] %s @%dx%d MISSING ELEMENTS %s"
                  % (name, w, h, geo["missing"]))
-        hd, three, mph, st = geo["header"], geo["three"], geo["mph"], geo["styles"]
+        hd, three, st = geo["header"], geo["three"], geo["styles"]
+        # [19.1] the 72 px ceiling survives the de-clutter
         emit(hd is not None and abs(hd["r"]["h"] - 72.0) < 0.005
              and hd["scrollHeight"] == hd["clientHeight"],
              "[19.1] %s @%dx%d header_h=%s scrollH=%s clientH=%s"
              % (name, w, h, hd and hd["r"]["h"], hd and hd["scrollHeight"],
                 hd and hd["clientHeight"]))
-        emit(three is not None and mph is not None
-             and three["scrollWidth"] <= three["clientWidth"] and mph["r"]["w"] >= 19.0,
-             "[19.2] %s @%dx%d #three sw=%s cw=%s mph_w=%s (>=19)"
+        # [19.2] the row fits its box and both units keep their ink
+        mph_w = st.get("mph") and st["mph"]["w"]
+        gu_w = st.get("gustUnit") and st["gustUnit"]["w"]
+        emit(three is not None and three["scrollWidth"] <= three["clientWidth"]
+             and mph_w is not None and mph_w >= 17.0
+             and gu_w is not None and gu_w >= 17.0,
+             "[19.2] %s @%dx%d #three sw=%s cw=%s mph_w=%s gust-unit_w=%s (>=17)"
              % (name, w, h, three and three["scrollWidth"], three and three["clientWidth"],
-                mph and mph["r"]["w"]))
+                mph_w, gu_w))
+        # [19.3] ink stays inside the available width
         slack = (three["avail"] - three["ink"]) if (three and three["ink"] is not None
                  and three["avail"] is not None) else None
         emit(three is not None and three["ink"] is not None and three["avail"] is not None
              and three["ink"] <= three["avail"],
              "[19.3] %s @%dx%d ink=%s avail=%s slack=%s"
              % (name, w, h, three and three["ink"], three and three["avail"], slack))
-        emit(geo["pillsInside"] and geo["help"]
-             and abs(geo["help"]["w"] - 20.0) <= 0.5 and abs(geo["help"]["h"] - 20.0) <= 0.5
-             and geo["helpHit"] and geo["helpHit"]["w"] >= 44.0 and geo["helpHit"]["h"] >= 44.0
-             and geo["helpGap"] is not None and geo["helpGap"] >= 8.0
-             and geo["mph"] and geo["helpHit"]["left"] >= geo["mph"]["r"]["right"],
-             "[19.4] %s @%dx%d pills-inside=%s badge=%sx%s hit=%sx%s gap=%s mph-clear=%s"
-             % (name, w, h, geo["pillsInside"],
-                geo["help"] and geo["help"]["w"], geo["help"] and geo["help"]["h"],
-                geo["helpHit"] and geo["helpHit"]["w"], geo["helpHit"] and geo["helpHit"]["h"],
-                geo["helpGap"],
-                (geo["helpHit"] and geo["mph"])
-                and "%.2f" % (geo["helpHit"]["left"] - geo["mph"]["r"]["right"])))
-        styles_present = all(st.get(k) for k in ("shore", "lake", "gust", "shore-u", "lake-u", "gust-u"))
-        nums_ok = styles_present and all(st[k]["fontSize"] == "13px" and st[k]["fontWeight"] == "700"
+        # [19.4] exactly two badges + dot, correct families, zero dead ids
+        kids = three and three["kids"]
+        lake_k, gust_k = geo["badges"][0]["kids"], geo["badges"][1]["kids"]
+        emit(kids == ["pill-lake", "dot", "pill-gust"]
+             and lake_k == ["lake", "mph"]
+             and gust_k == ["gust", "unit", "gust-u"]
+             and geo["badgesInside"] and not geo["deadIds"] and geo["timePill"],
+             "[19.4] %s @%dx%d row=%s lake=%s gust=%s inside=%s dead-ids=%s pill='%s'"
+             % (name, w, h, kids, lake_k, gust_k, geo["badgesInside"], geo["deadIds"],
+                geo["timePill"] and geo["timePill"]["text"]))
+        # [19.5] typography: numerals 13/700 tabular, units + Gust label 10 px, badge fill split
+        nums_ok = all(st.get(k) and st[k]["fontSize"] == "13px"
+                      and st[k]["fontWeight"] == "700"
                       and st[k]["fontVariantNumeric"] == "tabular-nums"
-                      for k in ("shore", "lake", "gust"))
-        labels_ok = styles_present and all(st[k]["fontSize"] == "10px"
-                                          for k in ("shore-u", "lake-u", "gust-u"))
-        font_ok = styles_present and all(t in st["lake"]["fontFamily"]
+                      for k in ("lake", "gust"))
+        units_ok = all(st.get(k) and st[k]["fontSize"] == "10px"
+                       and st[k]["fontWeight"] == "500" for k in ("mph", "gustUnit", "gustLabel"))
+        white_ok = st.get("mph") and st["mph"]["color"] == "rgb(248, 250, 252)"
+        slate_ok = st.get("gustUnit") and st["gustUnit"]["color"] == "rgb(203, 213, 225)"
+        font_ok = st.get("lake") and all(t in st["lake"]["fontFamily"]
                                          for t in ("Inter", "Roboto", "sans-serif"))
-        emit(nums_ok and labels_ok and font_ok,
-             "[19.5] %s @%dx%d numerals=%s/%s/%s labels=%s font=%s"
+        emit(nums_ok and units_ok and white_ok and slate_ok and font_ok,
+             "[19.5] %s @%dx%d numerals=%s/%s units=%s/%s lake-unit=%s gust-unit=%s font=%s"
              % (name, w, h, st.get("lake") and st["lake"]["fontSize"],
                 st.get("lake") and st["lake"]["fontWeight"],
-                st.get("lake") and st["lake"]["fontVariantNumeric"],
-                st.get("lake-u") and st["lake-u"]["fontSize"],
+                st.get("mph") and st["mph"]["fontSize"],
+                st.get("gustUnit") and st["gustUnit"]["fontSize"],
+                st.get("mph") and st["mph"]["color"], st.get("gustUnit") and st["gustUnit"]["color"],
                 st.get("lake") and st["lake"]["fontFamily"]))
+        # [19.6] contrast: white on the tier tint, slate on the neutral fill, >= 4.5:1
         emit(con["min"] >= 4.5,
-             "[19.6] %s @%dx%d contrast min=%.2f:1 (%s) pairs=%s"
-             % (name, w, h, con["min"], con["minPair"],
+             "[19.6] %s @%dx%d contrast min=%.2f:1 (%s) tint=%s pairs=%s"
+             % (name, w, h, con["min"], con["minPair"], con["lakeTint"],
                 " ".join("%s=%.2f" % (k.split()[0], v) for k, v in con["ratios"].items())))
 
     # ---- gates 1-6: normal / wide / calm, both viewports -------------------
@@ -1943,15 +1975,15 @@ def check_marine_header(pw, port):
             for w, h in vps:
                 def gate9(w=w, h=h):
                     view(w, h)
-                    ident = page.evaluate(S6_IDENTITY_JS)
+                    ident = page.evaluate(S62_IDENTITY_JS)
                     dom_lake = page.evaluate("() => document.getElementById('lake').textContent")
-                    dom_shore = page.evaluate("() => document.getElementById('shore').textContent")
-                    emit(ident["day"] is not None and ident["shore"] is not None
-                         and _s6_eq(dom_lake, ident["day"]) and _s6_eq(dom_shore, ident["shore"]),
-                         "[19.9] identity @%dx%d idx=%s day[idx]=%s shoreDay[idx]=%s "
-                         "DOM lake='%s' shore='%s' lake-match=%s shore-match=%s"
-                         % (w, h, ident["idx"], ident["day"], ident["shore"], dom_lake, dom_shore,
-                            _s6_eq(dom_lake, ident["day"]), _s6_eq(dom_shore, ident["shore"])))
+                    dom_gust = page.evaluate("() => document.getElementById('gust').textContent")
+                    emit(ident["day"] is not None and ident["gust"] is not None
+                         and _s6_eq(dom_lake, ident["day"]) and _s6_eq(dom_gust, ident["gust"]),
+                         "[19.9] identity @%dx%d idx=%s day[idx]=%s gust[idx]=%s "
+                         "DOM lake='%s' gust='%s' (shore ingested, not displayed: shoreLen=%s)"
+                         % (w, h, ident["idx"], ident["day"], ident["gust"], dom_lake, dom_gust,
+                            ident["shoreLen"]))
                 gate("19.9", "identity", gate9)
         for w, h in vps:
             gate("layout@%dx%d" % (w, h), "layout @%dx%d" % (w, h), layout_block, name, w, h)
@@ -1960,15 +1992,13 @@ def check_marine_header(pw, port):
             if name == "wide" and w == 360:
                 page.screenshot(path=str(S6_SHOTS / "wide-360.png"))
 
-    # ---- gate 12: overlay / blur / clearance -------------------------------
+    # ---- gate 12: overlay / blur / top-strip clearance ----------------------
     def gate12():
         g0 = geos[("normal", 360)]
         render_src = (ROOT / "src/render.js").read_text()
         hs = g0["headerStyle"]
         emit(hs is not None and hs["backdropFilter"] == "blur(8px)"
              and hs["zIndex"] is not None and int(float(hs["zIndex"])) >= 1001 and g0["overlaps"]
-             # 6B.2: the top padding is now computed from the LIVE header band
-             # (72 px of content + notch inset) instead of a hard-coded 84 px.
              and "headerBand() + 12" in render_src
              and g0["horizonClear"] is not None and g0["horizonClear"] >= 12.0
              and g0["badgeClear"] is not None and g0["badgeClear"] >= 12.0,
@@ -1978,7 +2008,7 @@ def check_marine_header(pw, port):
                 "headerBand() + 12" in render_src, g0["horizonClear"], g0["badgeClear"]))
     gate("19.12", "overlay/blur", gate12)
 
-    # ---- gate 7: jitter on a varying frame series --------------------------
+    # ---- gate 7: jitter on a varying frame series (both badges) -------------
     def gate7():
         load(_s6_series(today, 11.0, 8.0, 15.0, varying=True))
         for w, h in vps:
@@ -1992,112 +2022,142 @@ def check_marine_header(pw, port):
                 page.wait_for_timeout(40)
                 samples.append(page.evaluate(
                     "() => ({lake: document.getElementById('lake').textContent,"
+                    " gust: document.getElementById('gust').textContent,"
                     " w: document.getElementById('pill-lake').getBoundingClientRect().width,"
+                    " gw: document.getElementById('pill-gust').getBoundingClientRect().width,"
                     " rowRight: document.getElementById('three').getBoundingClientRect().right,"
                     " refreshLeft: document.getElementById('refresh').getBoundingClientRect().left})"))
-            deltas = [abs(samples[i]["w"] - samples[i - 1]["w"]) for i in range(1, len(samples))
-                      if len(samples[i]["lake"]) == len(samples[i - 1]["lake"])]
-            maxd = max(deltas) if deltas else 0.0
+
+            def deltas(key):
+                return [abs(samples[i][key] - samples[i - 1][key]) for i in range(1, len(samples))
+                        if len(samples[i]["lake"]) == len(samples[i - 1]["lake"])]
+
+            maxd = max(deltas("w")) if deltas("w") else 0.0
+            maxgd = max(deltas("gw")) if deltas("gw") else 0.0
             cross = any(s["rowRight"] > s["refreshLeft"] for s in samples)
-            emit(bool(deltas) and maxd <= 0.5 and not cross,
-                 "[19.7] jitter @%dx%d frames=%d equal-digit-pairs=%d max-lake-delta=%.2fpx "
+            emit(bool(deltas("w")) and maxd <= 0.5 and maxgd <= 0.5 and not cross,
+                 "[19.7] jitter @%dx%d frames=%d max-lake-delta=%.2fpx max-gust-delta=%.2fpx "
                  "row-crosses-refresh=%s lakes=%s"
-                 % (w, h, len(samples), len(deltas), maxd, cross,
+                 % (w, h, len(samples), maxd, maxgd, cross,
                     ",".join(s["lake"] for s in samples)))
     gate("19.7", "jitter", gate7)
 
-    # ---- gate 10: popover with real clicks + pin/card guard ---------------
+    # ---- gate 10: corner ownership + the docked zoom stack ------------------
     def gate10():
         load(_s6_series(today, 17.0, 8.0, 24.0))
         for w, h in vps:
             view(w, h)
-            opened = page.evaluate(
-                "() => { var r = window.__bpcTap(46.23846, -93.64229);"
-                " return {ret: !!r, hidden: document.getElementById('card').hidden}; }")
-            pins0 = page.evaluate("() => document.querySelectorAll('#map .leaflet-overlay-pane path').length")
-            page.click("#help")
-            page.wait_for_timeout(150)
-            p1 = page.evaluate(S6_POPOVER_JS)
-            open_ok = (p1["missing"] == [] and not p1["hidden"] and p1["aria"] == "true"
-                       and p1["parent"] == "BODY" and p1["prev"] == "HEADER"
-                       and p1["top"] is not None and p1["headerBottom"] is not None
-                       and p1["top"] >= p1["headerBottom"] - 0.5
-                       and p1["bottom"] > 72.0)
-            card_open = not page.evaluate("() => document.getElementById('card').hidden")
+            geo = page.evaluate(S62_GEOMETRY_JS)
+            c, zd = geo["corner"], geo["zoomDock"]
+            corners_ok = (c is not None and abs(c["horizonLeft"] - 12.0) <= 1.5
+                          and abs(c["horizonTop"] - 12.0) <= 1.5
+                          and abs(c["badgeRight"] - 12.0) <= 1.5
+                          and abs(c["badgeTop"] - 12.0) <= 1.5)
+            dock_ok = (zd is not None and zd["gapToAttrib"] >= 0.0 and zd["gapToAttrib"] <= 8.0
+                       and abs(zd["rightGapAttrib"]) <= 12.0 and zd["inBottomHalf"]
+                       and zd["insideMap"]
+                       and not any(zd[k] for k in ("overlapsAttrib", "overlapsLegend",
+                                                   "overlapsBadge", "overlapsHorizon",
+                                                   "overlapsPill", "overlapsCard")))
             if w == 360:
-                page.screenshot(path=str(S6_SHOTS / "popover-360.png"))
-            page.click("#help-pop", position={"x": 30, "y": 20})
-            page.wait_for_timeout(120)
-            p_in = page.evaluate(S6_POPOVER_JS)
-            inner_ok = (not p_in["hidden"]) and not page.evaluate(
-                "() => document.getElementById('card').hidden")
-            pins1 = page.evaluate("() => document.querySelectorAll('#map .leaflet-overlay-pane path').length")
-            page.click("#help")
-            page.wait_for_timeout(120)
-            p2 = page.evaluate(S6_POPOVER_JS)
-            close_ok = p2["hidden"] and p2["aria"] == "false" and p2["focus"] == "help"
-            page.click("#help")
-            page.wait_for_timeout(100)
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(120)
-            p3 = page.evaluate(S6_POPOVER_JS)
-            esc_ok = p3["hidden"] and p3["aria"] == "false" and p3["focus"] == "help"
-            # dismiss the card, then prove an outside map tap closes the popover.
-            # 6C fix: the old point (w//2, h-140) = (180, 660) landed on Leaflet's
-            # attribution <a href="https://leafletjs.com/"> and NAVIGATED the page
-            # away, which destroyed the context and crashed the whole group.  Pick a
-            # bare map point that is provably not a link or control.
-            page.click("#card-close")
-            page.wait_for_timeout(120)
-            page.click("#help")
-            page.wait_for_timeout(100)
-            tap = page.evaluate(
-                "([w, hMax]) => { for (var y = 300; y <= hMax; y += 20) {"
-                "  var e = document.elementFromPoint(Math.round(w / 2), y);"
-                "  if (e && !e.closest('a') && !e.closest('button')"
-                "      && !e.closest('.leaflet-control'))"
-                "    return {x: Math.round(w / 2), y: y}; } return null; }",
-                [w, h - 40])
-            if not tap:
-                emit(False, "[19.10] popover @%dx%d NO BARE MAP POINT FOUND for the outside tap" % (w, h))
-                continue
-            page.mouse.click(tap["x"], tap["y"])
-            page.wait_for_timeout(150)
-            p4 = page.evaluate(S6_POPOVER_JS)
-            out_ok = p4["missing"] == [] and p4["hidden"] and p4["aria"] == "false" and p4["focus"] == "help"
-            emit(opened["ret"] and not opened["hidden"] and open_ok and card_open and inner_ok
-                 and pins1 == pins0 and close_ok and esc_ok and out_ok,
-                 "[19.10] popover @%dx%d pin-opened=%s chip-open(hidden=%s aria=%s sibling=%s prev=%s "
-                 "top=%s bottom=%s>72) inside-keeps-card=%s pins=%d==%d escape(hidden=%s aria=%s focus=%s) "
-                 "outside-tap@%s,%s(hidden=%s aria=%s focus=%s missing=%s)"
-                 % (w, h, opened["ret"], p1["hidden"], p1["aria"], p1["parent"] == "BODY",
-                    p1["prev"], p1["top"], p1["bottom"], inner_ok, pins1, pins0, p3["hidden"],
-                    p3["aria"], p3["focus"], tap["x"], tap["y"], p4["hidden"],
-                    p4["aria"], p4["focus"], p4["missing"]))
-    gate("19.10", "popover", gate10)
+                page.screenshot(path=str(S6_SHOTS / "corners-360.png"))
+            emit(corners_ok and dock_ok,
+                 "[19.10] corners @%dx%d horizon(left=%s top=%s) badge(right=%s top=%s) "
+                 "zoom(right-vs-attrib=%s gap-to-attrib=%s above-map-bottom=%s attrib-top=%s "
+                 "bottom-half=%s inside=%s) overlaps(attrib/legend/badge/horizon/pill/card)=%s"
+                 % (w, h, c and c["horizonLeft"], c and c["horizonTop"],
+                    c and c["badgeRight"], c and c["badgeTop"],
+                    zd and zd["rightGapAttrib"], zd and zd["gapToAttrib"],
+                    zd and zd["bottomAboveMap"], zd and zd["attribTopAboveMap"],
+                    zd and zd["inBottomHalf"], zd and zd["insideMap"],
+                    zd and [k for k in ("overlapsAttrib", "overlapsLegend", "overlapsBadge",
+                                        "overlapsHorizon", "overlapsPill", "overlapsCard")
+                            if zd[k]]))
+    gate("19.10", "corners", gate10)
 
-    # ---- gate 11: missing shore (single-object response) ------------------
+    # ---- gate 11: continuous minute-level scrub ----------------------------
     def gate11():
         err0 = len(errors)
-        single = _s6_series(today, 17.0, 8.0, 24.0)[0]
-        load(single)
+        load(_s6_series(today, 17.0, 8.0, 24.0))
+        if page.get_attribute("#h-24h", "aria-pressed") != "true":
+            page.click("#h-24h")
+            page.wait_for_function(
+                "() => document.getElementById('track').getAttribute('aria-valuemax') === '95'",
+                timeout=60000)
+            page.wait_for_timeout(400)
         for w, h in vps:
             view(w, h)
-            v = page.evaluate(
-                "() => ({shore: document.getElementById('shore').textContent,"
-                " lake: document.getElementById('lake').textContent,"
-                " h: document.querySelector('header').getBoundingClientRect().height})")
+            # The frame that consumes the keypress runs in a rAF, and a resize-triggered
+            # re-encode can delay it past a fixed sleep: wait for the INDEX first, then for
+            # the .32 s glide to actually rest on frame 0 (timeline centre) before sampling.
+            tlw = page.evaluate(
+                "() => +document.getElementById('timeline').getBoundingClientRect().width.toFixed(2)")
+            page.focus("#track")
+            page.keyboard.press("Home")
+            page.wait_for_function(
+                "(want) => { var t = document.getElementById('track');"
+                " if (t.getAttribute('aria-valuenow') !== '0') return false;"
+                " var tx = +new DOMMatrixReadOnly(getComputedStyle("
+                "   document.getElementById('track-tape')).transform).m41;"
+                " return Math.abs(tx - want) < 0.5; }",
+                arg=tlw / 2.0, timeout=10000)
+            m0 = page.evaluate(S62_SCRUB_JS)
+            px_day = max(550.0, round(m0["tlW"]))
+            ppm = px_day / 96.0 / 15.0          # px per minute (24 h)
+            base_min = int(m0["hour"][11:13]) * 60 + int(m0["hour"][14:16])  # local hh:mm
+            cx, ty = m0["tlCx"], m0["tlY"]
+            samples, total = [], 0.0
+            page.mouse.move(cx, ty)
+            page.mouse.down()
+            for step in (3, 3, 3, 3):
+                total += step
+                page.mouse.move(cx - total, ty)
+                page.wait_for_timeout(70)
+                samples.append(page.evaluate(S62_SCRUB_JS))
+            during = samples[-1]
+            page.mouse.up()
+            page.wait_for_timeout(450)
+            after = page.evaluate(S62_SCRUB_JS)
+
+            drag_min = base_min + total / ppm
+            # parse the tape transform against the timeline's OWN centre: the tape's left
+            # edge starts at the timeline's left edge, so minutes = (window/2 - tx) / ppm.
+            mid_min = (m0["tlW"] / 2.0 - during["tx"]) / ppm
+            rest_min = (m0["tlW"] / 2.0 - m0["tx"]) / ppm
+            pill_min = _pill_minutes(during["pill"])
+            exp_idx = max(0, min(during["max"], _js_round(drag_min / 15.0)))
+            fmt_ok = pill_min is not None
+            clock_ok = pill_min is not None and abs(pill_min - drag_min) <= 2.0
+            follow_ok = abs(mid_min - drag_min) <= 1.0 and abs(rest_min) <= 0.5
+            # the whole point: mid-drag the tape + clock are NOT on the 15-min frame grid
+            off_grid = abs(drag_min - 15.0 * _js_round(drag_min / 15.0))
+            cont_ok = off_grid >= 1.0 and abs(mid_min - 15.0 * _js_round(mid_min / 15.0)) >= 1.0
+            quant_ok = during["idx"] == exp_idx
+            mono = all(samples[i]["pill"] != samples[i - 1]["pill"] for i in range(1, len(samples)))
+            pills = [s["pill"] for s in samples]
+            after_idx = after["idx"]
+            after_min = (m0["tlW"] / 2.0 - after["tx"]) / ppm
+            settle_ok = (after_min is not None and abs(after_min - after_idx * 15.0) <= 0.5
+                         and after["pill"] == format_chicago_pill(after["hour"]))
             ne = len(errors) - err0
-            emit(v["shore"] == "\u2014" and _s6_eq(v["lake"], 17.0) and abs(v["h"] - 72.0) < 0.005
-                 and ne == 0,
-                 "[19.11] shore-missing @%dx%d #shore='%s' #lake='%s' header=%.2f new-console-errors=%d"
-                 % (w, h, v["shore"], v["lake"], v["h"], ne))
-    gate("19.11", "shore-missing", gate11)
+            if w == 360:
+                page.screenshot(path=str(S6_SHOTS / "scrub-settle-360.png"))
+            emit(fmt_ok and clock_ok and follow_ok and cont_ok and quant_ok and mono
+                 and settle_ok and ne == 0,
+                 "[19.11] continuous scrub @%dx%d px/min=%.4f drag=%.0fpx=%.1fmin "
+                 "pills=%s (base=%.0f) tape-follow=%.2fmin rest=%.2fmin idx=%d exp=%d "
+                 "off-grid=%.1fmin settle(idx=%d min=%.2f) pill='%s' new-errors=%d "
+                 "checks[fmt,clock,follow,cont,quant,mono,settle]=%s"
+                 % (w, h, ppm, total, drag_min, pills, base_min, mid_min - drag_min, rest_min,
+                    during["idx"], exp_idx, off_grid, after_idx,
+                    after_min, after["pill"], ne,
+                    [fmt_ok, clock_ok, follow_ok, cont_ok, quant_ok, mono, settle_ok]))
+    gate("19.11", "continuous scrub", gate11)
 
     page.close()
     ctx.close()
     browser.close()
-    record(19, "6 marine header", all_ok[0],
+    record(19, "6.2 polish pass", all_ok[0],
            "all gates ok=%s%s" % (all_ok[0], "" if all_ok[0] else " failing=%s" % fails))
 
 
@@ -2153,7 +2213,7 @@ def main():
             safe(7, "touch", check_card_and_touch, page, warp)
             safe("7b", "touch ergonomics", check_touch_ergonomics, page)
             safe(18, "timeline labels (5L)", check_timeline_labels, page)
-            safe(19, "6 marine header", check_marine_header, pw, port)
+            safe(19, "6.2 polish pass", check_marine_header, pw, port)
             safe(9, "playback perf", check_playback, page, warp)
             now_ups = safe(10, "radar smoothing", check_smoothing, page, meta, warp)
             if now_ups:

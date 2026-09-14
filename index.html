@@ -40,6 +40,15 @@
      controls would sit UNDER the band (measured y=10 vs the pre-6B y=82).
      Offset the whole top strip below the header + 10 px. */
   .leaflet-top { top: calc(var(--header-h) + 10px); }
+  /* 6.2: the zoom stack is docked BOTTOM-RIGHT: with the top-left corner freed, the
+     horizon toggle owns it and balances #wind-badge on the right. Leaflet's corner
+     containers are children of #map (position: relative) whose bottom edge IS the deck's
+     top, so these offsets are MAP-relative: the 9 px attribution sits at bottom 4 px
+     (~14 px tall) and the zoom stack starts 20 px up — flush above it, never on it.
+     (The old .leaflet-bottom rule's "deck-h + 6px" was the viewport-relative form of
+     this same mistake, fixed in 6.1; the control layer never needs to know the deck.) */
+  .leaflet-top.leaflet-left { top: auto; bottom: 20px; left: auto; right: 6px; }
+  .leaflet-top.leaflet-left .leaflet-control { margin: 0; }
   header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px;
               position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .head-text { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap;
@@ -58,67 +67,39 @@
   #secondary { flex: 1 1 100%; display: flex; flex-direction: row; align-items: baseline;
                gap: 8px; font-size: 11px; color: #9fc3dd; font-variant-numeric: tabular-nums;
                white-space: nowrap; }
-  /* Stage 6B: three-pill marine wind row. No "Wind:" prefix; the labels carry it.
-     Numerals 13/700 white tabular; labels 10/500 #cbd5e1; shore+gust share one fill;
-     the lake pill is tinted by WIND_HEAT at .55 alpha (white ink on every tier, by
-     measurement). Pills are 2px 6px to fit the widest state inside 232 px @360. */
+  /* 6.2: two-badge marine wind row. No "Wind:" prefix; each badge carries its own unit
+     — "[17 mph] · [24 mph Gust]". Numerals 13/700 white tabular; units 10/500; the lake
+     badge is tinted by WIND_HEAT at .55 alpha (white ink on every tier, by measurement)
+     and the gust badge keeps the neutral fill. Badges are 2px 6px. */
   #three { flex: 1 1 auto; min-width: 0; align-self: center; display: flex;
            align-items: center; gap: 4px; white-space: nowrap; overflow: hidden;
-           /* 6B.3: one uniform 4 px rhythm between pills / arrow / dot / mph
-              replaces the old ad-hoc margins (pills flush, dot 4 px, arrow 3 px),
-              so the row reads as a single bundle instead of a pill cluster with a
-              dangling unit. margin-right 32 px = the 20 px micro-badge + its 8 px
-              gap + the 4 px of ::after overhang, so clientWidth stays the REAL
-              usable width and the harness "ink <= avail" gate stays meaningful. */
-           margin-right: 32px; }
+           /* 6.2: the ? micro-badge is gone, so the 32 px reservation it needed
+              (20 px badge + 8 px gap + 4 px ::after overhang) is gone with it — one
+              4 px rhythm between the two badges and the dot. The header's own 8 px
+              gap separates the row from #refresh. */
+           margin-right: 0; }
   #three .pill { display: inline-flex; align-items: baseline; gap: 3px; flex: 0 0 auto;
                  border-radius: 999px; padding: 2px 6px; line-height: 1.4; }
-  #pill-shore, #pill-gust { background: rgba(148,163,184,.18);
-                            border: 1px solid rgba(148,163,184,.35); }
+  #pill-gust { background: rgba(148,163,184,.18);
+               border: 1px solid rgba(148,163,184,.35); }
   #pill-lake { background: var(--tint, rgba(148,163,184,.18));
                border: 1px solid var(--tint-bd, rgba(148,163,184,.35)); }
-  #shore, #lake, #gust { font-size: 13px; font-weight: 700; color: #f8fafc;
-                         font-variant-numeric: tabular-nums; line-height: 1.2; }
-  #shore-u, #gust-u { font-size: 10px; font-weight: 500; color: #cbd5e1;
-                      font-variant-numeric: tabular-nums; line-height: 1.2; }
-  /* Stage 6B.1 (orchestrator gate fix): the lake label sits on the .55-alpha tier tint,
-     where #cbd5e1 measured 3.58:1 (amber tier) — below the 4.5:1 gate. White clears every
-     reachable tier: teal 7.24, green 5.68, amber 5.08, orange 6.25, crimson 7.72. */
-  #lake-u { font-size: 10px; font-weight: 500; color: #f8fafc;
+  #lake, #gust { font-size: 13px; font-weight: 700; color: #f8fafc;
+                 font-variant-numeric: tabular-nums; line-height: 1.2; }
+  #gust-u { font-size: 10px; font-weight: 500; color: #cbd5e1;
             font-variant-numeric: tabular-nums; line-height: 1.2; }
-  #arrow { flex: 0 0 auto; width: 16px; height: 12px; display: inline-block;
-           align-self: center; margin: 0; color: #94a3b8; }
-  #arrow svg { display: block; width: 16px; height: 12px; }
-  #arrow path { fill: none; stroke: currentColor; stroke-width: 1.5;
-                stroke-linecap: round; stroke-linejoin: round; }
+  /* 6.2: the unit sits inside each badge. #mph is the LAKE badge's unit, i.e. on the
+     .55-alpha tier tint, where #cbd5e1 measured 3.58:1 (amber tier) — below the 4.5:1
+     gate — so it is white like its numeral (white clears every reachable tier: teal 7.24,
+     green 5.68, amber 5.08, orange 6.25, crimson 7.72). The gust badge's unit keeps
+     #cbd5e1: 8.64:1 on the neutral rgba(148,163,184,.18) fill. */
+  .unit { font-size: 10px; font-weight: 500; color: #cbd5e1;
+          font-variant-numeric: tabular-nums; line-height: 1.2; }
+  #pill-lake .unit { color: #f8fafc; }
   #dot { flex: 0 0 auto; margin: 0; font-size: 11px; color: #94a3b8; line-height: 1; }
-  #mph { flex: 0 1 auto; min-width: 0; overflow: hidden; font-size: 10px; font-weight: 500;
-         color: #cbd5e1; font-variant-numeric: tabular-nums; line-height: 1.2; }
-  /* 6B.3 (Option A micro-polish): a discreet 20 px micro-badge instead of a 44 px
-     control dominating the row. It stays ABSOLUTELY positioned — an in-flow hit box
-     is what inflated row 3 and clipped row 1 in 6B.2 — and the 44 px TOUCH target is
-     rebuilt invisibly with ::after. Right offset = 10 px header padding + 48 px
-     #refresh + 8 px gap; vertically centred in the band via --header-h. */
-  #help { position: absolute; top: calc((var(--header-h) - 20px) / 2); right: 66px;
-         width: 20px; height: 20px; min-width: 20px; min-height: 20px;
-         border-radius: 50%; border: 1px solid rgba(255,255,255,.15);
-         background: rgba(255,255,255,.05); color: #94a3b8; padding: 0;
-         font: 600 11px/1 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
-         display: inline-flex; align-items: center; justify-content: center;
-         touch-action: manipulation; }
-  /* invisible 12 px expansion each side: 20 + 12 + 12 = the full 44 px touch target
-     with zero visual weight. Kept clear of #mph's ink by the 32 px #three margin. */
-  #help::after { content: ''; position: absolute; inset: -12px; border-radius: 50%; }
-  /* #help-pop is a SIBLING of <header>: a child of the overflow:hidden band is
-     sliced at 72 px. Fixed + z 1002 keeps it above Leaflet's 1000 controls. */
-  #help-pop { position: fixed; top: calc(var(--header-h) + 6px); right: 10px; z-index: 1002;
-              width: min(300px, calc(100% - 20px)); padding: 8px 10px; border-radius: 8px;
-              background: rgba(15,23,42,.97); border: 1px solid rgba(255,255,255,.14);
-              box-shadow: 0 6px 18px rgba(0,0,0,.5); color: #cbd5e1;
-              font: 500 11px/1.4 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; }
-  #help-pop ul { margin: 0; padding: 0; list-style: none; }
-  #help-pop li { margin: 0 0 5px 0; padding-left: 9px; text-indent: -9px; }
-  #help-pop li:last-child { margin-bottom: 0; }
+  /* 6.2: #help and #help-pop are gone (with their listeners) — the badges are
+     self-labelling, so the row needs no explainer control. */
+
   #comfort-chip { flex: 0 0 auto; font-size: 11px; font-weight: 700; border-radius: 3px;
                   padding: 2px 6px; white-space: nowrap; line-height: 1.25; }
   .tier-green { background: #15803d; color: #fff; }
@@ -142,8 +123,8 @@
   #refresh .icon { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round;
                    stroke-linejoin: round; display: block; }
   #map { flex: 1 1 auto; min-height: 0; height: auto; overflow: hidden; background: #14283b; position: relative; }
-  /* On-map wind badge, docked top-right (clear of the top-left Leaflet zoom control
-     and the bottom-right attribution strip). */
+  /* On-map wind badge, docked top-right (the horizon toggle now owns the top-left corner
+     and the zoom stack + attribution live bottom-right, so nothing shares this corner). */
   #wind-badge { position: absolute; top: calc(var(--header-h) + 12px); right: 12px; z-index: 500; display: flex;
                 align-items: center; gap: 6px; height: 32px; border-radius: 16px;
                 background: rgba(16,38,58,.85); padding-right: 12px; }
@@ -180,8 +161,10 @@
   .deck-row  { overflow: hidden; }
   .deck-track{ overflow: visible; position: relative; } /* pill floats above; play overlays */
   .deck-track{ height: 62px; display: flex; align-items: stretch; }
-  /* Horizon micro-pill: lives in the map corner, clear of the zoom control + wind badge. */
-  #horizon { position: absolute; top: calc(var(--header-h) + 12px); left: 56px; z-index: 1000; display: flex; gap: 4px; }
+  /* 6.2: the horizon toggle OWNS the top-left map corner now that the zoom stack is
+     docked bottom-right — it used to start at left: 56 px purely to clear the 44 px
+     zoom control. 12 px matches #wind-badge's 12 px on the opposite corner. */
+  #horizon { position: absolute; top: calc(var(--header-h) + 12px); left: 12px; z-index: 1000; display: flex; gap: 4px; }
   #horizon button { height: 28px; min-height: 28px; padding: 0 9px; background: rgba(16,38,58,.85);
                     color: #e8f0f7; border: 1px solid #33506b; border-radius: 14px;
                     font: 11px/1 system-ui, sans-serif; touch-action: manipulation; }
@@ -299,16 +282,11 @@
       <div id="subrow">
         <div id="verdict-peak"></div>
         <div id="secondary">
-          <div id="three">
-            <span id="pill-shore" class="pill"><span id="shore">8</span><span id="shore-u">Shore</span></span>
-            <span id="arrow" aria-hidden="true"><svg viewBox="0 0 16 12" width="16" height="12"><path d="M1 6 H13 M9 2 L13 6 L9 10"/></svg></span>
-            <span id="pill-lake" class="pill"><span id="lake">17</span><span id="lake-u">Lake</span></span>
+          <div id="three" role="group" aria-label="Wind">
+            <span id="pill-lake" class="pill" aria-label="Lake wind"><span id="lake">17</span><span id="mph" class="unit">mph</span></span>
             <span id="dot" aria-hidden="true">·</span>
-            <span id="pill-gust" class="pill"><span id="gust">24</span><span id="gust-u">Gust</span></span>
-            <span id="mph">mph</span>
+            <span id="pill-gust" class="pill" aria-label="Gust"><span id="gust">24</span><span class="unit">mph</span><span id="gust-u">Gust</span></span>
           </div>
-          <button id="help" type="button" aria-expanded="false" aria-controls="help-pop"
-                  aria-label="What do Shore, Lake and Gust mean?">?</button>
         </div>
       </div>
     </div>
@@ -319,13 +297,6 @@
       </svg>
     </button>
   </header>
-  <div id="help-pop" role="tooltip" hidden>
-    <ul>
-      <li>• Shore: Inland forecast accounting for terrain friction (matches phone apps).</li>
-      <li>• Lake: 10m open-water wind driving wave growth (typically 20–60% higher; median +33% in our data).</li>
-      <li>• Gust: Peak 3-5s open-water bursts indicating squall risk.</li>
-    </ul>
-  </div>
   <div id="map">
     <div id="horizon" role="group" aria-label="Forecast horizon">
       <button id="h-24h" type="button" data-horizon="24h" aria-pressed="true">24 h</button>
