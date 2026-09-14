@@ -115,55 +115,71 @@ def main():
             timeout=60000)
         rec("back to 24 h", True, "aria-valuemax=95")
 
-        # ---- Stage 6C: the DEPLOYED bytes must carry the 6B marine chrome ----
-        # These read the served HTML/CSS/DOM, so they fail if Pages serves a tree
-        # from before 6B (the failure mode a local build green-light cannot see).
+        # ---- 6.2: the DEPLOYED bytes must carry the polished chrome ----
+        # These read the served HTML/CSS/DOM, so they fail if Pages serves a tree from
+        # before the 6.2 pass (the failure mode a local green-light cannot see).
         chrome = page.evaluate("""() => {
             const q = (s) => document.querySelector(s);
             const header = q('header');
             const cs = header ? getComputedStyle(header) : null;
-            const styles = ['#shore', '#shore-u', '#lake', '#lake-u', '#gust', '#gust-u']
-              .map(s => { const el = document.querySelector(s);
-                          return el ? getComputedStyle(el).fontFamily : null; });
-            // read the served markup raw too, so an id that only exists because
-            // the app JS injected it (i.e. not in the DEPLOYED bytes) still fails.
+            const fam = ['#lake', '#mph', '#gust', '#gust-u']
+              .map(s => { const el = q(s); return el ? getComputedStyle(el).fontFamily : null; });
             const raw = document.documentElement.outerHTML;
+            const map = document.getElementById('map').getBoundingClientRect();
+            const z = q('.leaflet-control-zoom');
+            const zr = z ? z.getBoundingClientRect() : null;
+            const a = q('.leaflet-control-attribution');
+            const ar = a ? a.getBoundingClientRect() : null;
+            const hz = document.getElementById('horizon').getBoundingClientRect();
             return {
-              ids: ['three', 'pill-shore', 'pill-lake', 'pill-gust', 'help-pop']
+              ids: ['three', 'pill-lake', 'mph', 'pill-gust', 'gust-u', 'refresh']
                      .map(id => !!document.getElementById(id)),
-              inkIds: ['shore', 'lake', 'gust'].map(id => !!document.getElementById(id)),
-              headerBg: cs ? cs.backgroundColor : null,
-              backdrop: cs ? (cs.backdropFilter || cs.webkitBackdropFilter) : null,
-              zIndex: cs ? cs.zIndex : null,
-              headerFont: cs ? cs.fontFamily : null,
-              inkFonts: styles,
+              dead: ['pill-shore', 'shore', 'shore-u', 'arrow', 'help', 'help-pop', 'lake-u']
+                      .filter(id => !!document.getElementById(id)),
+              rawRow: raw.includes('id="pill-lake"') && raw.includes('id="pill-gust"') &&
+                      raw.includes('id="three"'),
+              rawDead: ['help-pop', 'pill-shore', 'id="arrow"', 'id="help"']
+                         .filter(s => raw.includes(s)),
               rawAvionics: raw.includes('Inter') && raw.includes('Roboto') &&
                            raw.includes('sans-serif'),
               rawGlass: raw.includes('rgba(15,23,42,.85)') ||
                         raw.includes('rgba(15, 23, 42, 0.85)'),
-              rawPillIds: ['pill-shore', 'pill-lake', 'pill-gust', 'help-pop', 'three']
-                            .every(id => raw.includes('id=\"' + id + '\"')),
-              rowText: q('#three') ? q('#three').textContent.trim() : null,
-              helpPos: q('#help-pop') ? getComputedStyle(q('#help-pop')).position : null,
+              headerBg: cs ? cs.backgroundColor : null,
+              backdrop: cs ? (cs.backdropFilter || cs.webkitBackdropFilter) : null,
+              zIndex: cs ? cs.zIndex : null,
+              headerFont: cs ? cs.fontFamily : null,
+              inkFonts: fam,
+              rowText: q('#three') ? q('#three').textContent.replace(/\\s+/g, ' ').trim() : null,
+              zoom: zr ? {rightDelta: +(zr.right - ar.right).toFixed(2),
+                          gapToAttrib: +(ar.top - zr.bottom).toFixed(2),
+                          bottomHalf: (zr.y + zr.height / 2) > (map.y + map.height / 2)} : null,
+              horizonLeft: +(hz.x - map.x).toFixed(2),
+              pillTabular: q('#time-pill') ? getComputedStyle(q('#time-pill')).fontVariantNumeric : null,
             };
         }""")
         avionics = (bool(chrome["rawAvionics"])
                     and all(f and "Inter" in f and "Roboto" in f and "sans-serif" in f
                             for f in ([chrome["headerFont"]] + chrome["inkFonts"])))
-        rec("6b ids live", all(chrome["ids"]) and all(chrome["inkIds"]),
-            "three/pill-shore/pill-lake/pill-gust/help-pop=%s ink=%s row='%s'"
-            % (chrome["ids"], chrome["inkIds"], chrome["rowText"]))
-        rec("6b ids in bytes", bool(chrome["rawPillIds"]),
-            "deployed markup carries the row ids: %s" % chrome["rawPillIds"])
-        rec("6b avionics font", bool(avionics),
+        zoom = chrome["zoom"]
+        rec("6.2 row live", all(chrome["ids"]) and not chrome["dead"],
+            "ids=%s dead=%s row='%s' pill-tabular=%s"
+            % (chrome["ids"], chrome["dead"] or "none", chrome["rowText"], chrome["pillTabular"]))
+        rec("6.2 row in bytes", bool(chrome["rawRow"]) and not chrome["rawDead"],
+            "deployed markup carries the two badges: %s (dead=%s)"
+            % (chrome["rawRow"], chrome["rawDead"] or "none"))
+        rec("6.2 avionics font", bool(avionics),
             "header='%s' ink0='%s'" % (chrome["headerFont"],
                                        chrome["inkFonts"][0] if chrome["inkFonts"] else None))
-        rec("6b frosted glass", chrome["headerBg"] == "rgba(15, 23, 42, 0.85)"
+        rec("6.2 frosted glass", chrome["headerBg"] == "rgba(15, 23, 42, 0.85)"
             and chrome["backdrop"] == "blur(8px)" and chrome["rawGlass"],
             "bg=%s backdrop=%s raw-rule=%s z=%s"
             % (chrome["headerBg"], chrome["backdrop"], chrome["rawGlass"], chrome["zIndex"]))
-        rec("6b popover sibling", chrome["helpPos"] == "fixed",
-            "#help-pop position=%s (sibling of <header>, above the map)" % chrome["helpPos"])
+        rec("6.2 zoom docked BR", bool(zoom) and zoom["bottomHalf"]
+            and abs(zoom["rightDelta"]) <= 12.0 and 0.0 <= zoom["gapToAttrib"] <= 8.0,
+            "zoom right-vs-attribution=%s gap-to-attribution=%s bottom-half=%s"
+            % (zoom and zoom["rightDelta"], zoom and zoom["gapToAttrib"], zoom and zoom["bottomHalf"]))
+        rec("6.2 horizon top-left", abs(chrome["horizonLeft"] - 12.0) <= 1.5,
+            "horizon left offset=%.2f px (target 12)" % chrome["horizonLeft"])
 
         rec("no page errors", not errors, "errors=%d %s" % (len(errors), errors[:3]))
         browser.close()

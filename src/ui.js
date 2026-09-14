@@ -273,6 +273,28 @@ function formatPillTime(isoLocal) {
   }).format(new Date(epoch)).replace(':00 ', ' ');
 }
 
+// 6.2: minute-level pill clock for continuous (sub-frame) scrubbing. The offset is applied
+// to the resolved INSTANT — never to the wall-clock string — so a scrub that crosses a DST
+// change still reads the true local time. Minutes are always shown ('7:04 AM', '7:00 AM'):
+// the drag path can land anywhere inside a 15-minute frame, which the compact form above
+// cannot express. Bad input -> ''; a non-finite offset -> the base frame's own clock.
+let _pillMinuteFmt = null;
+function formatPillTimeAt(isoLocal, addMinutes) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(isoLocal == null ? '' : isoLocal));
+  if (!m) return '';
+  const naive = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  let epoch = naive - tzOffsetMs(naive);
+  epoch = naive - tzOffsetMs(epoch);
+  const add = Number(addMinutes);
+  const at = epoch + (Number.isFinite(add) ? Math.round(add) * 60000 : 0);
+  if (!_pillMinuteFmt) {
+    _pillMinuteFmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: CHICAGO_TZ, hour: 'numeric', minute: '2-digit', hour12: true,
+    });
+  }
+  return _pillMinuteFmt.format(new Date(at));
+}
+
 // ---- Stage 5D: day label from a local ISO string ----
 // Weekday comes from calendar math alone (Date.UTC noon + getUTCDay); never a
 // TZ-parse of the full string, which would shift the date near midnight.
@@ -335,6 +357,6 @@ module.exports = {
   nameSpot, describePin, sectorPhrase, sectorName, shortPlace, formatHeadline,
   FEATURE_RADIUS_M, SHORE_RADIUS_M,
   CALM_MPH, CALM_TIER_MPH, CALM_HS_FT, normalizeDeg, windPills, compass,
-  comfortTier, formatClockLocal, formatPillTime, dayLabel,
+  comfortTier, formatClockLocal, formatPillTime, formatPillTimeAt, dayLabel,
   WIND_HEAT, windHeatColor, windHeatGradient,
 };

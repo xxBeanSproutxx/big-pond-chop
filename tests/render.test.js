@@ -13,6 +13,7 @@ const {
   cacheKey, frameBytes, createFrameCache,
   playWidth, PLAY_MAX_WIDTH, revokeUrl, shouldPaintResult, shouldPaintMap, offscreenSupported,
   pxPerDay, pxPerFrame, tapeTranslate, idxFromDrag, dayPartitions, playStep, nextPlayIdx,
+  pxPerMinute, minutesFromDrag, tapeTranslateMinutes, idxFromMinutes,
   tickWinds,
 } = require('../src/render');
 const ui = require('../src/ui');
@@ -432,40 +433,110 @@ check('respects [start, end) so a block never sees a neighbouring day', () => {
   assert.deepStrictEqual(tickWinds([], 0, 0), []);
 });
 
-console.log('\n== [14] stage-6b: three-pill marine header markup ==');
-check('three-pill row ids present; #wind-info/#frame-info/.sep gone', () => {
+console.log('\n== [14] 6.2: two-badge marine header markup ==');
+check('two-badge row ids present; shore pill / arrow / help / popover deleted', () => {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-  for (const id of ['secondary', 'three', 'pill-shore', 'shore', 'shore-u',
-    'pill-lake', 'lake', 'lake-u', 'pill-gust', 'gust', 'gust-u',
-    'arrow', 'dot', 'mph', 'help', 'help-pop']) {
+  for (const id of ['secondary', 'three', 'pill-lake', 'lake', 'mph',
+    'pill-gust', 'gust', 'gust-u', 'dot', 'refresh']) {
     assert.ok(html.includes(`id="${id}"`), `missing #${id}`);
   }
+  for (const id of ['pill-shore', 'shore', 'shore-u', 'arrow', 'help', 'help-pop', 'lake-u']) {
+    assert.ok(!html.includes(`id="${id}"`), `#${id} must be deleted by the 6.2 de-clutter`);
+  }
+  assert.ok(!html.includes('aria-controls="help-pop"'), 'no popover plumbing may remain');
+  assert.ok(!html.includes('• Shore:') && !html.includes('• Lake:'),
+    'the explainer copy must go with #help-pop');
   assert.ok(!html.includes('id="wind-info"'), '#wind-info must be deleted');
   assert.ok(!html.includes('id="frame-info"'), '#frame-info must be deleted');
   assert.ok(!/class="sep"/.test(html), 'the old #secondary .sep must be gone');
   assert.ok(!/>Wind:</.test(html), 'the row must not carry a "Wind:" prefix');
-  assert.ok(/aria-controls="help-pop"/.test(html), '#help must control #help-pop');
-  assert.ok(html.indexOf('</header>') < html.indexOf('id="help-pop"'),
-    '#help-pop must be a SIBLING after </header>, never inside its clip box');
-  assert.ok(html.indexOf('id="help-pop"') < html.indexOf('<div id="map">'),
-    '#help-pop must be appended to <body>, not #map');
+  const row = html.slice(html.indexOf('id="three"'), html.indexOf('</header>'));
+  const order = ['pill-lake', 'mph', 'dot', 'pill-gust', 'gust', 'gust-u']
+    .map((id) => row.indexOf(id));
+  assert.ok(order.every((k) => k >= 0), 'every row id must be inside #three');
+  assert.deepStrictEqual([...order].sort((a, b) => a - b), order,
+    'row order must be lake badge -> unit -> dot -> gust badge');
+  assert.ok(row.indexOf('id="mph"') > row.indexOf('id="lake"'),
+    '#mph must be the LAKE badge unit (it inherits the tier tint)');
 });
-check('help popover copy is exact and the three token sizes are pinned', () => {
+check('6.2 typography, badge fills and the minute pill are pinned', () => {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-  for (const line of [
-    '• Shore: Inland forecast accounting for terrain friction (matches phone apps).',
-    '• Lake: 10m open-water wind driving wave growth (typically 20–60% higher; median +33% in our data).',
-    '• Gust: Peak 3-5s open-water bursts indicating squall risk.',
-  ]) {
-    assert.ok(html.includes(line), `missing copy: ${line}`);
-  }
-  assert.ok(/#shore, #lake, #gust \{ font-size: 13px; font-weight: 700; color: #f8fafc/.test(html),
+  assert.ok(/#lake, #gust \{ font-size: 13px; font-weight: 700; color: #f8fafc/.test(html),
     'numerals must be 13px/700/#f8fafc');
-  assert.ok(/#shore-u, #gust-u \{ font-size: 10px; font-weight: 500; color: #cbd5e1/.test(html),
-    'shore/gust labels must be 10px/500/#cbd5e1 (no opacity)');
-  assert.ok(/#lake-u \{ font-size: 10px; font-weight: 500; color: #f8fafc/.test(html),
-    'lake label must be white: #cbd5e1 over the tier tint measured 3.58:1 (amber), white >=5.08:1 on every tier');
-  assert.ok(/padding: 2px 6px/.test(html), 'pills must use the 2px 6px fit padding');
+  assert.ok(/#gust-u \{ font-size: 10px; font-weight: 500; color: #cbd5e1/.test(html),
+    'the Gust label must be 10px/500/#cbd5e1');
+  assert.ok(/\.unit \{ font-size: 10px; font-weight: 500; color: #cbd5e1/.test(html),
+    'units must be 10px/500/#cbd5e1');
+  assert.ok(/#pill-lake \.unit \{ color: #f8fafc; \}/.test(html),
+    'the lake unit must be white: #cbd5e1 over the tier tint measured 3.58:1 (amber), white >=5.08:1 on every tier');
+  assert.ok(/#pill-gust \{ background: rgba\(148,163,184,\.18\)/.test(html),
+    'the gust badge keeps the neutral fill');
+  assert.ok(/#pill-lake \{ background: var\(--tint/.test(html),
+    'the lake badge must inherit the WIND_HEAT tier tint');
+  assert.ok(/#pill-lake, #pill-gust/.test(html) === false, 'the shore pill fill must be gone');
+  assert.ok(/padding: 2px 6px/.test(html), 'badges must use the 2px 6px fit padding');
+  const pill = html.slice(html.indexOf('#time-pill '), html.indexOf('#time-pill::after'));
+  assert.ok(/tabular-nums/.test(pill), '#time-pill must pin font-variant-numeric: tabular-nums');
+});
+check('6.2 zoom stack docks bottom-right and the horizon owns the top-left corner', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  assert.ok(/\.leaflet-top\.leaflet-left \{ top: auto; bottom: 20px; left: auto; right: 6px; \}/.test(html),
+    'the zoom corner must be re-anchored bottom-right, map-relative (deck-h is a viewport offset)');
+  assert.ok(/\.leaflet-top\.leaflet-left \.leaflet-control \{ margin: 0; \}/.test(html),
+    'the inherited 10px Leaflet margins must be neutralised for the docked corner');
+  assert.ok(/#horizon \{ position: absolute; top: calc\(var\(--header-h\) \+ 12px\); left: 12px;/.test(html),
+    '#horizon must own the top-left corner at 12px (mirroring #wind-badge on the right)');
+  assert.ok(!/left: 56px/.test(html), 'the old zoom-clearing 56px offset must be gone');
+});
+
+console.log('\n== [15] 6.2: continuous minute-level scrub geometry ==');
+check('pxPerMinute is pxPerFrame / step', () => {
+  assert.strictEqual(pxPerMinute('7d', 374, 15), (330 / 96) / 15);
+  assert.strictEqual(pxPerMinute('24h', 374, 15), (550 / 96) / 15);
+  // a zero/absent step falls back to the 15-minute frame base
+  assert.strictEqual(pxPerMinute('24h', 374, 0), (550 / 96) / 15);
+  console.log(`       24h -> ${pxPerMinute('24h', 360, 15).toFixed(4)} px/min, ` +
+    `7d -> ${pxPerMinute('7d', 360, 15).toFixed(4)} px/min`);
+});
+check('minutesFromDrag is continuous, never snapped, and clamps at both ends', () => {
+  const ppm = pxPerMinute('24h', 360, 15);
+  const start = 10 * 15; // frame 10
+  // dragging LEFT advances: one frame's worth of pixels == exactly 15 minutes
+  assert.ok(Math.abs(minutesFromDrag(-ppm * 15, start, ppm, 1435) - (start + 15)) < 1e-9);
+  // sub-frame: 3.5 minutes' worth of pixels lands on 3.5 minutes, NOT on a frame boundary
+  const sub = minutesFromDrag(-ppm * 3.5, start, ppm, 1435);
+  assert.ok(Math.abs(sub - (start + 3.5)) < 1e-9);
+  assert.notStrictEqual(sub % 15, 0, 'a sub-frame drag must not snap to the 15-minute grid');
+  assert.strictEqual(minutesFromDrag(ppm * 10000, start, ppm, 1435), 0, 'clamp low');
+  assert.strictEqual(minutesFromDrag(-ppm * 10000, start, ppm, 1435), 1435, 'clamp high');
+  assert.strictEqual(minutesFromDrag(-50, start, 0, 1435), start, 'a zero px/min returns the start');
+});
+check('tapeTranslateMinutes is the frame-multiple extension of tapeTranslate', () => {
+  const ppm = pxPerMinute('7d', 374, 15), center = 187, pxf = pxPerFrame('7d', 374);
+  for (const idx of [0, 1, 42, 671]) {
+    assert.ok(Math.abs(tapeTranslateMinutes(idx * 15, ppm, center) -
+      tapeTranslate(idx, pxf, center)) < 1e-9, `idx ${idx}`);
+  }
+  // a half-frame minute sits strictly between its two frames (continuous, not stepped)
+  const mid = tapeTranslateMinutes(15 * 42 + 7.5, ppm, center);
+  assert.ok(mid < tapeTranslate(42, pxf, center) && mid > tapeTranslate(43, pxf, center),
+    'the half-frame translate must sit between the neighbouring frames');
+  console.log(`       42 -> ${tapeTranslate(42, pxf, center).toFixed(2)}, ` +
+    `42.5 -> ${mid.toFixed(2)}, 43 -> ${tapeTranslate(43, pxf, center).toFixed(2)}`);
+});
+check('idxFromMinutes quantises to the 96-frame array (round, clamped, never 96)', () => {
+  const n = 96;
+  assert.strictEqual(idxFromMinutes(0, 15, n), 0);
+  assert.strictEqual(idxFromMinutes(7, 15, n), 0, 'round(0.47) -> 0');
+  assert.strictEqual(idxFromMinutes(8, 15, n), 1, 'round(0.53) -> 1');
+  assert.strictEqual(idxFromMinutes(15 * 95 + 20, 15, n), 95, 'never past the last frame');
+  assert.strictEqual(idxFromMinutes(99999, 15, n), n - 1, 'clamp high');
+  assert.strictEqual(idxFromMinutes(-99999, 15, n), 0, 'clamp low');
+  assert.strictEqual(idxFromMinutes(NaN, 15, n), 0, 'NaN -> frame 0');
+  for (const m of [0, 3, 7.4, 7.5, 22.5, 1400, 1425]) {
+    const i = idxFromMinutes(m, 15, n);
+    assert.ok(Number.isInteger(i) && i >= 0 && i <= n - 1, `minutes ${m} -> ${i}`);
+  }
 });
 
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);
