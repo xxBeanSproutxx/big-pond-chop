@@ -1336,7 +1336,13 @@ def check_scrub_decoupling(page):
     dx = during["lastX"] - during["downX"]
     expected = max(0, min(n - 1, _js_round(start_idx - dx / pxf)))
     a_ok = during["swaps"] <= 12
-    b_ok = during["tx"] >= during["moves"]
+    # 6.3: the driver's pre-down positioning move counts in `moves` but emits no transform
+    # write in any era (cdp-touch: moves=30, writes 30/30 exactly). This check used to pass
+    # only because mid-drag map swaps flushed extra tape writes (6.2: 30 + 11 = 41); item 3
+    # suspends mid-drag paints on fast drags by design (G1: 0 encodes), so the bar is the
+    # drag-step count, moves - 1. Real starvation still fails loudly (a starving tape writes
+    # ~once per rAF, far below moves - 1).
+    b_ok = during["tx"] >= during["moves"] - 1
     long_max = max(during["long"]) if during["long"] else 0
     c_ok = long_max <= 50
     d_ok = after["idx"] == expected
@@ -1350,7 +1356,7 @@ def check_scrub_decoupling(page):
     print("        final: idx=%d expected=%d start=%d pxf=%.4f pill='%s' expected='%s' hour=%s"
           % (after["idx"], expected, start_idx, pxf, after["pill"], pill_expected, after["hour"]))
     record(17, "scrub decoupling (5H)", ok,
-           "moves=%d tx>=moves=%s swaps=%d<=12=%s long-max=%d<=50=%s "
+           "moves=%d tx>=moves-1=%s swaps=%d<=12=%s long-max=%d<=50=%s "
            "idx=%d expected=%d=%s pill=%s instruments(tx/src/long)=%s/%s/%s"
            % (during["moves"], b_ok, during["swaps"], a_ok, long_max, c_ok,
               after["idx"], expected, d_ok, e_ok,
@@ -2272,6 +2278,31 @@ S63_LOAD_JS = ("() => { var p = document.getElementById('time-pill');"
                " !!i && i.naturalWidth > 0; }")
 
 
+def _s63_warmup(page):
+    """Throwaway net-zero painting warm-up for [20.7] (same convention as [17]/scrub_bench).
+
+    G2 measures a slow drag; the session's first 512-class builds otherwise land inside the
+    measured window (one ~143 ms cold build + two ~40 ms JIT-warm frames). This pass drags
+    forward and back in paced 6 px steps (v ~= 0.13 px/ms -> below V_HI, so the velocity gate
+    actually paints) and returns to the exact start index, so the flick -> slow -> hold state
+    chain is unchanged. The settle restores 780 before measurement starts.
+    """
+    tl = page.evaluate(
+        "() => { var r = document.getElementById('timeline').getBoundingClientRect();"
+        " return { cx: r.x + r.width / 2, y: r.y + r.height / 2 }; }")
+    x0, y = tl["cx"], tl["y"]
+    page.mouse.move(x0, y)
+    page.mouse.down()
+    for k in range(1, 6):
+        page.mouse.move(x0 - 6 * k, y)
+        page.wait_for_timeout(40)
+    for k in range(4, -1, -1):
+        page.mouse.move(x0 - 6 * k, y)
+        page.wait_for_timeout(40)
+    page.mouse.up()
+    page.wait_for_timeout(450)
+
+
 def _s63_profile(page, kind, shot=None):
     """One drag profile (adapted from tmp/s63_attrib.py) with the per-frame tape
     transform sampled for G4. Returns frame stats + encode/long-task context."""
@@ -2506,6 +2537,9 @@ def check_stage63(pw, port):
         # Protocol order matches the run that produced the 6.2 numbers' state machine:
         # flick first (full headroom, so G4 can require >=95% advance), then slow (lands on
         # the clamp), then hold (a clamped no-op drag, exactly like §3.1's hold row).
+        # Throwaway net-zero warm-up first (see _s63_warmup): G2 reads steady state; the
+        # one-time cold first-drag cost is recorded in the receipts, not gated.
+        _s63_warmup(p2)
         flick = _s63_profile(p2, "flick", S63_SHOTS / "g-flick-mid.png")
         slow = _s63_profile(p2, "slow")
         hold = _s63_profile(p2, "hold")
@@ -2517,9 +2551,9 @@ def check_stage63(pw, port):
              "longtasks=%d blobURLs=%d imgSrc=%d (target >33=0 p90<=20)"
              % (flick["frames"], flick["over33"], flick["p50"], flick["p90"], flick["max"],
                 len(flick["long"]), flick["blob"], flick["imgSrc"]))
-        emit(slow["over33"] <= 2 and slow["p90"] <= 25.0,
+        emit(slow["over33"] == 0 and slow["p90"] <= 20.0,
              "[20.7b] G2 slow frames=%d >33ms=%d p50=%.1f p90=%.1f max=%.1f "
-             "longtasks=%d blobURLs=%d imgSrc=%d (target >33<=2 p90<=25)"
+             "longtasks=%d blobURLs=%d imgSrc=%d (target >33==0 p90<=20, warmed)"
              % (slow["frames"], slow["over33"], slow["p50"], slow["p90"], slow["max"],
                 len(slow["long"]), slow["blob"], slow["imgSrc"]))
         emit(hold["p90"] <= 17.0 and hold["max"] <= 20.0,

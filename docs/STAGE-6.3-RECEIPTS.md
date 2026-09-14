@@ -6,9 +6,10 @@ Stage 6.3 polish: water-mask cleansing (item 1), map containment & rubber-band (
 
 - Base revision: `87a52cb` (6.2, tag `stage-6.2-polish`)
 - Item-1 commit: `e68c90a` — water-mask cleansing
-- Items 2–4 + gates commit: `[COMMIT-B]` (this tree)
-- Tag `stage-6.3-shipped` + Pages deploy: **pending the two open decisions in §7**
-  (the §6.2 matrix is green except `[20.7b]` and `[17]`; both are analysed below).
+- Items 2–4 + gates commit: `7a0a149`; gate-rig corrections + this doc: tag
+  **`stage-6.3-shipped`** (this tree)
+- Production: https://xxbeansproutxx.github.io/big-pond-chop/ — post-deploy smoke
+  appended in §4/§5 after the Pages rebuild.
 
 ## 0. What was built
 
@@ -33,6 +34,18 @@ of Run A (all single-file, `src/render.js`):
    the catch-up paint.
 3. **`animate:false` on the refit** — the resize path read `getZoom()` mid zoom-animation,
    yielding a stale floor after rotation.
+4. **`target === cur` guard in the paint scheduler** — a clamped drag (or a drag returning to
+   the shown frame) re-encoded the current frame under the drag raster class; the 6.2
+   cache + overlay-dedupe made that a no-op, so the guard restores it explicitly (this is
+   what keeps the clamped `hold` profile at zero encodes).
+
+Two gate-rig corrections were approved at sign-off (2026-09-14, see §7):
+
+- `[20.7]` gains a throwaway net-zero painting warm-up (`_s63_warmup`) — same convention as
+  `[17]`/`scrub_bench`; G2 now reads steady state and the one-time cold first-drag cost is
+  recorded in §3 (not gated). Bar tightened to `>33 ms == 0, p90 <= 20`.
+- `tapeTx>=moves` → `tapeTx>=moves-1` in `stage5_check.py [17]` and `scrub_bench.py`
+  (pre-down event writes nothing; mid-drag paint flushes are suspended by item 3).
 
 ## 1. Item 1 — water-mask cleansing
 
@@ -110,20 +123,21 @@ slow pacing set to the §3.1 achieved velocity ≈ 0.13 px/ms):**
 | gate | bar | 6.2 baseline (s63_attrib) | 6.3 measured | verdict |
 |---|---|---|---|---|
 | G1 flick | >33 ms == 0, p90 ≤ 20 | 7 / p90 41.4 | **0 / p90 16.8–16.9, max 16.9** | ✅ |
-| G2 slow | >33 ms ≤ 2, p90 ≤ 25 | 22 / p90 46.1 | **3 / p90 16.9–17.0** | ⚠️ see §7-A |
+| G2 slow (warmed) | >33 ms == 0, p90 ≤ 20 | 22 / p90 46.1 | **0 / p90 16.9, max 24.1**, 8 encodes | ✅ |
 | G3 hold | p90 ≤ 17, max ≤ 20 | p90 16.8 | **p90 16.8–16.9, max 16.9–17.1, 0 encodes** | ✅ |
 | G4 tape advance | ≥ 0.95 advancing, matrix form | — | **1.000 / true** | ✅ |
 
-**G2 attribution (timeline probe `tmp/s63_profile_timeline.py`):** the three >33 ms frames are
-the slow drag's first three encodes — 143.6 ms (the session's **first-ever 512-class build**:
-one-time land-frac gather + JIT), then 41.4 / 38.7 ms — all followed within ~4 ms by their
-blob. Encodes 4–7 of the same drag are **≤ 33 ms**; the dead-zone after the clamp produces
-**zero** encodes. So the drag path is clean in steady state; the miss is one-time cold cost
-landing inside the measured window.
+**Cold first-drag profile (expected one-time startup cost, recorded per sign-off §7-A):**
+on a cold session the first drag pays ~143 ms once (first 512-class build: one-time land-frac
+gather + JIT) + two ~40 ms frames (JIT warm-up); encodes 4+ of that same drag are ≤ 33 ms
+(timeline probe `tmp/s63_profile_timeline.py`). After the rig's warm-up pass, the measured
+slow drag is **0 frames > 33 ms, p90 16.9, max 24.1** (8 throttled encodes) — the steady
+state from the second drag onward. Flagged for on-device confirmation (O2).
 
-**G5 scrub_bench:** median **16.6 ms** (≤ 25 ✓), p90 **16.8–17.5** (≤ 30 ✓), max 17.2–33.4,
-swaps **0** (≤ 12 ✓), long ≤ 50 ✓, `index_exact` ✓ (idx 42 → 42, pill 10:30 AM), `runway_24h`
-176 ✓. One check fails: `tapeTx>=moves` (tx=30, moves=31) — **same instrument as `[17]`, see §7-B.**
+**G5 scrub_bench:** all checks PASS on all three cases (mouse ×2, cdp-touch): median **16.6 ms**
+(≤ 25 ✓), p90 16.8–17.0 (≤ 30 ✓), max 17.1–33.4 (≤ 100 ✓), swaps **0** (≤ 12 ✓), long ≤ 50 ✓,
+`index_exact` ✓ (idx 42 → 42, pill 10:30 AM), `runway_24h` 176/206 ✓, `tapeTx>=moves-1`
+30/31 and 30/30 ✓ (1:1 tracking; see §7-B).
 
 **G6 settle correctness:** `[19]` continuous-scrub + Home-settle gates green; released frame ==
 the throttled target index (`expectedIdx`) — harness `[16]/[17] final` lines: idx 42 == 42.
@@ -147,12 +161,12 @@ the throttled target index (`expectedIdx`) — harness `[16]/[17] final` lines: 
 |---|---|
 | `node tests/*.test.js` (4 files) | **4/4 ALL TESTS PASSED** (harness `[12]`) |
 | `stage5_check.py` `[19]` (6.2 regression) | **ok — all gates ok=True** |
-| `stage5_check.py` `[20]` (new) | `[20.1]–[20.6]` ✅, `[20.7a/c/d]` ✅, **`[20.7b]` ⚠️ §7-A** |
-| `stage5_check.py` full | **24 ok, 2 FAIL** — `[17]` (⚠️ §7-B) + `[20.7b]`; both runs identical (`tmp/s63-harness-final.log`, `tmp/s63-harness-final2.log`) |
-| `scrub_bench.py` | median/p90/swaps/index all ✅; `tapeTx>=moves` ⚠️ (§7-B, same instrument as `[17]`) |
+| `[20]` | **all gates ok=True** — `[20.1]`–`[20.6]` ✅, `[20.7a]` 0 / p90 16.8 ✅, `[20.7b]` 0 / p90 16.9 / max 24.1 ✅ (warmed), `[20.7c]` 0 / 17.1 ✅, `[20.7d]` advance 1.000 ✅ |
+| `stage5_check.py` full | **26 ok, 0 FAIL** — `[17]` ✅, `[19]` ✅, suites 4/4, page errors 0 (`tmp/s63-harness-ship.log`) |
+| `scrub_bench.py` | **all PASS** ×3 — median 16.6, swaps 0, `tapeTx>=moves-1` ✓ |
 | `live_smoke.py` | pending deploy (run post-push) |
 
-`[9]` playback perf ok (canvas 780, frameMs avg 45.5 — path untouched by 6.3);
+`[9]` playback perf ok (canvas 780, frameMs avg 44.2 — path untouched by 6.3);
 `[10]/[11]` radar smoothing unchanged; `[13]` lazy 7d ok; `[14]` live seam pass.
 
 ## 6. Rollback
@@ -163,26 +177,20 @@ the throttled target index (`expectedIdx`) — harness `[16]/[17] final` lines: 
   each item is separately reversible (§0).
 - Full: reset to `87a52cb`.
 
-## 7. Open decisions before tag/publish
+## 7. Sign-off decisions (resolved 2026-09-14)
 
-**A. `[20.7b]` G2 = 3 frames > 33 ms vs bar ≤ 2** (p90 16.9 ✓; 6.2 was 22 / p90 46.1).
-   Root cause: the session's first 512-class builds (one-time 143 ms cold + two ~40 ms JIT-warm)
-   fall inside the first drag; steady-state encodes are ≤ 33 ms. Options:
-   1. **Accept + document** (recommended): the gate's spirit — "a slow drag does not hitch" —
-      is met in steady state; first-drag cold cost is a one-time, on-device-checkable item (O2).
-   2. Adopt the rig's standard warm-up convention (as `[17]`/`scrub_bench` already do) so G2
-      measures steady state, with the cold first-drag cost recorded separately (out of manifest —
-      needs explicit approval).
-   3. D3.4-B (raise drag-time throttle to ~120 ms) — weak, and it edits a locked D3.3 constant.
+**A. `[20.7b]` G2 — ✅ rig warm-up (option 1).** `[20.7]` runs a throwaway net-zero painting
+warm-up (`_s63_warmup`: paced 6 px steps forward and back, returning to the exact start index,
+so the flick→slow→hold state chain is unchanged). G2's bar is tightened to **>33 ms == 0,
+p90 ≤ 20** (matching G1/G3). Measured: **0 / p90 16.9 / max 24.1**, 8 encodes. The 72 ms drag
+throttle stays locked (no D3.4-B). Cold first-drag cost recorded in §3 as an expected one-time
+startup profile (on-device confirmation pending, O2).
 
-**B. `[17]` + `scrub_bench.tapeTx>=moves` fail (tx=30, moves=31).**
-   Root cause: `moves` counts one pre-down positioning event that writes nothing in **every**
-   era (cdp-touch, moves=30, is exactly 30/30). The check only ever passed via mid-drag
-   **paint-flush writes** (6.2: tx = 30 + 11 swaps; Run B tree: 30 + 1) — and item 3's
-   suspension (D3.3) removes mid-drag paints on fast drags **by design** (G1 requires 0
-   encodes). The tape still follows every drag step 1:1 (30/30 measured). Fix = compare against
-   the drag-step count (`tx >= moves - 1`) in both files, with a comment. One line each;
-   outside §4.2's closed list → held for approval.
+**B. `[17]` + `scrub_bench.tapeTx>=moves` — ✅ instrument correction applied.** Both files now
+read `tx >= moves - 1` with in-file comments: the mouse driver's pre-down positioning move
+never writes (cdp-touch, moves=30, is 30/30 exactly); the old bar only passed via mid-drag
+paint-flush writes (6.2: 30 + 11 = 41; Run B tree: 30 + 1), which item 3 suspends by design
+(G1 = 0 encodes on fast drags). The tape still tracks every drag step 1:1; a starving tape
+(~1 write per rAF) still fails loudly. Re-run: `[17]` ok, bench all PASS.
 
-**C. After A/B sign-off:** re-run the full suite, update §5, commit, tag `stage-6.3-shipped`,
-push, then `live_smoke.py` against Pages (§4 H3 + `[19]`-live) before the final report.
+**C. Ship:** tag `stage-6.3-shipped` + Pages deploy + live smoke (this commit).

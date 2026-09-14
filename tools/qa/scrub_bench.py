@@ -366,7 +366,12 @@ def verdict(case):
         ("instruments", all(ins.values()), "tx/src/long/paint=%s" % ins),
         ("runway_24h>=150", h24.get("runway", -1) >= 150, "runway=%s" % h24.get("runway")),
         ("swaps<=12", d["swaps"] <= 12, "swaps=%d" % d["swaps"]),
-        ("tapeTx>=moves", d["tapeTx"] >= d["moves"], "tx=%d moves=%d" % (d["tapeTx"], d["moves"])),
+        # 6.3: bar is the drag-step count (moves - 1) — the mouse driver's pre-down
+        # positioning move emits no transform write in any era, and item 3 suspends
+        # mid-drag paint-flush writes on fast drags by design (G1: 0 encodes). Real tape
+        # starvation still fails loudly (see stage5_check.py [17], same instrument).
+        ("tapeTx>=moves-1", d["tapeTx"] >= d["moves"] - 1,
+         "tx=%d moves=%d" % (d["tapeTx"], d["moves"])),
         ("index_exact", d["finalIdx"] == d["expectedIdx"],
          "idx=%d expected=%d" % (d["finalIdx"], d["expectedIdx"])),
         ("long<=50", d["longMax"] <= 50, "longtasks=%s" % d["longtasks"]),
