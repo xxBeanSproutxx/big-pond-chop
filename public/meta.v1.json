@@ -1,6 +1,6 @@
 {
  "version": "v1",
- "created_utc": "2026-09-11T19:54:51Z",
+ "created_utc": "2026-09-14T13:46:09Z",
  "bathy_grid": {
   "rows": 292,
   "cols": 285,
@@ -57,7 +57,7 @@
  "blob": {
   "file": "tables.v1.bin",
   "bytes": 613320,
-  "sha256": "33aa6e521777360d16b00abf7d137b869674c60a4ac6ddd1f072080b1bc2a2e7",
+  "sha256": "34e5900e2d633859504edc895a762d7570928ebc0b18be0fcb0c966891a1acc5",
   "offsets": {
    "depth": 0,
    "fetchEff": 166440,
@@ -90,7 +90,7 @@
  "ranges": {
   "depth_ft": [
    0.0,
-   42.0
+   40.0
   ],
   "fetchEff_decam": [
    2,
