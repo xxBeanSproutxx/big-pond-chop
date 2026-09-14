@@ -12,12 +12,14 @@ import os
 import numpy as np
 import PIL.Image as I
 from pyproj import Transformer
+from scipy import ndimage           # scipy 1.17.1 / numpy 2.4.3 verified on this box
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEM = "/home/reid/projects/oruxmaps-data/bathy/millelacs_work/ml_dem_utm.tif"
 GOLDEN = os.path.join(ROOT, "tests", "fixtures", "golden.json")
 OUT_BIN = os.path.join(ROOT, "public", "tables.v1.bin")
 OUT_META = os.path.join(ROOT, "public", "meta.v1.json")
+OUT_MASK = os.path.join(ROOT, "public", "mask.v1.json")
 
 G = 9.81
 FT = 0.3048
@@ -44,6 +46,49 @@ def load_dem():
     return sent, depth, clamped, arr
 
 
+MASK_RECEIPT = {}
+
+
+def log_mask_receipt(lab, n_lab, sizes, keep, bd):
+    """6.3: persist the water-body component inventory next to the blob.
+
+    Component count, per-component size/area/centroid (grid -> lon/lat via the same
+    warp affine the runtime uses) and the dropped inventory with depth stats.
+    """
+    with open(os.path.join(ROOT, "public", "warp.v1.json")) as f:
+        warp = json.load(f)
+    A, B = warp["grid_to_lonlat"], warp["grid_to_lonlat_row"]
+
+    def stats(k):
+        ys, xs = np.where(lab == k)
+        lon = A[0] * xs.mean() + A[1] * ys.mean() + A[2]
+        lat = B[0] * xs.mean() + B[1] * ys.mean() + B[2]
+        d = bd[lab == k]
+        return {"id": int(k), "cells": int(sizes[k]), "area_km2": round(sizes[k] * 0.01, 2),
+                "centroid_lat": round(float(lat), 4), "centroid_lon": round(float(lon), 4),
+                "depth_ft": {"min": round(float(d.min()), 1),
+                             "median": round(float(np.median(d)), 1),
+                             "max": round(float(d.max()), 1)}}
+
+    comps = sorted((stats(k) for k in range(1, n_lab + 1) if sizes[k] > 0),
+                   key=lambda c: -c["cells"])
+    kept = next(c for c in comps if c["id"] == keep)
+    dropped = [c for c in comps if c["id"] != keep]
+    MASK_RECEIPT.update({
+        "version": "6.3", "generated_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "source_dem": os.path.basename(DEM), "connectivity": 4,
+        "grid": {"rows": BATHY_ROWS, "cols": BATHY_COLS, "cell_m": 100},
+        "components": int(n_lab), "kept": kept, "dropped": dropped,
+        "dropped_cells_total": int(sum(c["cells"] for c in dropped)),
+        "keep_min_cells_guard": 50000,
+    })
+    print("mask 6.3: %d components; keep #%d %d cells; dropped %d comps / %d cells (%.2f km2)"
+          % (n_lab, keep, kept["cells"], len(dropped), MASK_RECEIPT["dropped_cells_total"],
+             MASK_RECEIPT["dropped_cells_total"] * 0.01), flush=True)
+    with open(OUT_MASK, "w") as f:
+        json.dump(MASK_RECEIPT, f, indent=1)
+
+
 def build_bathy(sent, depth):
     """100 m min-depth downsample, sentinel-aware. Returns (depth_ft, land)."""
     h, w = depth.shape
@@ -61,6 +106,18 @@ def build_bathy(sent, depth):
     del bd
     land = ~np.isfinite(out)
     out[land] = 0.0
+
+    # 6.3: keep only the largest contiguous water body (Mille Lacs proper). The DEM mask
+    # carries satellite lakes; rays/paints must not see them.
+    struct4 = ndimage.generate_binary_structure(2, 1)          # 4-connectivity
+    lab, n_lab = ndimage.label(~land, structure=struct4)
+    sizes = np.bincount(lab.ravel()); sizes[0] = 0
+    keep = int(np.argmax(sizes))
+    if sizes[keep] < 50000:      # 6.2 ships 52,738 cells for Mille Lacs
+        raise SystemExit("mask regression: largest water body is %d cells" % sizes[keep])
+    dropped = (~land) & (lab != keep)
+    log_mask_receipt(lab, n_lab, sizes, keep, out)   # new: counts + centroids into the receipt
+    land = land | dropped
     return out, land
 
 
@@ -307,6 +364,8 @@ def main():
     print(f"fetch range dm  : {meta['ranges']['fetchEff_decam']}")
     print(f"path range ft   : {meta['ranges']['pathEff_ft']}")
     print(f"clamped cells   : {clamped}")
+    print(f"mask receipt    : {MASK_RECEIPT['components']} comps, keep {MASK_RECEIPT['kept']['cells']} cells, "
+          f"dropped {len(MASK_RECEIPT['dropped'])} comps / {MASK_RECEIPT['dropped_cells_total']} cells")
     print(f"blob bbox       : {blob_bbox}")
     print(f"byte size       : {TOTAL} bytes")
     print(f"sha256          : {sha}")
