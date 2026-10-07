@@ -1006,7 +1006,9 @@ async function mount(deps) {
         const li = atPeak ? maxI : (start + Math.floor((end - start) / 2));
         const drop = document.createElement('span');
         drop.className = 'day-rain-label' + (atPeak ? '' : ' dim');
-        drop.textContent = `💧${Math.round(maxP)}%`;
+        // SVG droplet (feather style, like the sun/moon): the emoji's color can't be
+        // themed, and the % must read WHITE over the curve while the drop pops blue.
+        drop.innerHTML = '<span class="day-rain-drop"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.7l5.7 5.7a8 8 0 1 1-11.4 0z"/></svg></span>' + Math.round(maxP) + '%';
         if (li === start) {
           drop.style.left = '3px';
           drop.style.transform = 'none';
