@@ -178,7 +178,8 @@ function nextPlayIdx(cur, step, n) {
 // ---- stage 5M: three-hourly wind row (pure helper) ----
 // h = 0,3,…,21 -> Math.round(speedMph) of the frame in [start, end) whose local time is hh:00.
 // Missing frame or non-finite speed is skipped (no label). Returns [{ h, mph }] ordered by hour.
-function tickWinds(entries, start, end) {
+function tickWinds(entries, start, end, field) {
+  const fld = field || 'speedMph';
   const list = entries || [];
   const lo = Math.max(0, start | 0);
   const hi = Math.min(list.length, end == null ? list.length : end | 0);
@@ -188,7 +189,7 @@ function tickWinds(entries, start, end) {
     for (let i = lo; i < hi; i++) {
       const e = list[i];
       if (!e || String(e.time).slice(11, 16) !== hh) continue;
-      if (Number.isFinite(e.speedMph)) out.push({ h, mph: Math.round(e.speedMph) });
+      if (Number.isFinite(e[fld])) out.push({ h, value: e[fld] });
       break;
     }
   }
@@ -934,23 +935,23 @@ async function mount(deps) {
         } else {
           wind.style.left = `${Math.max(6, Math.min(w - 6, (t.h / 24) * w))}px`;
         }
-        wind.textContent = String(t.mph);
+        wind.textContent = String(Math.round(t.value));
         block.appendChild(wind);
       }
-      // Phase 5: temp labels every 3rd frame, heat-colored.
-      for (let i = start; i < end; i++) {
-        const e = frames[i];
-        if (!e || (i - start) % 3 !== 0 || !Number.isFinite(e.tempF)) continue;
+      // Phase 5: temp labels on the SAME 3-hourly cadence as the wind numbers
+      // (tickWinds 'tempF') — same rhythm, same x-mapping, no overlap by construction.
+      for (const t of tickWinds(frames, start, end, 'tempF')) {
+        if (!Number.isFinite(t.value)) continue;
         const temp = document.createElement('span');
         temp.className = 'day-temp';
-        if (i === start) {
+        if (t.h === 0) {
           temp.style.left = '3px';
           temp.style.transform = 'none';
         } else {
-          temp.style.left = `${Math.max(6, Math.min(w - 6, (i - start) * pxf))}px`;
+          temp.style.left = `${Math.max(6, Math.min(w - 6, (t.h / 24) * w))}px`;
         }
-        temp.textContent = `${Math.round(e.tempF)}°`;
-        temp.style.color = tempLabelColor(e.tempF);
+        temp.textContent = `${Math.round(t.value)}°`;
+        temp.style.color = tempLabelColor(t.value);
         block.appendChild(temp);
       }
       // Phase 5: rain line graph (Windy-style SVG).
@@ -968,7 +969,7 @@ async function mount(deps) {
         if (!e) continue;
         const x = (i - start) * pxf;
         const p = Number.isFinite(e.precipIn) ? Math.min(0.25, e.precipIn) : 0;
-        const y = p === 0 ? 18 : Math.min(18 - 2.5, 18 - p * 64);
+        const y = p === 0 ? 14 : Math.min(14 - 2.5, 14 - p * 32);
         pts.push(`${x},${y.toFixed(1)}`);
       }
       if (pts.length > 1) {
@@ -1017,7 +1018,7 @@ async function mount(deps) {
           const riseLocal = chicagoMinutes(sun.sunriseMs);
           const riseX = (riseLocal / 1440) * w;
           const tick = document.createElement('span');
-          tick.className = 'day-sun-tick';
+          tick.className = 'day-sun-dot';
           tick.style.left = `${riseX}px`;
           tick.title = `Sunrise ${formatChicagoClock(sun.sunriseMs)}`;
           block.appendChild(tick);
@@ -1026,7 +1027,7 @@ async function mount(deps) {
           const setLocal = chicagoMinutes(sun.sunsetMs);
           const setX = (setLocal / 1440) * w;
           const tick = document.createElement('span');
-          tick.className = 'day-sun-tick';
+          tick.className = 'day-sun-dot';
           tick.style.left = `${setX}px`;
           tick.title = `Sunset ${formatChicagoClock(sun.sunsetMs)}`;
           block.appendChild(tick);

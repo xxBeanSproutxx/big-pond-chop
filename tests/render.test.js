@@ -408,28 +408,31 @@ check('full day -> 8 entries, ordered by hour, integer mph', () => {
     speedMph: i,
   });
   const day = Array.from({ length: 96 }, (_, i) => mk(i));
+  for (const e of day) e.tempF = e.speedMph / 2; // temps present -> same cadence
   const w = tickWinds(day, 0, day.length);
   assert.deepStrictEqual(w.map((x) => x.h), [0, 3, 6, 9, 12, 15, 18, 21]);
-  assert.deepStrictEqual(w.map((x) => x.mph), [0, 12, 24, 36, 48, 60, 72, 84]);
-  assert.ok(w.every((x) => Number.isInteger(x.mph)), 'all mph are integers');
-  console.log(`       ${w.map((x) => `${x.h}h=${x.mph}`).join(' ')}`);
+  assert.deepStrictEqual(w.map((x) => Math.round(x.value)), [0, 12, 24, 36, 48, 60, 72, 84]);
+  assert.ok(w.every((x) => Number.isInteger(Math.round(x.value))), 'all mph are integers');
+  assert.strictEqual(tickWinds(day, 0, day.length, 'tempF').length,
+    tickWinds(day, 0, day.length).length, 'field param returns same cadence');
+  console.log(`       ${w.map((x) => `${x.h}h=${Math.round(x.value)}`).join(' ')}`);
 });
-check('rounds to the nearest mph', () => {
+check('anchors on the exact hour, raw values (consumer rounds)', () => {
   const mk = (h, s) => ({ time: `2026-09-11T${String(h).padStart(2, '0')}:00`, speedMph: s });
   const day = [mk(0, 5.4), mk(1, 5.5), mk(3, 2.4), mk(6, 7.6)];
   assert.deepStrictEqual(tickWinds(day, 0, day.length),
-    [{ h: 0, mph: 5 }, { h: 3, mph: 2 }, { h: 6, mph: 8 }]);
+    [{ h: 0, value: 5.4 }, { h: 3, value: 2.4 }, { h: 6, value: 7.6 }]);
 });
 check('missing frame or non-finite speed is skipped (no label)', () => {
   const mk = (h, s) => ({ time: `2026-09-11T${String(h).padStart(2, '0')}:00`, speedMph: s });
   const day = [mk(0, 10), mk(3, NaN), mk(6, 20)]; // 09/12/... absent, 03 non-finite
-  assert.deepStrictEqual(tickWinds(day, 0, day.length), [{ h: 0, mph: 10 }, { h: 6, mph: 20 }]);
+  assert.deepStrictEqual(tickWinds(day, 0, day.length), [{ h: 0, value: 10 }, { h: 6, value: 20 }]);
 });
 check('respects [start, end) so a block never sees a neighbouring day', () => {
   const mk = (d, h, s) => ({ time: `2026-09-${d}T${String(h).padStart(2, '0')}:00`, speedMph: s });
   const entries = [mk('11', 0, 10), mk('11', 3, 11), mk('12', 0, 90)];
-  assert.deepStrictEqual(tickWinds(entries, 0, 2).map((x) => [x.h, x.mph]), [[0, 10], [3, 11]]);
-  assert.deepStrictEqual(tickWinds(entries, 2, 3).map((x) => [x.h, x.mph]), [[0, 90]]);
+  assert.deepStrictEqual(tickWinds(entries, 0, 2).map((x) => [x.h, x.value]), [[0, 10], [3, 11]]);
+  assert.deepStrictEqual(tickWinds(entries, 2, 3).map((x) => [x.h, x.value]), [[0, 90]]);
   assert.deepStrictEqual(tickWinds([], 0, 0), []);
 });
 
