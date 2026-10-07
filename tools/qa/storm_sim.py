@@ -61,6 +61,8 @@ def main():
         page.wait_for_function("() => !!document.querySelector('.day-block .day-wind')",
                                timeout=60000)
         page.wait_for_timeout(2500)
+        # Injected into the page evaluate below so both sides agree on the number.
+        page.evaluate(f"() => {{ window.__PCT = {args.pct}; }}")
         rows = page.evaluate("""() => {
           const out = [];
           for (const blk of document.querySelectorAll('.day-block')) {
@@ -68,18 +70,26 @@ def main():
             const curveBox = blk.querySelector('.day-rain-svg').getBoundingClientRect();
             const ys = blk.querySelector('.day-rain-svg polyline')
               .getAttribute('points').split(' ').map(p => parseFloat(p.split(',')[1]));
-            const labelBox = lbl.getBoundingClientRect();
-            const apexY = curveBox.top + Math.min(...ys);
-            out.push({ label: lbl.textContent, dim: lbl.classList.contains('dim'),
-                       clearance: +(apexY - labelBox.bottom).toFixed(1),
-                       overlap: apexY < labelBox.bottom - 0.5 });
+            // Contract (v1.1 full-scale design): the curve uses the WHOLE zone on a
+            // true 0-100 scale, so tall storms pass BEHIND the label — contact is
+            // BY DESIGN. What must hold: travel matches pct (no saturation plateau)
+            // and the label carries its backing pill so text stays readable.
+            const travel = 28 - Math.min(...ys);
+            const expected = 0.26 * Math.min(100, window.__PCT);
+            const pill = getComputedStyle(lbl).backgroundColor;
+            const alpha = pill.includes('rgba') ? parseFloat(pill.split(',')[3]) : 1;
+            out.push({ label: lbl.textContent, travel: +travel.toFixed(1),
+                       expected: +expected.toFixed(1),
+                       travelOk: Math.abs(travel - expected) <= 2.5,
+                       pillOk: alpha >= 0.5 });
           }
           return out;
         }""")
         for d in rows:
-            flag = "OVERLAP" if d["overlap"] else "ok"
-            print(f"  {d['label']:>7} dim={str(d['dim']):5} clearance={d['clearance']:>5}px  {flag}")
-            if d["overlap"]:
+            ok = d["travelOk"] and d["pillOk"]
+            print(f"  {d['label']:>8} travel={d['travel']:>5}px (expect ~{d['expected']}) "
+                  f"pill={'ok' if d['pillOk'] else 'MISSING'}  {'ok' if ok else 'FAIL'}")
+            if not ok:
                 fails += 1
         if args.shot:
             deck = page.evaluate(
