@@ -71,10 +71,11 @@ def main():
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         total_fail = 0
-        for horizon, query in (("24h", ""), ("7d", "?h=7d")):
+        base = args.url.split("?")[0]  # tolerate query-carrying --url; passes own the query
+        for horizon, query in (("24h", ""), ("7d", "?h=7d"), ("15d", "?h=15d")):
             page = browser.new_page(viewport={"width": 390, "height": 844},
                                     device_scale_factor=2)
-            page.goto(args.url + query, wait_until="domcontentloaded")
+            page.goto(base + query, wait_until="domcontentloaded")
             page.wait_for_function(
                 "() => !!document.querySelector('.day-block .day-wind')", timeout=60000)
             page.wait_for_timeout(1000)

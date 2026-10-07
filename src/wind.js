@@ -269,7 +269,7 @@ function currentIndex(day, now) {
 
 // horizon '24h' (default) requests the current 2-day window; '7d' extends it.
 function buildUrl(lat, lon, horizon) {
-  const days = horizon === '7d' ? 7 : 2;
+  const days = horizon === '7d' ? 7 : horizon === '15d' ? 16 : 2;
   return `${API}?latitude=${lat}&longitude=${lon}&hourly=${HOURLY}` +
     `&minutely_15=${MINUTELY}` +
     `&wind_speed_unit=mph&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=America%2FChicago&past_days=1&forecast_days=${days}`;
@@ -277,7 +277,7 @@ function buildUrl(lat, lon, horizon) {
 
 // Stage 6A dual-location variant: comma-joined coords, one request, forecast_days last.
 function buildDualUrl(lake, shore, horizon) {
-  const days = horizon === '7d' ? 7 : 2;
+  const days = horizon === '7d' ? 7 : horizon === '15d' ? 16 : 2;
   return `${API}?latitude=${lake.lat},${shore.lat}&longitude=${lake.lon},${shore.lon}` +
     `&hourly=${HOURLY}` +
     `&minutely_15=${MINUTELY}` +
@@ -369,7 +369,7 @@ function seriesFor7d(json, gamma, today) {
 async function ingest(opts = {}) {
   const point = opts.point || DEFAULT_POINT;
   const gamma = opts.gamma != null ? opts.gamma : 0;
-  const horizon = opts.horizon === '7d' ? '7d' : '24h';
+  const horizon = opts.horizon === '7d' || opts.horizon === '15d' ? opts.horizon : '24h';
   const now = opts.now || new Date();
   const today = chicagoNow(now).date;
 
@@ -388,10 +388,13 @@ async function ingest(opts = {}) {
   const json = lake || payload; // legacy/single object stays the lake, as before
   const shoreOk = shore && hasWindSpeed(shore);
 
-  if (horizon === '7d') {
+  if (horizon === '7d' || horizon === '15d') {
+    // seriesFor7d assembles the full available range (native through tomorrow,
+    // hourly-expanded beyond) — the horizon only chooses how much we slice.
+    const wideDays = horizon === '15d' ? 15 : 7;
     const series = seriesFor7d(json, gamma, today);
-    const day = selectRange(series, today, 7);
-    const shoreDay = shoreOk ? selectRange(seriesFor7d(shore, gamma, today), today, 7) : null;
+    const day = selectRange(series, today, wideDays);
+    const shoreDay = shoreOk ? selectRange(seriesFor7d(shore, gamma, today), today, wideDays) : null;
     return {
       point, gamma, series, day, currentIndex: currentIndex(day, now),
       raw: json, stepMin: 15, horizon, shoreDay,
