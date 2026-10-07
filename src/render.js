@@ -902,7 +902,7 @@ async function mount(deps) {
         } else {
           sub.style.left = `${Math.max(6, Math.min(w - 6, (h / 24) * w))}px`;
         }
-        sub.textContent = String((h % 12) || 12).padStart(2, '0');
+        sub.textContent = `${(h % 12) || 12}${h < 12 ? 'a' : 'p'}`;
         block.appendChild(sub);
       }
       // 5P: one heat stop per hour (24 samples from the 15-min frames), feeding the
@@ -1041,7 +1041,7 @@ async function mount(deps) {
         edge.style.right = '2px';
         edge.style.left = 'auto';
         edge.style.transform = 'none';
-        edge.textContent = '12';
+        edge.textContent = '12a';
         block.appendChild(edge);
       }
       trackDays.appendChild(block);

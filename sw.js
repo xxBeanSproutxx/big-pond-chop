@@ -2,7 +2,7 @@
 // Shell precache only. Versioned data is cache-first; app code and the document
 // are network-first so a deploy never serves stale code. Weather + tiles are
 // never cached. Bump CACHE_NAME on every future deploy.
-const CACHE_NAME = 'bpc-cache-v4';
+const CACHE_NAME = 'bpc-cache-v5';
 
 const SHELL = [
   './', './index.html',
