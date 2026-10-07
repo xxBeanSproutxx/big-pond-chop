@@ -990,24 +990,27 @@ async function mount(deps) {
       }
       svgWrap.appendChild(svg);
       block.appendChild(svgWrap);
-      // Phase 5: rain peak labels (>=25% chance, strictly-rising local max only).
+      // Phase 5: ONE rain label per day — the day's peak chance. Sits at the peak
+      // when it matters (>=25%), else a dimmed midday label so flat days still
+      // read a number instead of an unexplained flat line (Reid). Max one per
+      // day = can't clutter.
+      let maxP = -1, maxI = start;
       for (let i = start; i < end; i++) {
         const e = frames[i];
-        if (!e) continue;
-        const p = Number.isFinite(e.precipProb) ? e.precipProb : 0;
-        if (p < 25) continue;
-        const prev = frames[i - 1], next = frames[i + 1];
-        const pp = prev && Number.isFinite(prev.precipProb) ? prev.precipProb : 0;
-        const pn = next && Number.isFinite(next.precipProb) ? next.precipProb : 0;
-        if (p <= pp || p < pn) continue;
+        const p = e && Number.isFinite(e.precipProb) ? e.precipProb : 0;
+        if (p > maxP) { maxP = p; maxI = i; }
+      }
+      if (maxP >= 0) {
+        const atPeak = maxP >= 25;
+        const li = atPeak ? maxI : (start + Math.floor((end - start) / 2));
         const drop = document.createElement('span');
-        drop.className = 'day-rain-label';
-        drop.textContent = `💧${Math.round(p)}%`;
-        if (i === start) {
+        drop.className = 'day-rain-label' + (atPeak ? '' : ' dim');
+        drop.textContent = `💧${Math.round(maxP)}%`;
+        if (li === start) {
           drop.style.left = '3px';
           drop.style.transform = 'none';
         } else {
-          drop.style.left = `${Math.max(14, Math.min(w - 14, (i - start) * pxf))}px`;
+          drop.style.left = `${Math.max(14, Math.min(w - 14, (li - start) * pxf))}px`;
         }
         block.appendChild(drop);
       }
