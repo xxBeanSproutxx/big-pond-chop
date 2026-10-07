@@ -72,7 +72,7 @@ def main():
         browser = pw.chromium.launch()
         total_fail = 0
         base = args.url.split("?")[0]  # tolerate query-carrying --url; passes own the query
-        for horizon, query in (("24h", ""), ("7d", "?h=7d"), ("15d", "?h=15d")):
+        for horizon, query in (("24h", ""), ("15d", "?h=15d")):
             page = browser.new_page(viewport={"width": 390, "height": 844},
                                     device_scale_factor=2)
             page.goto(base + query, wait_until="domcontentloaded")

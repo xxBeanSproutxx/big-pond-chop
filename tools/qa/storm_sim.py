@@ -26,7 +26,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pct", type=int, default=95)
     ap.add_argument("--url", default="http://127.0.0.1:8788/index.html")
-    ap.add_argument("--horizon", default="7d")
+    ap.add_argument("--horizon", default="15d")
     ap.add_argument("--shot", default="")
     args = ap.parse_args()
 

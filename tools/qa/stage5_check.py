@@ -216,15 +216,15 @@ def _wait_boot_hidden(page, timeout=5000):
 
 
 def check_horizon_ceiling(page):
-    """5D/5E: the frame ceiling tracks the horizon (24 h = 96 frames, 7 day = 672) and
+    """5D/5E: the frame ceiling tracks the horizon (24 h = 96 frames, 15 day = 1440) and
     each transition's first paint hides the boot skeleton again (5D.2 fix)."""
-    page.click("#h-7d")
+    page.click("#h-15d")
     page.wait_for_function(
-        "() => document.getElementById('track').getAttribute('aria-valuemax') === '671'",
+        "() => document.getElementById('track').getAttribute('aria-valuemax') === '1439'",
         timeout=60000)
     max7 = page.get_attribute("#track", "aria-valuemax")
     p24_when7 = page.get_attribute("#h-24h", "aria-pressed")
-    p7_when7 = page.get_attribute("#h-7d", "aria-pressed")
+    p7_when7 = page.get_attribute("#h-15d", "aria-pressed")
     boot7 = _wait_boot_hidden(page)
     page.click("#h-24h")
     page.wait_for_function(
@@ -232,22 +232,22 @@ def check_horizon_ceiling(page):
         timeout=60000)
     max24 = page.get_attribute("#track", "aria-valuemax")
     p24_when24 = page.get_attribute("#h-24h", "aria-pressed")
-    p7_when24 = page.get_attribute("#h-7d", "aria-pressed")
+    p7_when24 = page.get_attribute("#h-15d", "aria-pressed")
     boot24 = _wait_boot_hidden(page, 1000)
-    ok = (max7 == "671" and max24 == "95" and
+    ok = (max7 == "1439" and max24 == "95" and
           p7_when7 == "true" and p24_when7 == "false" and
           p24_when24 == "true" and p7_when24 == "false" and boot7 and boot24)
     record("2b", "horizon ceiling", ok,
-           "7d max=%s pressed 7d/24h=%s/%s boot-hidden=%s | "
-           "24h max=%s pressed 24h/7d=%s/%s boot-hidden=%s"
+           "15d max=%s pressed 15d/24h=%s/%s boot-hidden=%s | "
+           "24h max=%s pressed 24h/15d=%s/%s boot-hidden=%s"
            % (max7, p7_when7, p24_when7, boot7, max24, p24_when24, p7_when24, boot24))
 
 
-def check_lazy_7d(page):
-    """5A/5D: widening to 7d must build frames on demand, not eagerly evaluate the series."""
-    page.click("#h-7d")
+def check_lazy_15d(page):
+    """5A/5D: widening to 15d must build frames on demand, not eagerly evaluate the series."""
+    page.click("#h-15d")
     page.wait_for_function(
-        "() => document.getElementById('track').getAttribute('aria-valuemax') === '671' &&"
+        "() => document.getElementById('track').getAttribute('aria-valuemax') === '1439' &&"
         " document.getElementById('track').getAttribute('aria-valuenow') !== null",
         timeout=60000)
     r1 = float(page.evaluate("parseFloat(document.body.dataset.precomputeMs)"))
@@ -255,7 +255,7 @@ def check_lazy_7d(page):
     r2 = float(page.evaluate("parseFloat(document.body.dataset.precomputeMs)"))
     delta = r2 - r1
     ok = delta <= 10.0 and r1 < 500.0
-    record(13, "lazy 7d compute", ok,
+    record(13, "lazy 15d compute", ok,
            "precomputeMs first=%.1f idle=%.1f idle_delta=%.1f (gate <=10, first<500)"
            % (r1, r2, delta))
     page.click("#h-24h")
@@ -529,7 +529,7 @@ def check_touch_ergonomics(page):
                  var max = parseInt(document.getElementById('track').getAttribute('aria-valuemax'), 10);
                  return {
                    idx: parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10),
-                   n: max + 1, horizon: max === 671 ? '7d' : '24h',
+                   n: max + 1, horizon: max === 1439 ? '15d' : '24h',
                    tapeX: t.x, pillCx: p.x + p.width / 2,
                    tlCx: tl.x + tl.width / 2, tlX: tl.x, tlW: tl.width, tlY: tl.y,
                    transform: getComputedStyle(document.getElementById('track-tape')).transform,
@@ -538,7 +538,7 @@ def check_touch_ergonomics(page):
 
     m0 = metrics()
     n, horizon = m0["n"], m0["horizon"]
-    pxf = (330.0 if horizon == "7d" else max(550.0, round(m0["tlW"]))) / 96.0
+    pxf = (330.0 if horizon == "15d" else max(550.0, round(m0["tlW"]))) / 96.0
     ty = m0["tlY"] + 24  # inside #timeline, below the floating pill
     cx = m0["tlX"] + m0["tlW"] / 2
 
@@ -790,7 +790,7 @@ def check_timeline_labels(page):
         return {"min": min(vals) if vals else float("inf"), "overlap": overlap, "n": len(vals)}
 
     def heat_rows():
-        """5P: per 7d block — the .day-heat ribbon geometry/colour, the embedded .day-wind
+        """5P: per 15d block — the .day-heat ribbon geometry/colour, the embedded .day-wind
         containment + shadow, and the row fonts."""
         return page.evaluate(
             """() => {
@@ -905,10 +905,10 @@ def check_timeline_labels(page):
                  w24["worst"] <= 1.5 and boundary_no_wind)
     g24 = summarize_gaps(ink_gaps())
 
-    # 7 day: 8 ticks per block and no two '12's within 20 px at a day join.
-    page.click("#h-7d")
+    # 15 day: 8 ticks per block and no two '12's within 20 px at a day join.
+    page.click("#h-15d")
     page.wait_for_function(
-        "() => document.getElementById('track').getAttribute('aria-valuemax') === '671'",
+        "() => document.getElementById('track').getAttribute('aria-valuemax') === '1439'",
         timeout=60000)
     page.wait_for_timeout(600)
     seven = page.evaluate(
@@ -944,7 +944,7 @@ def check_timeline_labels(page):
                        abs(b["hw"] - (b["bw"] - 6)) <= 1 and b["radius"] >= 2 for b in heats)
     heat_inside_ok = all(b["inside"] for b in heats)
     # One stop per hourly sample in every block, and >= 2 distinct tier colours across the
-    # 7d horizon (a uniformly calm day is legitimately one colour, so a per-block >= 2 would
+    # 15d horizon (a uniformly calm day is legitimately one colour, so a per-block >= 2 would
     # fail on real calm stretches; see the 5p evidence line for per-block tier sets).
     heat_stops_ok = all(b["stops"] == 24 for b in heats)
     all_tiers = set()
@@ -995,12 +995,12 @@ def check_timeline_labels(page):
     print("        5M wind 24h: counts=%s worst-delta=%.2fpx nums=%s boundary-no-wind=%s list=%s"
           % (w24["counts"], w24["worst"], w24["texts_ok"], boundary_no_wind,
              w24["blocks"][0]["windTexts"] if w24["blocks"] else []))
-    print("        5M wind 7d:  counts=%s worst-delta=%.2fpx nums=%s list(block0)=%s"
+    print("        5M wind 15d:  counts=%s worst-delta=%.2fpx nums=%s list(block0)=%s"
           % (w7["counts"], w7["worst"], w7["texts_ok"],
              w7["blocks"][0]["windTexts"] if w7["blocks"] else []))
-    print("        5n gaps 24h=%.1fpx 7d=%.1fpx" % (g24["min"], g7["min"]))
+    print("        5n gaps 24h=%.1fpx 15d=%.1fpx" % (g24["min"], g7["min"]))
     print("        5p ribbon: count=%s h=%s stops=%s colours=%s inside=%s shadow=%s fonts=%s "
-          "scroll=%s | ink-gap 24h=%.1fpx 7d=%.1fpx"
+          "scroll=%s | ink-gap 24h=%.1fpx 15d=%.1fpx"
           % (heat_count_ok, heat_size_ok, heat_stops_ok, heat_color_ok, heat_inside_ok,
              shadow_ok, fonts_ok, scroll_ok, g24["min"], g7["min"]))
     print("        5p tiers/block: %s (union=%d>=2)"
@@ -1009,9 +1009,9 @@ def check_timeline_labels(page):
            "indices=%s heads=%s one-head=%s pinned=%s no-repeat=%s sticky-window=%s "
            "sticky-block=%s head-x0=%.0f head-x95=%.0f shift=%.0f>50=%s "
            "left-edge-12=%s last-boundary-12=%s ticks=9=%s labels-3h=%s all-inside=%s | "
-           "7d counts=%s min-12-gap=%.1f>=20=%s | 5m wind 24h counts=%s worst=%.2fpx nums=%s "
-           "boundary-no-wind=%s list=%s | 7d counts=%s worst=%.2fpx nums=%s list0=%s | "
-           "5n gaps 24h=%.1f>=6=%s 7d=%.1f>=6=%s overlap=%s/%s | "
+           "15d counts=%s min-12-gap=%.1f>=20=%s | 5m wind 24h counts=%s worst=%.2fpx nums=%s "
+           "boundary-no-wind=%s list=%s | 15d counts=%s worst=%.2fpx nums=%s list0=%s | "
+           "5n gaps 24h=%.1f>=6=%s 15d=%.1f>=6=%s overlap=%s/%s | "
            "5p ribbon heat-count=%s h=%s inside=%s shadow=%s colours=%s fonts=%s scroll=%s"
            % (indices_ok, heads, one_head, head_pinned, no_repeat, sticky_window_ok,
               sticky_block_ok, head_x[0], head_x[95], sticky_shift, sticky_engages,
@@ -1132,7 +1132,7 @@ def check_tape_architecture(page):
                    pillCx: pill.x + pill.width / 2,
                    tapeInTimeline: tape.parentElement === tlEl,
                    nowInTape: !!(now && now.parentElement === tape),
-                   cur: cur, n: max + 1, horizon: max === 671 ? '7d' : '24h',
+                   cur: cur, n: max + 1, horizon: max === 1439 ? '15d' : '24h',
                    playX: pr.x, playW: pr.width, playZ: getComputedStyle(play).zIndex,
                    trackX: track.x,
                    blockCount: blocks.length,
@@ -1143,7 +1143,7 @@ def check_tape_architecture(page):
                }""")
 
     def pxf_for(m):
-        return (330.0 if m["horizon"] == "7d" else max(550.0, round(m["tlW"]))) / 96.0
+        return (330.0 if m["horizon"] == "15d" else max(550.0, round(m["tlW"]))) / 96.0
 
     def centred(m):
         return abs(m["pillCx"] - m["tlCx"]) <= 1.0
@@ -1180,23 +1180,23 @@ def check_tape_architecture(page):
           % (m_scrub["cur"], m_scrub["pillCx"], m_scrub["tlCx"],
              m_scrub["tapeX"] + m_scrub["cur"] * pxf_for(m_scrub)))
 
-    # widen to 7 days.
-    page.click("#h-7d")
+    # widen to 15 days.
+    page.click("#h-15d")
     page.wait_for_function(
-        "() => document.getElementById('track').getAttribute('aria-valuemax') === '671'",
+        "() => document.getElementById('track').getAttribute('aria-valuemax') === '1439'",
         timeout=60000)
     page.wait_for_timeout(700)
     m7 = metrics()
     ok_centre7 = centred(m7)
     ok_frame7 = frame_under_reticle(m7)
-    ok_tape7 = 2280 <= m7["tapeW"] <= 2340
+    ok_tape7 = 4920 <= m7["tapeW"] <= 4980
     bgs = m7["blockBg"]
     ok_alt = len(bgs) >= 2 and all(bgs[i] != bgs[i + 1] for i in range(len(bgs) - 1))
     # 5O: the two tones are pinned exactly (#23272e vs #1b1d22) and must alternate.
     tone_set = set(bgs)
     tones_ok = tone_set == {"rgb(35, 39, 46)", "rgb(27, 29, 34)"} and ok_alt
-    ok_blocks7 = m7["blockCount"] == 7 and all(c == 8 for c in m7["subCounts"])
-    print("        7d:  tapeW=%.1f (window %.1f, pxf=%.4f) pill-cx=%.1f tl-cx=%.1f "
+    ok_blocks7 = m7["blockCount"] == 15 and all(c == 8 for c in m7["subCounts"])
+    print("        15d:  tapeW=%.1f (window %.1f, pxf=%.4f) pill-cx=%.1f tl-cx=%.1f "
           "frame-cx=%.1f cur=%d blocks=%d subs=%s transform=%s"
           % (m7["tapeW"], m7["tlW"], pxf_for(m7), m7["pillCx"], m7["tlCx"],
              m7["tapeX"] + m7["cur"] * pxf_for(m7), m7["cur"], m7["blockCount"],
@@ -1209,7 +1209,7 @@ def check_tape_architecture(page):
     record(16, "tape architecture (5G)", ok,
            "tape-in-timeline=%s now-in-tape=%s play-left=%.1f z=%s | "
            "24h tape=%.1f/window=%.1f runway=%.1f centred=%s frame-under=%s | "
-           "7d tape=%.1f blocks=%d subs=%s alt=%s tones=%s tones-ok=%s centred=%s frame-under=%s"
+           "15d tape=%.1f blocks=%d subs=%s alt=%s tones=%s tones-ok=%s centred=%s frame-under=%s"
            % (m24["tapeInTimeline"], m24["nowInTape"], m24["playX"] - m24["trackX"],
               m24["playZ"], m24["tapeW"], m24["tlW"], m24["tapeW"] - m24["tlW"],
               ok_centre24, ok_frame24,
@@ -1313,7 +1313,7 @@ def check_scrub_decoupling(page):
         "() => { var r = document.getElementById('timeline').getBoundingClientRect();"
         " return { cx: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width }; }")
     n = int(page.get_attribute("#track", "aria-valuemax")) + 1
-    pxf = (330.0 if n == 672 else max(550.0, round(tl["w"]))) / 96.0
+    pxf = (330.0 if n == 1440 else max(550.0, round(tl["w"]))) / 96.0
     start_idx = int(page.get_attribute("#track", "aria-valuenow"))
 
     cx, ty = tl["cx"], tl["y"]
@@ -1376,12 +1376,12 @@ def capture_shots(page):
     shot("24h-360.png")
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_timeout(300)
-    page.click("#h-7d")
+    page.click("#h-15d")
     page.wait_for_function(
-        "() => document.getElementById('track').getAttribute('aria-valuemax') === '671'",
+        "() => document.getElementById('track').getAttribute('aria-valuemax') === '1439'",
         timeout=60000)
     page.wait_for_timeout(700)
-    shot("7d.png")
+    shot("15d.png")
     # 5G: scrub to the middle of the 7-day tape so the sheet shows it scrolled with the
     # reticle still centred (two full-width drags left = forward in time).
     tl7 = page.evaluate(
@@ -1394,7 +1394,7 @@ def capture_shots(page):
         page.mouse.up()
         page.wait_for_timeout(100)
     page.wait_for_timeout(400)
-    shot("tape-7d.png")
+    shot("tape-15d.png")
     page.click("#h-24h")
     page.wait_for_function(
         "() => document.getElementById('track').getAttribute('aria-valuemax') === '95'",
@@ -1791,10 +1791,11 @@ S62_SCRUB_JS = r"""
 
 
 def _s6_series(today, lake, shore, gust, varying=False):
-    """A crafted Open-Meteo paired response: [lake, shore], 8 local days of hourly
-    samples (past day inclusive) so today always slices to 96 15-min frames."""
+    """A crafted Open-Meteo paired response: [lake, shore], 17 local days of hourly
+    samples (past day inclusive) so today slices to 96 15-min frames and the wide
+    15 d window can reach its full 1440."""
     start = today - timedelta(days=1)
-    n = 8 * 24
+    n = 17 * 24
     times, ls, ld, lg, ss, sd, sg = [], [], [], [], [], [], []
     for i in range(n):
         d = start + timedelta(days=i // 24)
@@ -3391,15 +3392,15 @@ def check_stage64(pw, port):
 
     def c21_10():
         # O5: 7 d playback ~10 s -> 0 long tasks > 50 ms; build p50 informational only.
-        if p2.evaluate("() => document.getElementById('h-7d').getAttribute('aria-pressed')") != "true":
-            p2.click("#h-7d")
+        if p2.evaluate("() => document.getElementById('h-15d').getAttribute('aria-pressed')") != "true":
+            p2.click("#h-15d")
         p2.wait_for_function(
-            "() => document.getElementById('h-7d').getAttribute('aria-pressed') === 'true'"
-            " && document.getElementById('track').getAttribute('aria-valuemax') === '671'",
+            "() => document.getElementById('h-15d').getAttribute('aria-pressed') === 'true'"
+            " && document.getElementById('track').getAttribute('aria-valuemax') === '1439'",
             timeout=120000)
         p2.wait_for_timeout(1200)
         horizon = p2.evaluate(
-            "() => ({pressed: document.getElementById('h-7d').getAttribute('aria-pressed'),"
+            "() => ({pressed: document.getElementById('h-15d').getAttribute('aria-pressed'),"
             " vmax: document.getElementById('track').getAttribute('aria-valuemax')})")
         p2.evaluate("""() => {
           window.__b.gesture = true; window.__b.longtasks = []; window.__b.__play = [];
@@ -3421,10 +3422,10 @@ def check_stage64(pw, port):
         longs = [e["dur"] for e in res["longs"] if e.get("rel") is not None]
         big = [d for d in longs if d > 50.0]
         p50 = _s64_pct(builds, 50)
-        horizon_ok = horizon["pressed"] == "true" and horizon["vmax"] == "671"
+        horizon_ok = horizon["pressed"] == "true" and horizon["vmax"] == "1439"
         emit(horizon_ok and len(big) == 0,
-             "[21.10] O5 playback 7d pressed=%s vmax=%s builds=%d build-p50=%.1f p90=%.1f "
-             "(informational bar <=%.0f) longtasks=%d >50ms=%d (bars: 7d selected, 0 long tasks)"
+             "[21.10] O5 playback 15d pressed=%s vmax=%s builds=%d build-p50=%.1f p90=%.1f "
+             "(informational bar <=%.0f) longtasks=%d >50ms=%d (bars: 15d selected, 0 long tasks)"
              % (horizon["pressed"], horizon["vmax"], len(builds), p50,
                 _s64_pct(builds, 90), S64_PLAY_BUILD_MS, len(longs), len(big)))
     gate("21.10", "O5 playback", c21_10)
@@ -3498,7 +3499,7 @@ def main():
             now_ups = safe(10, "radar smoothing", check_smoothing, page, meta, warp)
             if now_ups:
                 safe(11, "before/after", check_before_after, pw, now_ups, warp)
-            safe(13, "lazy 7d compute", check_lazy_7d, page)
+            safe(13, "lazy 15d compute", check_lazy_15d, page)
             safe("15.1", "screenshots", capture_shots, page)
         finally:
             print("page errors: %d %s" % (len(errors), errors[:3]))
