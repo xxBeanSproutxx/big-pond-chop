@@ -960,26 +960,25 @@ async function mount(deps) {
       const ns = 'http://www.w3.org/2000/svg';
       const svg = document.createElementNS(ns, 'svg');
       svg.setAttribute('width', String(Math.round(w)));
-      svg.setAttribute('height', '18');
-      svg.setAttribute('viewBox', `0 0 ${Math.round(w)} 18`);
+      svg.setAttribute('height', '28');
+      svg.setAttribute('viewBox', `0 0 ${Math.round(w)} 28`);
       svg.setAttribute('aria-hidden', 'true');
       const pts = [];
       for (let i = start; i < end; i++) {
         const e = frames[i];
         if (!e) continue;
         const x = (i - start) * pxf;
-        // Rain lane plots CHANCE OF PRECIPITATION (0-100%), not amount — in dry
-        // stretches the amount reads flat-zero while the chance curve still moves.
-        // Scale saturates at 45% (real signal lives under 40%) — the top of the
-        // band stays clear so the plateau of a 95% storm can never touch its label
-        // (storm_sim.py audits this). 2.5px floor keeps small chances visible.
-        const p = Number.isFinite(e.precipProb) ? Math.min(45, e.precipProb) / 50 : 0;
-        const y = p === 0 ? 18 : Math.min(18 - 2.5, 18 - p * 18);
+        // Rain lane = CHANCE OF PRECIPITATION, true 0-100 scale across the full
+        // 28px zone (labels row + curve row). Tall storms rise BEHIND the label;
+        // the label's backing pill keeps the text readable when it does.
+        // 2.5px floor keeps small chances visible.
+        const p = Number.isFinite(e.precipProb) ? e.precipProb / 100 : 0;
+        const y = p === 0 ? 28 : Math.min(28 - 2.5, 28 - p * 26);
         pts.push(`${x},${y.toFixed(1)}`);
       }
       if (pts.length > 1) {
         const fill = document.createElementNS(ns, 'polygon');
-        fill.setAttribute('points', `0,18 ${pts.join(' ')} ${Math.round(w)},18`);
+        fill.setAttribute('points', `0,28 ${pts.join(' ')} ${Math.round(w)},28`);
         fill.setAttribute('fill', 'rgba(100,180,220,.2)');
         svg.appendChild(fill);
         const line = document.createElementNS(ns, 'polyline');
