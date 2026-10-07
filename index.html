@@ -204,35 +204,37 @@
   .day-block + .day-block { border-left: 1px solid #4a5568; }
   .day-head { position: absolute; top: 3px; left: 50%; transform: translateX(-50%);
               font: 600 12px/1 system-ui, -apple-system, sans-serif; color: #e8f0f7; white-space: nowrap; }
-  .day-sub { position: absolute; top: 18px; transform: translateX(-50%);
+  .day-sub { position: absolute; top: 70px; transform: translateX(-50%);
              font: 11px/1 system-ui, -apple-system, sans-serif; color: #94a3b8; white-space: nowrap;
              font-variant-numeric: tabular-nums; width: 20px; text-align: center; }
   .day-sub.edge { color: #e8f0f7; } /* midnight/boundary ticks read stronger than the 3 h row */
-  /* v1.1 lane bands (88px deck, disjoint by construction — see tools/qa/lane_audit.py):
-     [3,15] day-head · [18,29] times · [32,44] temps · [46,60] rain · [58,78] wind ribbon
-     + [60,80] numbers · [80,88] sun dots. Never place a lane without re-allocating all bands. */
-  .day-wind { position: absolute; top: 60px; transform: translateX(-50%);
+   /* v1.1 lane bands (88px deck, disjoint by construction — see tools/qa/lane_audit.py):
+     [3,15] day-head · [17,29] temps · [31,45] rain · [47,67] wind ribbon + numbers
+     · [70,81] clock hours (v2.10-style, under the wind; the yellow scrub cursor floats
+     over all rows by design) · [80,88] sun dots (dots sit at the baseline; tooltip on tap).
+     Never place a lane without re-allocating all bands. */
+  .day-wind { position: absolute; top: 47px; transform: translateX(-50%);
               font: 700 12px/1 system-ui, -apple-system, sans-serif; color: #ffffff;
               text-shadow: 0 1px 2px rgba(0, 0, 0, .65);
               white-space: nowrap; font-variant-numeric: tabular-nums;
               height: 20px; line-height: 20px; width: 20px; text-align: center; }
   /* 5P wind heat ribbon: one continuous gradient per day block, flush along the bottom,
      painted behind the numbers (DOM order). */
-  .day-heat { position: absolute; left: 3px; right: 3px; bottom: 10px; height: 20px;
+  .day-heat { position: absolute; left: 3px; right: 3px; bottom: 21px; height: 20px;
               border-radius: 3px; }
-  .day-temp { position: absolute; top: 32px; transform: translateX(-50%);
+  .day-temp { position: absolute; top: 17px; transform: translateX(-50%);
               font: 500 10px/1 system-ui, -apple-system, sans-serif;
               white-space: nowrap; font-variant-numeric: tabular-nums;
               height: 12px; line-height: 12px; width: 20px; text-align: center;
               pointer-events: none; }
-  .day-rain-svg { position: absolute; left: 3px; right: 3px; bottom: 28px; height: 14px;
+  .day-rain-svg { position: absolute; left: 3px; right: 3px; bottom: 43px; height: 14px;
                   pointer-events: none; }
-  .day-rain-label { position: absolute; top: 47px; transform: translateX(-50%);
+  .day-rain-label { position: absolute; top: 31px; transform: translateX(-50%);
                     font: 500 9px/1 system-ui, -apple-system, sans-serif; color: #6ba8d4;
                     white-space: nowrap; pointer-events: none; }
   /* Sunrise/sunset marker: one 8px amber dot pinned at the block baseline (band 80-88).
      pointer-events stay ON so the title tooltip works on tap. */
-  .day-sun-dot { position: absolute; bottom: 0; width: 8px; height: 8px;
+  .day-sun-dot { position: absolute; bottom: 0; width: 7px; height: 7px;
                  border-radius: 50%; background: rgba(184,134,11,.8);
                  transform: translateX(-50%); }
   /* Stage 5L/5M. 6B.4 / 6.1: docked FLUSH to the deck (bottom: 4px, measured against
