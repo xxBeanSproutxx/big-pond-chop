@@ -241,6 +241,11 @@
   .day-sun svg { display: block; width: 100%; height: 100%; }
   .day-sun-rise { color: rgba(246,166,35,.95); }
   .day-sun-set { color: rgba(226,210,170,.85); }
+  /* Day/night strip: one gradient div connecting sun -> moon (orange day, dark blue
+     night). Painted BEFORE the icons so the glyphs sit on their endpoints. Same band
+     as the icons — overlap with .day-sun is by design (lane_audit allowlist). */
+  .day-night-bar { position: absolute; left: 3px; right: 3px; bottom: 6px; height: 4px;
+                   border-radius: 2px; pointer-events: none; }
   /* Stage 5L/5M. 6B.4 / 6.1: docked FLUSH to the deck (bottom: 4px, measured against
      #map whose bottom edge IS the deck's top) and trimmed to 134px so it ends at
      x = 142 on a 360px viewport — clearing the amber reticle's left edge (x = 146)

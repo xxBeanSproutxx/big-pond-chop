@@ -16,7 +16,7 @@ import argparse
 import sys
 
 LANE_SELECTORS = [".day-head", ".day-sub", ".day-temp", ".day-rain-svg",
-                  ".day-rain-label", ".day-wind", ".day-sun"]
+                  ".day-rain-label", ".day-wind", ".day-sun", ".day-night-bar"]
 
 JS = """
 (sel) => {
@@ -53,7 +53,8 @@ def audit(page):
                 # allowed stacking: the wind NUMBERS sit ON the heat ribbon by design,
                 # and rain labels may sit over their own svg. Everything else is a bug.
                 allowed = {frozenset([".day-wind", ".day-heat"]),
-                           frozenset([".day-rain-label", ".day-rain-svg"])}
+                           frozenset([".day-rain-label", ".day-rain-svg"]),
+                           frozenset([".day-night-bar", ".day-sun"])}
                 if frozenset([a["s"], c["s"]]) in allowed:
                     continue
                 area = overlaps(a, c)
