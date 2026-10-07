@@ -1002,10 +1002,11 @@ async function mount(deps) {
         if (p > maxP) { maxP = p; maxI = i; }
       }
       if (maxP >= 0) {
-        const atPeak = maxP >= 25;
-        const li = atPeak ? maxI : (start + Math.floor((end - start) / 2));
+        // Position: ALWAYS day-center (Reid — the peak is the number, not the pin;
+        // a moving label looks off). dim below 25% so flat days stay quiet.
+        const li = start + Math.floor((end - start) / 2);
         const drop = document.createElement('span');
-        drop.className = 'day-rain-label' + (atPeak ? '' : ' dim');
+        drop.className = 'day-rain-label' + (maxP >= 25 ? '' : ' dim');
         // SVG droplet (feather style, like the sun/moon): the emoji's color can't be
         // themed, and the % must read WHITE over the curve while the drop pops blue.
         drop.innerHTML = '<span class="day-rain-drop"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.7l5.7 5.7a8 8 0 1 1-11.4 0z"/></svg></span>' + Math.round(maxP) + '%';
