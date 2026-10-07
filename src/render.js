@@ -960,8 +960,8 @@ async function mount(deps) {
       const ns = 'http://www.w3.org/2000/svg';
       const svg = document.createElementNS(ns, 'svg');
       svg.setAttribute('width', String(Math.round(w)));
-      svg.setAttribute('height', '14');
-      svg.setAttribute('viewBox', `0 0 ${Math.round(w)} 14`);
+      svg.setAttribute('height', '18');
+      svg.setAttribute('viewBox', `0 0 ${Math.round(w)} 18`);
       svg.setAttribute('aria-hidden', 'true');
       const pts = [];
       for (let i = start; i < end; i++) {
@@ -970,14 +970,14 @@ async function mount(deps) {
         const x = (i - start) * pxf;
         // Rain lane plots CHANCE OF PRECIPITATION (0-100%), not amount — in dry
         // stretches the amount reads flat-zero while the chance curve still moves.
-        // 30%+ spans ~2/3 of the band; the 2.5px floor keeps small chances visible.
+        // 30%+ spans ~2/3 of the 18px band; the 2.5px floor keeps small chances visible.
         const p = Number.isFinite(e.precipProb) ? Math.min(50, e.precipProb) / 50 : 0;
-        const y = p === 0 ? 14 : Math.min(14 - 2.5, 14 - p * 14);
+        const y = p === 0 ? 18 : Math.min(18 - 2.5, 18 - p * 18);
         pts.push(`${x},${y.toFixed(1)}`);
       }
       if (pts.length > 1) {
         const fill = document.createElementNS(ns, 'polygon');
-        fill.setAttribute('points', `0,14 ${pts.join(' ')} ${Math.round(w)},14`);
+        fill.setAttribute('points', `0,18 ${pts.join(' ')} ${Math.round(w)},18`);
         fill.setAttribute('fill', 'rgba(100,180,220,.2)');
         svg.appendChild(fill);
         const line = document.createElementNS(ns, 'polyline');
