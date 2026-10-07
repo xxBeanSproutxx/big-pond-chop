@@ -16,7 +16,7 @@ import argparse
 import sys
 
 LANE_SELECTORS = [".day-head", ".day-sub", ".day-temp", ".day-rain-svg",
-                  ".day-rain-label", ".day-wind", ".day-sun-dot"]
+                  ".day-rain-label", ".day-wind", ".day-sun"]
 
 JS = """
 (sel) => {
