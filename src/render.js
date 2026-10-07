@@ -1152,10 +1152,11 @@ async function mount(deps) {
     if (!scrubbing || (e && e.pointerId !== scrubPointerId)) return;
     scrubbing = false;
     scrubPointerId = null;
-    trackTape.style.transition = ''; // restore the playback glide
-    // 5H §B3: snap to the exact final frame, bypassing throttle + busy skip. 6.2: the
-    // continuous minute position is dropped here, so the tape glides from where the finger
-    // left it to the quantised frame (the .32 s CSS transition is already restored above).
+    // 5H §B3 snap, firm-stop edition: the finger released at a continuous position; the
+    // quantised frame write happens while the glide is STILL OFF (drag set it 'none' at
+    // pointerdown). A .32 s CSS transition on a <=half-frame (<=3 px) snap animated as a
+    // slow creep AFTER release — reads as a glitch (Reid). Instant snap at that distance
+    // is invisible; the playback glide is re-armed right after the synchronous write.
     scrubMinutes = null;
     suspendStartMs = 0; // 6.4 D2.2: release the valve clock for the next gesture
     // 6.3 D3.5: restore the rest raster class before the full-width settle render.
@@ -1165,6 +1166,12 @@ async function mount(deps) {
       paintGen++; // invalidate any drag encode still in flight
       lastMapPaintMs = performance.now();
       showFrame(dragIdx, paintGen);
+      // Flush the style recalc NOW so the snap lands instantly under transition:'none'.
+      // Without this flush the snap write + the re-arm below batch into ONE recalc, where
+      // the after-change style already has the .32 s glide — the result was a <=3 px snap
+      // animated as a post-release creep (Reid's glitch, measured: -108.037 -> -105.188
+      // over ~250 ms at 0.15 px/frame). CSS Transitions evaluate the AFTER-change style.
+      void trackTape.offsetWidth;
       dragIdx = null;
       // 6.4 D3.2: settle paint done; warm the released index's neighbours while idle. Delayed by
       // 250 ms so the warm-up builds cannot compete with the settle's own cold build + encode/
@@ -1172,6 +1179,7 @@ async function mount(deps) {
       // warm-up inside that window vs 12.4 ms without).
       setTimeout(schedulePrefetchNeighbours, 250);
     }
+    trackTape.style.transition = ''; // re-arm the playback glide (after the snap write)
   }
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
     deck.addEventListener(type, endScrub);
