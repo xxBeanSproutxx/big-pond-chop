@@ -1448,6 +1448,28 @@ async function mount(deps) {
 
   function applyWindData(data) {
     frames = data.day;
+    // Storm demo (?storm=1): sweep each day 0 -> peak -> 0, peaks climbing
+    // 10,25,40,55,70,85,100 across the week. Lets Reid eyeball the whole rain
+    // range on his own phone — live data, real deck, no test hooks elsewhere.
+    const stormQ = new URLSearchParams(location.search).get('storm');
+    if (stormQ) {
+      const peaks = [10, 25, 40, 55, 70, 85, 100];
+      const days = new Map();
+      for (const f of frames) {
+        const date = String(f.time).slice(0, 10);
+        if (!days.has(date)) days.set(date, []);
+        days.get(date).push(f);
+      }
+      let di = 0;
+      for (const dayFrames of days.values()) {
+        const peak = Math.min(100, peaks[Math.min(di, peaks.length - 1)]);
+        const n = dayFrames.length;
+        dayFrames.forEach((f, i) => {
+          f.precipProb = Math.round(peak * Math.sin((Math.PI * i) / (n - 1)));
+        });
+        di++;
+      }
+    }
     shoreDay = data.shoreDay || null;
     stepMin = data.stepMin || 15;
     builtMs = 0;
