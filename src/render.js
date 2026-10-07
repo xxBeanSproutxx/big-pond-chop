@@ -399,7 +399,8 @@ function createFrameCache(opts = {}) {
 
 // ---- browser app ----
 async function mount(deps) {
-  const { tables: T, wind } = deps;
+  const { tables: T, wind, sunTimes } = deps;
+  const sunTimesUtc = sunTimes && sunTimes.sunTimesUtc;
   const note = document.getElementById('note');
   const noteMsg = document.getElementById('note-msg');
   const noteRetry = document.getElementById('note-retry');
@@ -445,6 +446,24 @@ async function mount(deps) {
   const q = new URLSearchParams(location.search);
   const point = wind.pointFromQuery(location.search);
   const DEFAULT_HINT = 'tap the lake for a local readout';
+
+  // Sun tick helpers: local-time minute-of-day and clock string (America/Chicago).
+  function chicagoMinutes(utcMs) {
+    if (utcMs == null) return null;
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Chicago', hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+    const p = {};
+    for (const part of fmt.formatToParts(new Date(utcMs))) p[part.type] = part.value;
+    return parseInt(p.hour, 10) * 60 + parseInt(p.minute, 10);
+  }
+  function formatChicagoClock(utcMs) {
+    if (utcMs == null) return '';
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit', hour12: true,
+    });
+    return fmt.format(new Date(utcMs)).replace(/:00 /, ':').replace(' AM', 'a').replace(' PM', 'p');
+  }
 
   // ---- stage 5D: horizon state (never let storage throw-crash boot) ----
   const HORIZON_KEY = 'bpc.horizon';
@@ -917,6 +936,101 @@ async function mount(deps) {
         }
         wind.textContent = String(t.mph);
         block.appendChild(wind);
+      }
+      // Phase 5: temp labels every 3rd frame, heat-colored.
+      for (let i = start; i < end; i++) {
+        const e = frames[i];
+        if (!e || (i - start) % 3 !== 0 || !Number.isFinite(e.tempF)) continue;
+        const temp = document.createElement('span');
+        temp.className = 'day-temp';
+        if (i === start) {
+          temp.style.left = '3px';
+          temp.style.transform = 'none';
+        } else {
+          temp.style.left = `${Math.max(6, Math.min(w - 6, (i - start) * pxf))}px`;
+        }
+        temp.textContent = `${Math.round(e.tempF)}°`;
+        temp.style.color = tempLabelColor(e.tempF);
+        block.appendChild(temp);
+      }
+      // Phase 5: rain line graph (Windy-style SVG).
+      const svgWrap = document.createElement('div');
+      svgWrap.className = 'day-rain-svg';
+      const ns = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(ns, 'svg');
+      svg.setAttribute('width', String(Math.round(w)));
+      svg.setAttribute('height', '18');
+      svg.setAttribute('viewBox', `0 0 ${Math.round(w)} 18`);
+      svg.setAttribute('aria-hidden', 'true');
+      const pts = [];
+      for (let i = start; i < end; i++) {
+        const e = frames[i];
+        if (!e) continue;
+        const x = (i - start) * pxf;
+        const p = Number.isFinite(e.precipIn) ? Math.min(0.25, e.precipIn) : 0;
+        const y = p === 0 ? 18 : Math.min(18 - 2.5, 18 - p * 64);
+        pts.push(`${x},${y.toFixed(1)}`);
+      }
+      if (pts.length > 1) {
+        const fill = document.createElementNS(ns, 'polygon');
+        fill.setAttribute('points', `0,18 ${pts.join(' ')} ${Math.round(w)},18`);
+        fill.setAttribute('fill', 'rgba(100,180,220,.2)');
+        svg.appendChild(fill);
+        const line = document.createElementNS(ns, 'polyline');
+        line.setAttribute('points', pts.join(' '));
+        line.setAttribute('fill', 'none');
+        line.setAttribute('stroke', '#6ba8d4');
+        line.setAttribute('stroke-width', '1.5');
+        line.setAttribute('stroke-linejoin', 'round');
+        svg.appendChild(line);
+      }
+      svgWrap.appendChild(svg);
+      block.appendChild(svgWrap);
+      // Phase 5: rain peak labels (>=0.05in, strictly-rising local max only).
+      for (let i = start; i < end; i++) {
+        const e = frames[i];
+        if (!e) continue;
+        const p = Number.isFinite(e.precipIn) ? e.precipIn : 0;
+        if (p < 0.05) continue;
+        const prev = frames[i - 1], next = frames[i + 1];
+        const pp = prev && Number.isFinite(prev.precipIn) ? prev.precipIn : 0;
+        const pn = next && Number.isFinite(next.precipIn) ? next.precipIn : 0;
+        if (p <= pp || p < pn) continue;
+        const drop = document.createElement('span');
+        drop.className = 'day-rain-label';
+        drop.textContent = `💧${p.toFixed(2)}`;
+        if (i === start) {
+          drop.style.left = '3px';
+          drop.style.transform = 'none';
+        } else {
+          drop.style.left = `${Math.max(14, Math.min(w - 14, (i - start) * pxf))}px`;
+        }
+        block.appendChild(drop);
+      }
+      // Phase 5: sunrise + sunset ticks.
+      if (sunTimesUtc) {
+        const parts0 = parts[k].date.split('-');
+        const year = parseInt(parts0[0], 10), month = parseInt(parts0[1], 10), day = parseInt(parts0[2], 10);
+        const noonUtc = Date.UTC(year, month - 1, day, 12, 0, 0);
+        const sun = sunTimesUtc(noonUtc, wind.DEFAULT_POINT.lat, wind.DEFAULT_POINT.lon);
+        if (sun.sunriseMs != null) {
+          const riseLocal = chicagoMinutes(sun.sunriseMs);
+          const riseX = (riseLocal / 1440) * w;
+          const tick = document.createElement('span');
+          tick.className = 'day-sun-tick';
+          tick.style.left = `${riseX}px`;
+          tick.title = `Sunrise ${formatChicagoClock(sun.sunriseMs)}`;
+          block.appendChild(tick);
+        }
+        if (sun.sunsetMs != null) {
+          const setLocal = chicagoMinutes(sun.sunsetMs);
+          const setX = (setLocal / 1440) * w;
+          const tick = document.createElement('span');
+          tick.className = 'day-sun-tick';
+          tick.style.left = `${setX}px`;
+          tick.title = `Sunset ${formatChicagoClock(sun.sunsetMs)}`;
+          block.appendChild(tick);
+        }
       }
       // Midnight boundary tick, right-anchored, on the 24 h tape's final block only:
       // 7d blocks are too narrow (~5 px to the next day's tick) and would double the label.
@@ -1423,6 +1537,23 @@ async function mount(deps) {
 
   document.getElementById('refresh').addEventListener('click', refreshWind);
   await bootMap();
+}
+
+// Temp label color, heat-mapped. cribbed from v2.
+function tempLabelColor(tempF) {
+  if (!Number.isFinite(tempF)) return 'rgb(148,163,184)';
+  const t = Math.max(20, Math.min(100, tempF));
+  // icy blue(<=40) -> neutral(60s) -> warm amber(>=85)
+  const stops = [
+    [20, 0x60, 0xa0, 0xd0], [40, 0x80, 0xb8, 0xd8],
+    [60, 0xc0, 0xc0, 0xc0], [75, 0xd0, 0x90, 0x50],
+    [85, 0xd0, 0x60, 0x40], [100, 0xe0, 0x40, 0x30],
+  ];
+  let i = 0;
+  while (i < stops.length - 2 && t > stops[i + 1][0]) i++;
+  const a = stops[i], b = stops[i + 1];
+  const f = (t - a[0]) / (b[0] - a[0]);
+  return `rgb(${Math.round(a[1] + f * (b[1] - a[1]))},${Math.round(a[2] + f * (b[2] - a[2]))},${Math.round(a[3] + f * (b[3] - a[3]))})`;
 }
 
 module.exports = {

@@ -1,0 +1,102 @@
+          wind.style.transform = 'none';
+        } else {
+          wind.style.left = `${Math.max(6, Math.min(w - 6, (i - start) * pxf))}px`;
+        }
+        wind.textContent = String(Math.round(e.speedMph));
+        block.appendChild(wind);
+      }
+      // Phase 5: precip line graph (Windy-style SVG) just above the wind ribbon.
+      const svgWrap = document.createElement('div');
+      svgWrap.className = 'day-precip';
+      const ns = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(ns, 'svg');
+      svg.setAttribute('width', String(Math.round(w)));
+      svg.setAttribute('height', '18');
+      svg.setAttribute('viewBox', `0 0 ${Math.round(w)} 18`);
+      svg.setAttribute('aria-hidden', 'true');
+      const pts = [];
+      for (let i = start; i < end; i++) {
+        const e = frames[i];
+        if (!e) continue;
+        const x = (i - start) * pxf;
+        const p = Number.isFinite(e.precipMm) ? Math.min(4/3, e.precipMm) : 0;
+        // Drizzle floor: measurable precip gets >=4px; scale 0-4/3mm maps to full 16px
+        // so 0.2mm drizzle reads 4px and 1mm heavy rain reads >=12px.
+        const y = p === 0 ? 18 : Math.min(18 - 4, 18 - p * 12);
+        pts.push(`${x},${y.toFixed(1)}`);
+      }
+      if (pts.length > 1) {
+        const fill = document.createElementNS(ns, 'polygon');
+        fill.setAttribute('points', `0,18 ${pts.join(' ')} ${Math.round(w)},18`);
+        fill.setAttribute('fill', 'rgba(100,180,220,.2)');
+        svg.appendChild(fill);
+        const line = document.createElementNS(ns, 'polyline');
+        line.setAttribute('points', pts.join(' '));
+        line.setAttribute('fill', 'none');
+        line.setAttribute('stroke', '#6ba8d4');
+        line.setAttribute('stroke-width', '1.5');
+        line.setAttribute('stroke-linejoin', 'round');
+        svg.appendChild(line);
+      }
+      svgWrap.appendChild(svg);
+      block.appendChild(svgWrap);
+      // Phase 7: rain amount labels at the local peaks of each wet burst (>0.3mm).
+      // Self-labels the blue layer — a droplet glyph + mm value, only when it rains,
+      // so dry days stay clean. Strict rise (p > previous) marks the label frame, so
+      // equal-value plateaus label once at burst start and bell curves at their peak.
+      for (let i = start; i < end; i++) {
+        const e = frames[i];
+        if (!e) continue;
+        const p = Number.isFinite(e.precipMm) ? e.precipMm : 0;
+        if (p < 0.3) continue;
+        const prev = frames[i - 1], next = frames[i + 1];
+        const pp = prev && Number.isFinite(prev.precipMm) ? prev.precipMm : 0;
+        const pn = next && Number.isFinite(next.precipMm) ? next.precipMm : 0;
+        if (p <= pp || p < pn) continue; // strictly-rising local max only
+        const drop = document.createElement('span');
+        drop.className = 'day-rain';
+        drop.textContent = `💧${p.toFixed(1)}`;
+        if (i === start) {
+          drop.style.left = '3px';
+          drop.style.transform = 'none';
+        } else {
+          drop.style.left = `${Math.max(14, Math.min(w - 14, (i - start) * pxf))}px`;
+        }
+        block.appendChild(drop);
+      }
+      // Phase 5/7: temp labels every 3rd frame (bucketed — see wind-label note above;
+      // far-day frames sit at off-hours, hh%3 anchoring blanked far-day temp lanes).
+      for (let i = start; i < end; i++) {
+        const e = frames[i];
+        if (!e || (i - start) % 3 !== 0 || !Number.isFinite(e.tempF)) continue;
+        const temp = document.createElement('span');
+        temp.className = 'day-temp';
+        if (i === start) {
+          temp.style.left = '3px';
+          temp.style.transform = 'none';
+        } else {
+          temp.style.left = `${Math.max(6, Math.min(w - 6, (i - start) * pxf))}px`;
+        }
+        temp.textContent = `${Math.round(e.tempF)}°`;
+        temp.style.color = tempLabelColor(e.tempF);
+      break;
+    }
+  }
+  return out;
+}
+
+// Phase 5: temp label color, wind-label style, heat-mapped.
+function tempLabelColor(tempF) {
+  if (!Number.isFinite(tempF)) return 'rgb(148,163,184)';
+  const t = Math.max(20, Math.min(100, tempF));
+  // icy blue(≤40) → neutral(60s) → warm amber(≥85)
+  const stops = [
+    [20, 0x60, 0xa0, 0xd0], [40, 0x80, 0xb8, 0xd8],
+    [60, 0xc0, 0xc0, 0xc0], [75, 0xd0, 0x90, 0x50],
+    [85, 0xd0, 0x60, 0x40], [100, 0xe0, 0x40, 0x30],
+  ];
+  let i = 0;
+  while (i < stops.length - 2 && t > stops[i + 1][0]) i++;
+  const a = stops[i], b = stops[i + 1];
+  const f = (t - a[0]) / (b[0] - a[0]);
+  return `rgb(${Math.round(a[1] + f * (b[1] - a[1]))},${Math.round(a[2] + f * (b[2] - a[2]))},${Math.round(a[3] + f * (b[3] - a[3]))})`;
