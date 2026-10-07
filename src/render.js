@@ -960,21 +960,24 @@ async function mount(deps) {
       const ns = 'http://www.w3.org/2000/svg';
       const svg = document.createElementNS(ns, 'svg');
       svg.setAttribute('width', String(Math.round(w)));
-      svg.setAttribute('height', '18');
-      svg.setAttribute('viewBox', `0 0 ${Math.round(w)} 18`);
+      svg.setAttribute('height', '14');
+      svg.setAttribute('viewBox', `0 0 ${Math.round(w)} 14`);
       svg.setAttribute('aria-hidden', 'true');
       const pts = [];
       for (let i = start; i < end; i++) {
         const e = frames[i];
         if (!e) continue;
         const x = (i - start) * pxf;
-        const p = Number.isFinite(e.precipIn) ? Math.min(0.25, e.precipIn) : 0;
-        const y = p === 0 ? 14 : Math.min(14 - 2.5, 14 - p * 32);
+        // Rain lane plots CHANCE OF PRECIPITATION (0-100%), not amount — in dry
+        // stretches the amount reads flat-zero while the chance curve still moves.
+        // 30%+ spans ~2/3 of the band; the 2.5px floor keeps small chances visible.
+        const p = Number.isFinite(e.precipProb) ? Math.min(50, e.precipProb) / 50 : 0;
+        const y = p === 0 ? 14 : Math.min(14 - 2.5, 14 - p * 14);
         pts.push(`${x},${y.toFixed(1)}`);
       }
       if (pts.length > 1) {
         const fill = document.createElementNS(ns, 'polygon');
-        fill.setAttribute('points', `0,18 ${pts.join(' ')} ${Math.round(w)},18`);
+        fill.setAttribute('points', `0,14 ${pts.join(' ')} ${Math.round(w)},14`);
         fill.setAttribute('fill', 'rgba(100,180,220,.2)');
         svg.appendChild(fill);
         const line = document.createElementNS(ns, 'polyline');
@@ -987,19 +990,19 @@ async function mount(deps) {
       }
       svgWrap.appendChild(svg);
       block.appendChild(svgWrap);
-      // Phase 5: rain peak labels (>=0.05in, strictly-rising local max only).
+      // Phase 5: rain peak labels (>=25% chance, strictly-rising local max only).
       for (let i = start; i < end; i++) {
         const e = frames[i];
         if (!e) continue;
-        const p = Number.isFinite(e.precipIn) ? e.precipIn : 0;
-        if (p < 0.05) continue;
+        const p = Number.isFinite(e.precipProb) ? e.precipProb : 0;
+        if (p < 25) continue;
         const prev = frames[i - 1], next = frames[i + 1];
-        const pp = prev && Number.isFinite(prev.precipIn) ? prev.precipIn : 0;
-        const pn = next && Number.isFinite(next.precipIn) ? next.precipIn : 0;
+        const pp = prev && Number.isFinite(prev.precipProb) ? prev.precipProb : 0;
+        const pn = next && Number.isFinite(next.precipProb) ? next.precipProb : 0;
         if (p <= pp || p < pn) continue;
         const drop = document.createElement('span');
         drop.className = 'day-rain-label';
-        drop.textContent = `💧${p.toFixed(2)}`;
+        drop.textContent = `💧${Math.round(p)}%`;
         if (i === start) {
           drop.style.left = '3px';
           drop.style.transform = 'none';

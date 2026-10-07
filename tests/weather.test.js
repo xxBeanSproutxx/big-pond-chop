@@ -15,6 +15,7 @@ check('buildUrl includes temperature_unit and precipitation_unit', () => {
   const u = buildUrl(46.22, -93.657);
   assert.ok(u.includes('temperature_unit=fahrenheit'), 'missing temperature_unit');
   assert.ok(u.includes('precipitation_unit=inch'), 'missing precipitation_unit');
+  assert.ok(u.includes('precipitation_probability'), 'missing precipitation_probability');
 });
 check('buildDualUrl includes temperature_unit and precipitation_unit', () => {
   const u = buildDualUrl(DEFAULT_POINT, SHORE_POINT);
@@ -54,14 +55,25 @@ check('missing arrays -> null fields', () => {
   const s = buildSeriesFrom(['2026-09-11T00:00'], [10], [0], [14], 0);
   assert.strictEqual(s[0].tempF, null);
   assert.strictEqual(s[0].precipIn, null);
+  assert.strictEqual(s[0].precipProb, null);
 });
 check('undefined in array -> null', () => {
   const s = buildSeriesFrom(
     ['2026-09-11T00:00'], [10], [0], [14], 0, 1,
-    [undefined], [undefined],
+    [undefined], [undefined], [undefined],
   );
   assert.strictEqual(s[0].tempF, null);
   assert.strictEqual(s[0].precipIn, null);
+  assert.strictEqual(s[0].precipProb, null);
+});
+check('passes precipProb (chance %) to entries', () => {
+  const s = buildSeriesFrom(
+    ['2026-09-11T00:00', '2026-09-11T00:15'],
+    [10, 12], [0, 0], [14, 16], 0, 1,
+    [72, 68], [0.0, 0.05], [30, 45],
+  );
+  assert.strictEqual(s[0].precipProb, 30);
+  assert.strictEqual(s[1].precipProb, 45);
 });
 
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);
