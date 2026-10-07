@@ -2,11 +2,11 @@
 // Shell precache only. Versioned data is cache-first; app code and the document
 // are network-first so a deploy never serves stale code. Weather + tiles are
 // never cached. Bump CACHE_NAME on every future deploy.
-const CACHE_NAME = 'bpc-cache-v1';
+const CACHE_NAME = 'bpc-cache-v2';
 
 const SHELL = [
   './', './index.html',
-  './src/tables.js', './src/wave-math.js', './src/wind.js', './src/ui.js', './src/render.js',
+  './src/tables.js', './src/wave-math.js', './src/wind.js', './src/ui.js', './src/render.js', './src/sun-times.mjs',
   './public/meta.v1.json', './public/mask.v1.json', './public/spots.v1.json',
   './public/warp.v1.json', './public/tables.v1.bin',
   './public/favicon.svg', './public/icon-192.png', './public/icon-512.png',

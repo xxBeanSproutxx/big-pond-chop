@@ -151,7 +151,7 @@
   @keyframes boot-slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
   body.reduced-motion #boot.indeterminate #boot-bar { animation: none; width: 100%; opacity: .55; }
   /* Stage 5M: single full-height scrolling tape — day header + hour ticks + wind row. */
-  :root { --deck-h: 62px; }
+  :root { --deck-h: 88px; }
   body { height: 100vh; height: 100dvh; }
   #deck {
     flex: 0 0 auto;
@@ -166,7 +166,7 @@
   }
   .deck-row  { overflow: hidden; }
   .deck-track{ overflow: visible; position: relative; } /* pill floats above; play overlays */
-  .deck-track{ height: 62px; display: flex; align-items: stretch; }
+  .deck-track{ height: 88px; display: flex; align-items: stretch; }
   /* 6.2: the horizon toggle OWNS the top-left map corner now that the zoom stack is
      docked bottom-right — it used to start at left: 56 px purely to clear the 44 px
      zoom control. 12 px matches #wind-badge's 12 px on the opposite corner. */
@@ -176,7 +176,7 @@
                     font: 11px/1 system-ui, sans-serif; touch-action: manipulation; }
   #horizon button[aria-pressed="true"] { background: #ffd166; color: #10263a; border-color: #ffd166; }
   /* #timeline is the viewing window: the tape scrolls under a fixed centre reticle. */
-  #timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 62px; overflow: hidden;
+  #timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 88px; overflow: hidden;
               border-radius: 4px; background: #262930; }
   /* Wide filmstrip tape; translated by the single writeTape() path in render.js. */
   #track-tape { position: absolute; left: 0; top: 0; height: 100%;
@@ -219,6 +219,21 @@
      painted behind the numbers (DOM order). */
   .day-heat { position: absolute; left: 3px; right: 3px; bottom: 2px; height: 20px;
               border-radius: 3px; }
+  .day-temp { position: absolute; top: 18px; transform: translateX(-50%);
+              font: 500 10px/1 system-ui, -apple-system, sans-serif;
+              white-space: nowrap; font-variant-numeric: tabular-nums;
+              height: 12px; line-height: 12px; width: 20px; text-align: center;
+              pointer-events: none; }
+  .day-rain-svg { position: absolute; left: 3px; right: 3px; bottom: 22px; height: 18px;
+                  pointer-events: none; }
+  .day-rain-label { position: absolute; top: 30px; transform: translateX(-50%);
+                    font: 500 9px/1 system-ui, -apple-system, sans-serif; color: #6ba8d4;
+                    white-space: nowrap; pointer-events: none; }
+  .day-sun-tick { position: absolute; bottom: 2px; width: 1px; height: 7px;
+                  background: rgba(184,134,11,.65); pointer-events: none; }
+  .day-sun-tick::after { content: ''; position: absolute; left: -3.5px; top: -5px;
+                          width: 8px; height: 8px; border-radius: 50%;
+                          background: rgba(184,134,11,.75); }
   /* Stage 5L/5M. 6B.4 / 6.1: docked FLUSH to the deck (bottom: 4px, measured against
      #map whose bottom edge IS the deck's top) and trimmed to 134px so it ends at
      x = 142 on a 360px viewport — clearing the amber reticle's left edge (x = 146)
@@ -392,9 +407,10 @@
         var tables = await load('src/tables.js');
         var wave = await load('src/wave-math.js');
         var wind = await load('src/wind.js');
+        var sunTimes = await import('./src/sun-times.mjs');
         var ui = await load('src/ui.js');
         var render = await load('src/render.js');
-        await render.mount({ tables: tables, wave: wave, wind: wind, render: render, ui: ui });
+        await render.mount({ tables: tables, wave: wave, wind: wind, sunTimes: sunTimes, render: render, ui: ui });
       } catch (err) {
         console.error(err);
         var m = document.getElementById('note-msg');
