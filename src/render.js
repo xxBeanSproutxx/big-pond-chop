@@ -1017,6 +1017,14 @@ async function mount(deps) {
         if (sun.sunriseMs != null) {
           const riseLocal = chicagoMinutes(sun.sunriseMs);
           const riseX = (riseLocal / 1440) * w;
+          // Day/night strip: orange between sunrise and sunset, dark blue outside.
+          // Painted before the glyphs so sun/moon sit on their endpoints.
+          const bar = document.createElement('div');
+          bar.className = 'day-night-bar';
+          const rp = Math.max(0, Math.min(100, (riseLocal / 1440) * 100));
+          const sp = Math.max(0, Math.min(100, (chicagoMinutes(sun.sunsetMs) / 1440) * 100));
+          bar.style.background = `linear-gradient(90deg, #1e3a5f 0 ${rp}%, #f6a623 ${rp}% ${sp}%, #1e3a5f ${sp}% 100%)`;
+          block.appendChild(bar);
           const tick = document.createElement('span');
           tick.className = 'day-sun day-sun-rise';
           tick.style.left = `${riseX}px`;
