@@ -422,7 +422,6 @@ async function mount(deps) {
   const nowTick = document.getElementById('now-tick');
   const horizonEl = document.getElementById('horizon');
   const h24Btn = document.getElementById('h-24h');
-  const h7Btn = document.getElementById('h-7d');
   const h15Btn = document.getElementById('h-15d');
   const lakeEl = document.getElementById('lake');
   const gustEl = document.getElementById('gust');
@@ -472,7 +471,7 @@ async function mount(deps) {
   function readStoredHorizon() {
     try {
       const v = localStorage.getItem(HORIZON_KEY);
-      return v === '7d' || v === '24h' || v === '15d' ? v : null;
+      return v === '24h' || v === '15d' ? v : null;
     } catch (err) { return null; }
   }
   function storeHorizon(h) {
@@ -480,7 +479,7 @@ async function mount(deps) {
   }
   function queryHorizon() {
     const v = q.get('h');
-    return v === '7d' || v === '24h' || v === '15d' ? v : null;
+    return v === '24h' || v === '15d' ? v : null;
   }
   let horizon = queryHorizon() || readStoredHorizon() || '24h';
   // Resolved horizon is written to both the store and the URL, ?h= merged over existing params.
@@ -493,7 +492,6 @@ async function mount(deps) {
   }
   function setHorizonPressed(h) {
     h24Btn.setAttribute('aria-pressed', h === '24h' ? 'true' : 'false');
-    h7Btn.setAttribute('aria-pressed', h === '7d' ? 'true' : 'false');
     h15Btn.setAttribute('aria-pressed', h === '15d' ? 'true' : 'false');
   }
 
@@ -866,7 +864,7 @@ async function mount(deps) {
     trackDays.textContent = '';
     trackTicks.textContent = '';
     stickyHead = null;
-    trackLabel.textContent = horizon === '7d' ? '7 day' : '24 h';
+    trackLabel.textContent = horizon === '24h' ? '24 h' : '15 day';
     if (!frames.length || !viewportW) return;
     const n = frames.length;
     const pxf = pxPerFrame(horizon, viewportW);
@@ -1059,7 +1057,7 @@ async function mount(deps) {
         }
       }
       // Midnight boundary tick, right-anchored, on the 24 h tape's final block only:
-      // 7d blocks are too narrow (~5 px to the next day's tick) and would double the label.
+      // wide-horizon blocks end mid-tick and would double the label.
       if (horizon === '24h' && k === lastPart) {
         const edge = document.createElement('span');
         edge.className = 'day-sub edge';
@@ -1555,7 +1553,7 @@ async function mount(deps) {
   // wide -> 24h: slice the in-memory wide series; ZERO network on this path.
   function narrowHorizon() {
     if (horizon === '24h') return;
-    const src = wideCache['7d'] || wideCache['15d'];
+    const src = wideCache['15d'];
     if (!src) return;
     pause();
     const data = Object.assign({}, src, {
@@ -1569,7 +1567,6 @@ async function mount(deps) {
   }
 
   h24Btn.addEventListener('click', () => { if (horizon !== '24h') narrowHorizon(); });
-  h7Btn.addEventListener('click', () => { if (horizon !== '7d') widenTo('7d'); });
   h15Btn.addEventListener('click', () => { if (horizon !== '15d') widenTo('15d'); });
   setHorizonPressed(horizon);
   persistHorizon(horizon); // resolved horizon -> storage + URL (replaceState)

@@ -102,14 +102,14 @@ def main():
         before_back = snap("before-back")
         after_back = drag(100, "after-back")
         # --- 3. 7-day widen + mid-tape scrub
-        page.click("#h-7d")
+        page.click("#h-15d")
         page.wait_for_function(
-            "() => document.getElementById('track').getAttribute('aria-valuemax') === '671'",
+            "() => document.getElementById('track').getAttribute('aria-valuemax') === '1439'",
             timeout=90000)
         page.wait_for_timeout(800)
-        w7 = snap("7d-start")
-        drag(-420, "7d-mid", steps=20)
-        hold(1.5, label="7d-hold")
+        w7 = snap("15d-start")
+        drag(-420, "15d-mid", steps=20)
+        hold(1.5, label="15d-hold")
 
         ctx.close()
         browser.close()
@@ -154,7 +154,7 @@ def main():
         "idx %d -> %d on -150 px drag" % (before_fwd["idx"], after_fwd["idx"]))
     rec("drag right rewinds", after_back["idx"] < before_back["idx"],
         "idx %d -> %d on +100 px drag" % (before_back["idx"], after_back["idx"]))
-    rec("7d tape wide", w7["tapeW"] >= 1100, "tape width %.0f px at 7 day" % w7["tapeW"])
+    rec("15d tape wide", w7["tapeW"] >= 1100, "tape width %.0f px at 15 day" % w7["tapeW"])
 
     print("\nSUMMARY: %d ok, %d FAIL" % (sum(verdicts), verdicts.count(False)))
     return 0

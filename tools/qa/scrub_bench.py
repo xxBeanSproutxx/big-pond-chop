@@ -182,8 +182,8 @@ def pct(values, p):
 
 
 def goto_horizon(page, horizon):
-    sel = {"24h": "#h-24h", "7d": "#h-7d", "15d": "#h-15d"}[horizon]
-    want = {"24h": "95", "7d": "671", "15d": "1439"}[horizon]
+    sel = {"24h": "#h-24h", "15d": "#h-15d"}[horizon]
+    want = {"24h": "95", "15d": "1439"}[horizon]
     if page.get_attribute(sel, "aria-pressed") != "true":
         page.click(sel)
     page.wait_for_function(
@@ -208,7 +208,7 @@ def measure_horizon(page, horizon):
     g = read_geometry(page)
     if not g["tape"]:
         return None
-    px_day = g["tape"] / {"24h": 1.0, "7d": 7.0, "15d": 15.0}[horizon]
+    px_day = g["tape"] / {"24h": 1.0, "15d": 15.0}[horizon]
     return {
         "window": round(g["window"], 1),
         "tape": round(g["tape"], 1),
@@ -276,7 +276,6 @@ def run_case(pw, url, width, height, dsf, label, touch=False):
 
         case["horizons"] = {
             "24h": measure_horizon(page, "24h"),
-            "7d": measure_horizon(page, "7d"),
             "15d": measure_horizon(page, "15d"),
         }
         goto_horizon(page, "24h")
