@@ -209,8 +209,8 @@
              font-variant-numeric: tabular-nums; width: 20px; text-align: center; }
   .day-sub.edge { color: #e8f0f7; } /* midnight/boundary ticks read stronger than the 3 h row */
    /* v1.1 lane bands (108px deck, disjoint by construction — see tools/qa/lane_audit.py):
-      [3,15] day-head · [17,29] temps · [31,41] rain % labels (own row, above the curve)
-      · [41,59] rain curve (18px) · [61,81] wind ribbon + numbers · [83,94] clock hours
+      [3,15] day-head · [17,29] temps · [32,41] rain % labels (own row, above the curve)
+      · [42,60] rain curve (18px) · [61,81] wind ribbon + numbers · [83,94] clock hours
       (the yellow scrub cursor floats over all rows by design) · [95,104] sun/moon glyphs.
       Never place a lane without re-allocating all bands. */
   .day-wind { position: absolute; top: 61px; transform: translateX(-50%);
@@ -227,9 +227,9 @@
               white-space: nowrap; font-variant-numeric: tabular-nums;
               height: 12px; line-height: 12px; width: 20px; text-align: center;
               pointer-events: none; }
-  .day-rain-svg { position: absolute; left: 3px; right: 3px; bottom: 49px; height: 18px;
+  .day-rain-svg { position: absolute; left: 3px; right: 3px; bottom: 48px; height: 18px;
                   pointer-events: none; }
-  .day-rain-label { position: absolute; top: 31px; transform: translateX(-50%);
+  .day-rain-label { position: absolute; top: 32px; transform: translateX(-50%);
                     font: 500 9px/1 system-ui, -apple-system, sans-serif; color: #6ba8d4;
                     white-space: nowrap; pointer-events: none; }
   .day-rain-label.dim { opacity: .45; } /* flat-day label: present but quiet */
