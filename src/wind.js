@@ -8,8 +8,8 @@ const DEFAULT_POINT = { lat: 46.22, lon: -93.657 };
 const SHORE_POINT = { lat: 46.13, lon: -93.57 };
 
 const API = 'https://api.open-meteo.com/v1/forecast';
-const HOURLY = 'wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,precipitation';
-const MINUTELY = 'wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,precipitation';
+const HOURLY = 'wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,precipitation,precipitation_probability';
+const MINUTELY = 'wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,precipitation,precipitation_probability';
 const STEP_H = 0.25;
 const D2R = Math.PI / 180;
 
@@ -57,12 +57,13 @@ function seedTeff(hourlyTail, opts = {}) {
 }
 
 // Single construction path for a series: raw arrays -> tagged entries with t_eff.
-function buildSeriesFrom(times, speeds, dirs, gusts, gammaDeg, dtH = 1, temps, precips) {
+function buildSeriesFrom(times, speeds, dirs, gusts, gammaDeg, dtH = 1, temps, precips, probs) {
   const raw = [];
   for (let i = 0; i < times.length; i++) {
     const dirTrue = Number(dirs[i]);
     const t = temps && i < temps.length ? temps[i] : null;
     const p = precips && i < precips.length ? precips[i] : null;
+    const pr = probs && i < probs.length ? probs[i] : null;
     raw.push({
       time: times[i],
       speedMph: Number(speeds[i]),
@@ -71,6 +72,7 @@ function buildSeriesFrom(times, speeds, dirs, gusts, gammaDeg, dtH = 1, temps, p
       bearingGrid: gammaToGrid(dirTrue, gammaDeg),
       tempF: t != null ? Number(t) : null,
       precipIn: p != null ? Number(p) : null,
+      precipProb: pr != null ? Number(pr) : null,
     });
   }
   const teff = computeTeff(raw, dtH);
@@ -100,11 +102,14 @@ function interpolate15(fields, gammaDeg) {
   const gu = (fields && fields.wind_gusts_10m) || [];
   const tp = (fields && fields.temperature_2m) || [];
   const pp = (fields && fields.precipitation) || [];
+  const pb = (fields && fields.precipitation_probability) || [];
   const hasTemps = tp.length > 0;
   const hasPrecips = pp.length > 0;
+  const hasProbs = pb.length > 0;
   const out = { times: [], speeds: [], dirs: [], gusts: [] };
   if (hasTemps) out.temps = [];
   if (hasPrecips) out.precips = [];
+  if (hasProbs) out.probs = [];
   for (let i = 0; i < times.length - 1; i++) {
     const sa = Number(sp[i]), sb = Number(sp[i + 1]);
     const ga = Number(gu[i]), gb = Number(gu[i + 1]);
@@ -120,8 +125,12 @@ function interpolate15(fields, gammaDeg) {
         out.temps.push(Number.isFinite(ta) && Number.isFinite(tb) ? ta + f * (tb - ta) : null);
       }
       if (hasPrecips) {
-        const pa = Number(pp[i]), pb = Number(pp[i + 1]);
-        out.precips.push(Number.isFinite(pa) && Number.isFinite(pb) ? pa + f * (pb - pa) : null);
+        const pa = Number(pp[i]), pbv = Number(pp[i + 1]);
+        out.precips.push(Number.isFinite(pa) && Number.isFinite(pbv) ? pa + f * (pbv - pa) : null);
+      }
+      if (hasProbs) {
+        const ra = Number(pb[i]), rbv = Number(pb[i + 1]);
+        out.probs.push(Number.isFinite(ra) && Number.isFinite(rbv) ? ra + f * (rbv - ra) : null);
       }
     }
   }
@@ -133,6 +142,7 @@ function interpolate15(fields, gammaDeg) {
     out.dirs.push(Number(dr[n]));
     if (hasTemps) out.temps.push(Number(tp[n]));
     if (hasPrecips) out.precips.push(Number(pp[n]));
+    if (hasProbs) out.probs.push(Number(pb[n]));
   }
   return out;
 }
@@ -148,14 +158,15 @@ function interpolate15(fields, gammaDeg) {
 // keeping every local day exactly 96 frames. f = 0 is the source sample bit-for-bit.
 function expandHourlyVector(hourlyEntries, gammaDeg) {
   const list = hourlyEntries || [];
-  const times = [], speeds = [], dirs = [], gusts = [], temps = [], precips = [];
+  const times = [], speeds = [], dirs = [], gusts = [], temps = [], precips = [], probs = [];
   for (let i = 0; i < list.length; i++) {
     const a = list[i];
     const b = i + 1 < list.length ? list[i + 1] : a; // last sample holds
     const sa = Number(a.speedMph), da = Number(a.dirTrueDeg), ga = Number(a.gustMph);
     const sb = Number(b.speedMph), db = Number(b.dirTrueDeg), gb = Number(b.gustMph);
     const ta = a.tempF, tb = b.tempF;
-    const pa = a.precipIn, pb = b.precipIn;
+    const pa = a.precipIn, pbv = b.precipIn;
+    const ra = a.precipProb, rbv = b.precipProb;
     const ua = -sa * Math.sin(da * D2R), va = -sa * Math.cos(da * D2R);
     const ub = -sb * Math.sin(db * D2R), vb = -sb * Math.cos(db * D2R);
     for (let k = 0; k < 4; k++) {
@@ -163,7 +174,7 @@ function expandHourlyVector(hourlyEntries, gammaDeg) {
       times.push(addMin(a.time, k * 15));
       if (k === 0) { // exact hour anchor
         speeds.push(sa); dirs.push(da); gusts.push(ga);
-        temps.push(ta); precips.push(pa);
+        temps.push(ta); precips.push(pa); probs.push(ra);
         continue;
       }
       const uf = (1 - f) * ua + f * ub;
@@ -172,10 +183,11 @@ function expandHourlyVector(hourlyEntries, gammaDeg) {
       dirs.push((Math.atan2(-uf, -vf) * 180 / Math.PI + 360) % 360);
       gusts.push(ga + f * (gb - ga));
       temps.push(ta != null && tb != null ? ta + f * (tb - ta) : null);
-      precips.push(pa != null && pb != null ? pa + f * (pb - pa) : null);
+      precips.push(pa != null && pbv != null ? pa + f * (pbv - pa) : null);
+      probs.push(ra != null && rbv != null ? ra + f * (rbv - ra) : null);
     }
   }
-  return buildSeriesFrom(times, speeds, dirs, gusts, gammaDeg, STEP_H, temps, precips);
+  return buildSeriesFrom(times, speeds, dirs, gusts, gammaDeg, STEP_H, temps, precips, probs);
 }
 
 // Raw Open-Meteo hourly arrays -> entry-shaped samples for expandHourlyVector.
@@ -186,12 +198,14 @@ function hourlySamples(hourly) {
   const gu = (hourly && hourly.wind_gusts_10m) || [];
   const tp = (hourly && hourly.temperature_2m) || [];
   const pp = (hourly && hourly.precipitation) || [];
+  const pb = (hourly && hourly.precipitation_probability) || [];
   const out = [];
   for (let i = 0; i < t.length; i++) {
     out.push({
       time: t[i], speedMph: Number(sp[i]), gustMph: Number(gu[i]), dirTrueDeg: Number(dr[i]),
       tempF: i < tp.length && tp[i] != null ? Number(tp[i]) : null,
       precipIn: i < pp.length && pp[i] != null ? Number(pp[i]) : null,
+      precipProb: i < pb.length && pb[i] != null ? Number(pb[i]) : null,
     });
   }
   return out;
@@ -316,10 +330,10 @@ function seriesFor24(json, gamma) {
   const hourly = (json && json.hourly) || {};
   if (m && m.time && m.time.length > 1) {
     return buildSeriesFrom(m.time, m.wind_speed_10m || [], m.wind_direction_10m || [],
-      m.wind_gusts_10m || [], gamma, STEP_H, m.temperature_2m, m.precipitation);
+      m.wind_gusts_10m || [], gamma, STEP_H, m.temperature_2m, m.precipitation, m.precipitation_probability);
   }
   const f = interpolate15(hourly, gamma);
-  return buildSeriesFrom(f.times, f.speeds, f.dirs, f.gusts, gamma, STEP_H, f.temps, f.precips);
+  return buildSeriesFrom(f.times, f.speeds, f.dirs, f.gusts, gamma, STEP_H, f.temps, f.precips, f.probs);
 }
 
 // One raw location object -> 7-day assembled series. Trust native minutely_15
@@ -330,11 +344,11 @@ function seriesFor7d(json, gamma, today) {
   const hourly = (json && json.hourly) || {};
   const native = m && m.time && m.time.length > 1
     ? buildSeriesFrom(m.time, m.wind_speed_10m || [], m.wind_direction_10m || [],
-        m.wind_gusts_10m || [], gamma, STEP_H, m.temperature_2m, m.precipitation)
-    : (() => {
-        const f = interpolate15(hourly, gamma);
-        return buildSeriesFrom(f.times, f.speeds, f.dirs, f.gusts, gamma, STEP_H, f.temps, f.precips);
-      })();
+        m.wind_gusts_10m || [], gamma, STEP_H, m.temperature_2m, m.precipitation, m.precipitation_probability)
+      : (() => {
+          const f = interpolate15(hourly, gamma);
+          return buildSeriesFrom(f.times, f.speeds, f.dirs, f.gusts, gamma, STEP_H, f.temps, f.precips, f.probs);
+        })();
   const through = addDays(today, 1);
   const from = addDays(today, 2);
   const kept = native.filter((e) => e.time.slice(0, 10) <= through);
