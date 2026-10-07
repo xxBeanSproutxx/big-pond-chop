@@ -970,8 +970,10 @@ async function mount(deps) {
         const x = (i - start) * pxf;
         // Rain lane plots CHANCE OF PRECIPITATION (0-100%), not amount — in dry
         // stretches the amount reads flat-zero while the chance curve still moves.
-        // 30%+ spans ~2/3 of the 18px band; the 2.5px floor keeps small chances visible.
-        const p = Number.isFinite(e.precipProb) ? Math.min(50, e.precipProb) / 50 : 0;
+        // Scale saturates at 45% (real signal lives under 40%) — the top of the
+        // band stays clear so the plateau of a 95% storm can never touch its label
+        // (storm_sim.py audits this). 2.5px floor keeps small chances visible.
+        const p = Number.isFinite(e.precipProb) ? Math.min(45, e.precipProb) / 50 : 0;
         const y = p === 0 ? 18 : Math.min(18 - 2.5, 18 - p * 18);
         pts.push(`${x},${y.toFixed(1)}`);
       }
