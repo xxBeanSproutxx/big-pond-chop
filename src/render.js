@@ -1124,9 +1124,10 @@ async function mount(deps) {
     // 6.2: the drag baseline in minutes, so the offset is continuous from the very first
     // pointermove (the pill can read 7:04 instead of jumping to 7:00 or 7:15).
     scrubMinutes = cur * (stepMin > 0 ? stepMin : FRAME_MINUTES);
-    // 6.4 D3.2: the drag-start trigger queues a neighbour warm, which runs when idle
-    // (prefetchNeighbours no-ops while the gesture is live).
-    schedulePrefetchNeighbours();
+    // 6.4 D3.2 + rapid-drag fix: a new gesture CANCELS any pending neighbour warm (the
+    // drag-start warm was dead weight — prefetchNeighbours bails while scrubbing; the
+    // release path re-schedules). Cancel, never race.
+    cancelPendingPrefetch();
     trackTape.style.transition = 'none'; // drag follows the finger 1:1
   });
   deck.addEventListener('pointermove', (e) => {
@@ -1176,8 +1177,8 @@ async function mount(deps) {
       // 6.4 D3.2: settle paint done; warm the released index's neighbours while idle. Delayed by
       // 250 ms so the warm-up builds cannot compete with the settle's own cold build + encode/
       // decode window (measured 2026-09-14: 150.2 ms to the settle's visible paint with the
-      // warm-up inside that window vs 12.4 ms without).
-      setTimeout(schedulePrefetchNeighbours, 250);
+      // warm-up inside that window vs 12.4 ms without). Cancellable: a new drag kills it.
+      schedulePrefetchNeighbours(250);
     }
     trackTape.style.transition = ''; // re-arm the playback glide (after the snap write)
   }
@@ -1374,17 +1375,37 @@ async function mount(deps) {
   }
 
   // 6.4 D3.2: warm the neighbours of the shown index so the next scrub/settle is not a cold build.
-  // Never builds while a gesture is live — a 23-41 ms cold build would eat the frame budget the
-  // suspension exists to protect; the drag-start trigger therefore queues and runs when idle.
+  // Never builds while a gesture is live — a cold build would eat the frame budget the
+  // suspension exists to protect; it runs when idle between gestures, and any new gesture
+  // cancels the pending warm outright.
   function prefetchNeighbours() {
-    if (!frames.length || scrubbing || playing) return;
+    // Per-build bail: a gesture or play can start while the warm is mid-loop; the second
+    // build must not ride into a live drag (measured: the forced idle-timeout pair was
+    // landing in the gap between rapid tap-drags and hitching them).
     for (let i = cur - 1; i <= cur + 1; i++) {
+      if (!frames.length || scrubbing || playing) return;
       if (i >= 0 && i < frames.length && i !== cur) frameFor(i);
     }
   }
-  function schedulePrefetchNeighbours() {
-    if (typeof requestIdleCallback === 'function') requestIdleCallback(prefetchNeighbours, { timeout: 400 });
-    else setTimeout(prefetchNeighbours, 0);
+  // The pending warm (250 ms timer and/or the idle callback it arms) is cancellable so a
+  // new gesture kills it outright instead of racing it.
+  let prefetchCan = null;
+  function cancelPendingPrefetch() {
+    if (prefetchCan) { prefetchCan(); prefetchCan = null; }
+  }
+  function schedulePrefetchNeighbours(delay = 0) {
+    cancelPendingPrefetch();
+    const arm = () => {
+      if (typeof requestIdleCallback === 'function') {
+        const h = requestIdleCallback(prefetchNeighbours, { timeout: 400 });
+        prefetchCan = () => cancelIdleCallback(h);
+      } else {
+        const h = setTimeout(prefetchNeighbours, 0);
+        prefetchCan = () => clearTimeout(h);
+      }
+    };
+    if (delay) { const h = setTimeout(arm, delay); prefetchCan = () => clearTimeout(h); }
+    else arm();
   }
 
   // rAF-coalesced: many input/tick events collapse into one render of the LATEST index.
