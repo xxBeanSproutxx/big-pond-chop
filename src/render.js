@@ -1018,8 +1018,10 @@ async function mount(deps) {
           const riseLocal = chicagoMinutes(sun.sunriseMs);
           const riseX = (riseLocal / 1440) * w;
           const tick = document.createElement('span');
-          tick.className = 'day-sun-dot';
+          tick.className = 'day-sun day-sun-rise';
           tick.style.left = `${riseX}px`;
+          // feather 'sun': disc + 8 rays (stroke, not fill — stays crisp at 9px)
+          tick.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.6M12 19.4V22M4.9 4.9l1.9 1.9M17.2 17.2l1.9 1.9M2 12h2.6M19.4 12H22M4.9 19.1l1.9-1.9M17.2 6.8l1.9-1.9"/></svg>';
           tick.title = `Sunrise ${formatChicagoClock(sun.sunriseMs)}`;
           block.appendChild(tick);
         }
@@ -1027,8 +1029,10 @@ async function mount(deps) {
           const setLocal = chicagoMinutes(sun.sunsetMs);
           const setX = (setLocal / 1440) * w;
           const tick = document.createElement('span');
-          tick.className = 'day-sun-dot';
+          tick.className = 'day-sun day-sun-set';
           tick.style.left = `${setX}px`;
+          // crescent moon (feather-style path)
+          tick.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
           tick.title = `Sunset ${formatChicagoClock(sun.sunsetMs)}`;
           block.appendChild(tick);
         }
