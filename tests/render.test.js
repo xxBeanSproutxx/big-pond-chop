@@ -277,11 +277,12 @@ check('stale async result cached but not painted (decision helper)', () => {
 });
 
 console.log('\n== [9] stage-5g: tape geometry ==');
-check('pxPerDay is 330 in 7d and max(550, window) in 24h', () => {
+check('pxPerDay is 330 in 7d and 15d, max(550, window) in 24h', () => {
   assert.strictEqual(pxPerDay('7d', 374), 330);
+  assert.strictEqual(pxPerDay('15d', 374), 330);
   assert.strictEqual(pxPerDay('24h', 374), 550);
   assert.strictEqual(pxPerDay('24h', 120), 550, 'a single day keeps the 550 px/day phone floor');
-  console.log(`       7d->${pxPerDay('7d', 374)} 24h(374)->${pxPerDay('24h', 374)} ` +
+  console.log(`       7d->${pxPerDay('7d', 374)} 15d->${pxPerDay('15d', 374)} 24h(374)->${pxPerDay('24h', 374)} ` +
     `24h(120)->${pxPerDay('24h', 120)}`);
 });
 check('24h runway is >= 150 px at a 374 px window; 7d unchanged', () => {
@@ -355,8 +356,9 @@ check('single 96-frame day -> one partition', () => {
   assert.strictEqual(p.length, 1);
   assert.strictEqual(p[0].index, 0);
 });
-check('playStep + nextPlayIdx wrap cleanly at the 7-day boundary', () => {
+check('playStep + nextPlayIdx wrap cleanly at the wide boundary', () => {
   assert.strictEqual(playStep('7d'), 4);
+  assert.strictEqual(playStep('15d'), 4);
   assert.strictEqual(playStep('24h'), 1);
   assert.strictEqual(nextPlayIdx(671, 4, 672), 3);
   assert.strictEqual(nextPlayIdx(668, 4, 672), 0);
@@ -365,7 +367,7 @@ check('playStep + nextPlayIdx wrap cleanly at the 7-day boundary', () => {
 check('#scrub shim is gone; timeline containers present', () => {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   assert.ok(!/\bid="scrub"/.test(html), '#scrub must be gone');
-  for (const id of ['track-days', 'track-ticks', 'track-label', 'timeline', 'h-24h', 'h-7d']) {
+  for (const id of ['track-days', 'track-ticks', 'track-label', 'timeline', 'h-24h', 'h-7d', 'h-15d']) {
     assert.ok(html.includes(`id="${id}"`), `missing #${id}`);
   }
 });

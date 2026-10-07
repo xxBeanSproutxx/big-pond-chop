@@ -100,7 +100,7 @@ function shouldPaintMap(nowMs, lastPaintMs, busy, minIntervalMs) {
 // a 550 px/day tape so it has ~176 px of runway at a phone viewport, and still fills at
 // least the viewing window on desktop/tablet (window-fill, as in 5G).
 function pxPerDay(horizon, windowW) {
-  return horizon === '7d' ? 330 : Math.max(550, Math.round(Number(windowW) || 0));
+  return horizon === '24h' ? Math.max(550, Math.round(Number(windowW) || 0)) : 330;
 }
 
 function pxPerFrame(horizon, windowW) {
@@ -168,7 +168,7 @@ function dayPartitions(entries) {
 
 // 7-day horizon steps 4 frames (1 h) per play tick; 24 h steps 1.
 function playStep(horizon) {
-  return horizon === '7d' ? 4 : 1;
+  return horizon === '24h' ? 1 : 4;
 }
 
 function nextPlayIdx(cur, step, n) {
@@ -423,6 +423,7 @@ async function mount(deps) {
   const horizonEl = document.getElementById('horizon');
   const h24Btn = document.getElementById('h-24h');
   const h7Btn = document.getElementById('h-7d');
+  const h15Btn = document.getElementById('h-15d');
   const lakeEl = document.getElementById('lake');
   const gustEl = document.getElementById('gust');
   const pillLakeEl = document.getElementById('pill-lake');
@@ -471,7 +472,7 @@ async function mount(deps) {
   function readStoredHorizon() {
     try {
       const v = localStorage.getItem(HORIZON_KEY);
-      return v === '7d' || v === '24h' ? v : null;
+      return v === '7d' || v === '24h' || v === '15d' ? v : null;
     } catch (err) { return null; }
   }
   function storeHorizon(h) {
@@ -479,7 +480,7 @@ async function mount(deps) {
   }
   function queryHorizon() {
     const v = q.get('h');
-    return v === '7d' || v === '24h' ? v : null;
+    return v === '7d' || v === '24h' || v === '15d' ? v : null;
   }
   let horizon = queryHorizon() || readStoredHorizon() || '24h';
   // Resolved horizon is written to both the store and the URL, ?h= merged over existing params.
@@ -493,6 +494,7 @@ async function mount(deps) {
   function setHorizonPressed(h) {
     h24Btn.setAttribute('aria-pressed', h === '24h' ? 'true' : 'false');
     h7Btn.setAttribute('aria-pressed', h === '7d' ? 'true' : 'false');
+    h15Btn.setAttribute('aria-pressed', h === '15d' ? 'true' : 'false');
   }
 
   const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -601,7 +603,7 @@ async function mount(deps) {
   let shoreDay = null;    // 6B: shore series matching `frames`; null when unavailable
   let stepMin = 15;
   let cur = 0;
-  let full7d = null;      // cached '7d' ingest result for the zero-fetch narrow
+  const wideCache = {};   // wide ingest results keyed by horizon ('7d'/'15d') for zero-fetch toggles
   let widening = false;   // re-entry guard while the 7-day fetch is in flight
   let applied = false;    // true after the first successful applyWindData (boot overrides)
   let nowTickIdx = null;  // now-index the hairline shows (null = hidden)
@@ -878,6 +880,7 @@ async function mount(deps) {
       const w = Math.max(1, (end - start) * pxf);
       const block = document.createElement('div');
       block.className = 'day-block' + (k % 2 ? ' alt' : '');
+      if (horizon === '15d' && k >= 10) block.classList.add('outlook'); // days 11–15: outlook-grade
       block.style.left = `${left}px`;
       block.style.width = `${w}px`;
       const label = ui.dayLabel(parts[k].date, true);
@@ -1451,11 +1454,12 @@ async function mount(deps) {
   function applyWindData(data) {
     frames = data.day;
     // Storm demo (?storm=1): sweep each day 0 -> peak -> 0, peaks climbing
-    // 10,25,40,55,70,85,100 across the week. Lets Reid eyeball the whole rain
-    // range on his own phone — live data, real deck, no test hooks elsewhere.
+    // across the wide window (100 at day 7, easing back to cover 15 days).
+    // Lets Reid eyeball the whole rain range on his own phone — live data,
+    // real deck, no test hooks elsewhere.
     const stormQ = new URLSearchParams(location.search).get('storm');
     if (stormQ) {
-      const peaks = [10, 25, 40, 55, 70, 85, 100];
+      const peaks = [10, 25, 40, 55, 70, 85, 100, 85, 70, 55, 45, 35, 28, 20, 14];
       const days = new Map();
       for (const f of frames) {
         const date = String(f.time).slice(0, 10);
@@ -1515,7 +1519,7 @@ async function mount(deps) {
     boot('Loading wind…', null);
     try {
       const data = await wind.ingest({ point, gamma, horizon });
-      if (horizon === '7d') full7d = data;
+      if (horizon !== '24h') wideCache[horizon] = data;
       applyWindData(data);
     } catch (err) {
       console.error(err);
@@ -1524,35 +1528,39 @@ async function mount(deps) {
     }
   }
 
-  // 24h -> 7d: fetch the wide window once, cache it, then apply.
-  async function widenHorizon() {
-    if (widening || horizon === '7d') return;
+  // 24h/wider -> wide: fetch the target horizon once, cache it, then apply.
+  // Each wide horizon caches separately, so toggling 7d <-> 15d is zero-fetch
+  // after the first visit to each.
+  async function widenTo(h) {
+    if (widening || horizon === h) return;
     widening = true;
     pause();
     hideNote();
-    boot('Loading 7-day wind…', null);
+    boot(`Loading ${h === '15d' ? '15-day' : '7-day'} wind…`, null);
     try {
-      const data = await wind.ingest({ point, gamma, horizon: '7d' });
-      full7d = data;
-      persistHorizon('7d');
-      setHorizonPressed('7d');
+      const data = wideCache[h] || await wind.ingest({ point, gamma, horizon: h });
+      wideCache[h] = data;
+      persistHorizon(h);
+      setHorizonPressed(h);
       applyWindData(data);
     } catch (err) {
       console.error(err);
       hideBoot();
-      showNote('wind unavailable — retry', widenHorizon);
+      showNote('wind unavailable — retry', () => widenTo(h));
     } finally {
       widening = false;
     }
   }
 
-  // 7d -> 24h: slice the in-memory 7-day series; ZERO network on this path.
+  // wide -> 24h: slice the in-memory wide series; ZERO network on this path.
   function narrowHorizon() {
-    if (horizon !== '7d' || !full7d) return;
+    if (horizon === '24h') return;
+    const src = wideCache['7d'] || wideCache['15d'];
+    if (!src) return;
     pause();
-    const data = Object.assign({}, full7d, {
-      day: wind.firstDaySlice(full7d.day),
-      shoreDay: full7d.shoreDay ? wind.firstDaySlice(full7d.shoreDay) : null,
+    const data = Object.assign({}, src, {
+      day: wind.firstDaySlice(src.day),
+      shoreDay: src.shoreDay ? wind.firstDaySlice(src.shoreDay) : null,
       horizon: '24h',
     });
     persistHorizon('24h');
@@ -1561,7 +1569,8 @@ async function mount(deps) {
   }
 
   h24Btn.addEventListener('click', () => { if (horizon !== '24h') narrowHorizon(); });
-  h7Btn.addEventListener('click', () => { if (horizon !== '7d') widenHorizon(); });
+  h7Btn.addEventListener('click', () => { if (horizon !== '7d') widenTo('7d'); });
+  h15Btn.addEventListener('click', () => { if (horizon !== '15d') widenTo('15d'); });
   setHorizonPressed(horizon);
   persistHorizon(horizon); // resolved horizon -> storage + URL (replaceState)
 

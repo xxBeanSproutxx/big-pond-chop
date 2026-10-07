@@ -163,10 +163,11 @@ check('hour anchors bit-equal across a blended day', () => {
     assert.strictEqual(out[i * 4].dirTrueDeg, src[i].dirTrueDeg, `dir anchor ${i}`);
   }
 });
-check('buildUrl: default and 24h are 2 days, 7d is 7 days', () => {
+check('buildUrl: default and 24h are 2 days, 7d is 7 days, 15d is 16 days', () => {
   assert.ok(buildUrl(1, 2).endsWith('forecast_days=2'));
   assert.ok(buildUrl(1, 2, '24h').endsWith('forecast_days=2'));
   assert.ok(buildUrl(1, 2, '7d').endsWith('forecast_days=7'));
+  assert.ok(buildUrl(1, 2, '15d').endsWith('forecast_days=16'));
   assert.strictEqual(buildUrl(1, 2), buildUrl(1, 2, '24h'));
 });
 
@@ -177,6 +178,7 @@ check('buildDualUrl joins both coords, keeps forecast_days last', () => {
   assert.ok(u.includes('longitude=-93.657,-93.57'), u);
   assert.ok(u.endsWith('forecast_days=2'), u);
   assert.ok(buildDualUrl(DEFAULT_POINT, SHORE_POINT, '7d').endsWith('forecast_days=7'));
+  assert.ok(buildDualUrl(DEFAULT_POINT, SHORE_POINT, '15d').endsWith('forecast_days=16'));
   assert.strictEqual(buildUrl(1, 2), buildUrl(1, 2, '24h'), 'single-location URL unchanged');
 });
 check('parseTwoLocations keys lake=index 0, shore=index 1 (no location_id on 0)', () => {

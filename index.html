@@ -241,6 +241,11 @@
   .day-rain-drop { color: #38bdf8; }
   .day-rain-drop svg { width: 8px; height: 8px; vertical-align: -0.5px; }
   .day-rain-label.dim { opacity: .45; } /* flat-day label: present but quiet */
+  /* 15 d horizon, days 11-15: outlook-grade — same dim language as flat-day
+     labels (head + rain label), so the far week reads "softer" at a glance
+     without new chrome. No effect on the 7 d horizon. */
+  .day-block.outlook .day-head { color: #8a97a8; }
+  .day-block.outlook .day-rain-label { opacity: .45; }
   /* Sunrise/sunset markers: 9px feather-style glyphs (sun = disc + rays, sunset =
      crescent), 4px off the deck edge so they read as placed, not glued (band 82-92;
      deck grew 88->92 for the padding). Color IS the am/pm cue: warm amber rises,
@@ -343,6 +348,7 @@
     <div id="horizon" role="group" aria-label="Forecast horizon">
       <button id="h-24h" type="button" data-horizon="24h" aria-pressed="true">24 h</button>
       <button id="h-7d"  type="button" data-horizon="7d"  aria-pressed="false">7 day</button>
+      <button id="h-15d" type="button" data-horizon="15d" aria-pressed="false">15 day</button>
     </div>
     <div id="card" hidden>
       <button id="card-close" type="button" aria-label="Dismiss readout">×</button>

@@ -3,18 +3,20 @@
 
 Intercepts the live Open-Meteo response (real fetch -> real parse -> real render,
 no app-code changes, no fixtures to drift) and sets every hour's
-precipitation_probability to --pct. Then measures every day block: does the
-curve's apex collide with the % label at full band height?
+precipitation_probability to --pct. Then measures every day block: the curve's
+tall storm must travel a pct-proportional arc on the full 0-100 scale (no
+saturation plateau), and the % label must carry its navy text-shadow glow (the
+readability device; contact with the curve is by design, the glow solves it).
 
-Born from Reid's question: "what does 90-100% look like?" (Answer: the curve
-clamps at the band ceiling — 50%+ renders identically — and the label sits
-tangent to the apex. No overlap possible by geometry.)
+Born from Reid's question: "what does 90-100% look like?" — v1.1 answer: the
+staircase climbs the full zone (100% reaches the ceiling, 55% sits ~60% up),
+labels stay readable behind the line.
 
 Run:
   /home/reid/.hermes/hermes-agent/venv/bin/python tools/qa/storm_sim.py --pct 95 \
       --url http://127.0.0.1:8788/ [--shot /tmp/storm.png]
 
-Exit 1 on any label/curve overlap.
+Exit 1 on any travel or readability failure.
 """
 import argparse
 import sys
@@ -73,22 +75,22 @@ def main():
             // Contract (v1.1 full-scale design): the curve uses the WHOLE zone on a
             // true 0-100 scale, so tall storms pass BEHIND the label — contact is
             // BY DESIGN. What must hold: travel matches pct (no saturation plateau)
-            // and the label carries its backing pill so text stays readable.
+            // and the label carries its navy text-shadow glow so text stays readable
+            // (the old backing pill was dropped — the glow is the readability device).
             const travel = 28 - Math.min(...ys);
             const expected = 0.26 * Math.min(100, window.__PCT);
-            const pill = getComputedStyle(lbl).backgroundColor;
-            const alpha = pill.includes('rgba') ? parseFloat(pill.split(',')[3]) : 1;
+            const shadow = getComputedStyle(lbl).textShadow;
             out.push({ label: lbl.textContent, travel: +travel.toFixed(1),
                        expected: +expected.toFixed(1),
                        travelOk: Math.abs(travel - expected) <= 2.5,
-                       pillOk: alpha >= 0.5 });
+                       glowOk: !!shadow && shadow !== 'none' });
           }
           return out;
         }""")
         for d in rows:
-            ok = d["travelOk"] and d["pillOk"]
+            ok = d["travelOk"] and d["glowOk"]
             print(f"  {d['label']:>8} travel={d['travel']:>5}px (expect ~{d['expected']}) "
-                  f"pill={'ok' if d['pillOk'] else 'MISSING'}  {'ok' if ok else 'FAIL'}")
+                  f"glow={'ok' if d['glowOk'] else 'MISSING'}  {'ok' if ok else 'FAIL'}")
             if not ok:
                 fails += 1
         if args.shot:
@@ -100,7 +102,7 @@ def main():
                                   "width": 390, "height": deck["h"] + 12})
             print(f"  screenshot: {args.shot}")
         b.close()
-    print(f"VERDICT: {'FAIL ' + str(fails) + ' overlaps' if fails else 'PASS — no overlap at ' + str(args.pct) + '%'}")
+    print(f"VERDICT: {'FAIL ' + str(fails) + ' failures' if fails else 'PASS — full staircase + readable labels at ' + str(args.pct) + '%'}")
     sys.exit(1 if fails else 0)
 
 
