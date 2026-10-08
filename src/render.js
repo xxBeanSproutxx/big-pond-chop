@@ -420,6 +420,7 @@ async function mount(deps) {
   const trackLabel = document.getElementById('track-label');
   const timePill = document.getElementById('time-pill');
   const nowTick = document.getElementById('now-tick');
+  const centerGuide = document.getElementById('center-guide');
   const horizonEl = document.getElementById('horizon');
   const h24Btn = document.getElementById('h-24h');
   const h15Btn = document.getElementById('h-15d');
@@ -759,6 +760,10 @@ async function mount(deps) {
   // 5L: also clamps the wide day header to the window's left edge so it stays visible.
   function applyTapeTransform(tx) {
     trackTape.style.transform = 'translateX(' + tx + 'px)';
+    // v1.1 centre guide: counter-translate so the line stays pinned to the reticle
+    // column while the tape renders tx. Same .32s glide as the tape (mirrored to
+    // 'none' during gestures), so it stays exactly centred through glides too.
+    if (centerGuide && viewportW) centerGuide.style.transform = 'translateX(' + (viewportW / 2 - tx) + 'px)';
     if (stickyHead) {
       const want = Math.max(6, (-tx) + STICKY_INSET - stickyHead.blockLeft);
       if (stickyHead.el.style.left !== want + 'px') stickyHead.el.style.left = want + 'px';
@@ -1129,6 +1134,9 @@ async function mount(deps) {
     // release path re-schedules). Cancel, never race.
     cancelPendingPrefetch();
     trackTape.style.transition = 'none'; // drag follows the finger 1:1
+    // v1.1: the centre guide mirrors every glide-state change, so it stays pinned
+    // during drags / snaps / playback glides (it can never lag the tape).
+    if (centerGuide) centerGuide.style.transition = 'none';
   });
   deck.addEventListener('pointermove', (e) => {
     if (!scrubbing || e.pointerId !== scrubPointerId) return;
@@ -1181,6 +1189,7 @@ async function mount(deps) {
       schedulePrefetchNeighbours(250);
     }
     trackTape.style.transition = ''; // re-arm the playback glide (after the snap write)
+    if (centerGuide) centerGuide.style.transition = ''; // guide rides the same glide
   }
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
     deck.addEventListener(type, endScrub);
