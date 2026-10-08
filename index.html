@@ -197,9 +197,12 @@
      same layer family as the now hairline (z1). render.js counter-translates it in the
      single tape-write path and mirrors the tape's glide state, so it stays pinned to
      the reticle column — the tape slides under it. left:-.5px centres the 1px line on
-     that column (it was a translateX(-50%) sibling before the move inside the tape). */
+     that column (it was a translateX(-50%) sibling before the move inside the tape).
+     Opacity .45: behind the glyphs it no longer gets the "dimming over content" pop it
+     had as a top layer — .28 read as invisible on-device (Reid), .45 restores it while
+     staying well under the tick's intensity. */
   #center-guide   { position: absolute; top: 0; bottom: 0; left: -0.5px; width: 1px;
-                    background: rgba(148,163,184,.28); z-index: 1;
+                    background: rgba(148,163,184,.45); z-index: 1;
                     transition: transform .32s linear; /* mirrored by the drag path */
                     pointer-events: none; }
   /* Amber pill cursor IS the permanent time indicator, anchored to the centre of the
