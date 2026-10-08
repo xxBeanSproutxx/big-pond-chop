@@ -438,7 +438,12 @@
     }
     async function load(path) {
       if (cache[path]) return cache[path].exports;
-      var res = await fetch(path);
+      // no-store: module code must never come from the browser's heuristic HTTP
+      // cache. Plain fetch() here let a stale module (e.g. render.js) ride along
+      // with a fresh document after a deploy — new HTML + old JS = mismatched
+      // app (off-screen centre guide, v1.1 debugging 2026-10-07). The SW still
+      // serves its cache as the offline fallback when it controls the page.
+      var res = await fetch(path, { cache: 'no-store' });
       if (!res.ok) throw new Error('load ' + path + ': HTTP ' + res.status);
       var src = await res.text();
       var mod = { exports: {} };

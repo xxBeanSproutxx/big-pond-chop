@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Big Pond Chop — cache reset</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+         background: #0d1b2a; color: #e8f0f7; font: 16px/1.5 system-ui, -apple-system, sans-serif; }
+  main { max-width: 34rem; padding: 24px; text-align: center; }
+  h1 { font-size: 20px; margin: 0 0 10px; }
+  p { color: #9fb0c4; margin: 8px 0; }
+  code { color: #ffd166; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Clearing the app's cached files…</h1>
+  <p id="status">…</p>
+  <p>This page fixes a stale/mixed app cache (old code + new page). It unregisters the
+     service worker, deletes cached files, and reloads the app fresh. One-time use.</p>
+</main>
+<script>
+(async () => {
+  const st = document.getElementById('status');
+  try {
+    let nSW = 0, nCache = 0;
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+      nSW = regs.length;
+    }
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+      nCache = keys.length;
+    }
+    st.textContent = `Cleared ${nSW} service worker(s) and ${nCache} cache(s). Reloading the app…`;
+    setTimeout(() => { location.replace('./index.html?fresh=' + Date.now()); }, 900);
+  } catch (err) {
+    st.textContent = 'Reset failed: ' + err + ' — try again or close all app tabs and reopen.';
+  }
+})();
+</script>
+</body>
+</html>
