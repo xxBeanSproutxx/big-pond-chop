@@ -2,7 +2,11 @@
 // Shell precache only. Versioned data is cache-first; app code and the document
 // are network-first so a deploy never serves stale code. Weather + tiles are
 // never cached. Bump CACHE_NAME on every future deploy.
-const CACHE_NAME = 'bpc-cache-v25';
+// 2026-10-07: the module loader in index.html also fetches with cache:'no-store'
+// (belt + suspenders — a mismatched HTML/JS pair from the HTTP heuristic cache
+// made the centre guide render off-screen on-device). reset.html clears a
+// wedged device: unregister SW + delete caches + reload.
+const CACHE_NAME = 'bpc-cache-v26';
 
 const SHELL = [
   './', './index.html',
