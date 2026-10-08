@@ -123,7 +123,7 @@ check('stage-5m deck markup: single full-height tape, no wind strip', () => {
   const footer = /<footer id="deck">([\s\S]*?)<\/footer>/.exec(html);
   assert.ok(footer, 'missing <footer id="deck">');
   const ids = ['play', 'track', 'timeline', 'track-tape', 'track-days', 'track-ticks',
-    'track-label', 'now-tick', 'time-pill', 'h-24h', 'h-15d'];
+    'track-label', 'now-tick', 'time-pill', 'center-guide', 'h-24h', 'h-15d'];
   for (const id of ids) assert.ok(html.includes(`id="${id}"`), `page missing #${id}`);
   const removed = ['playhead', 'track-rail', 'track-progress', 'deck-day', 'hour-label',
     'play-label', 'deck-main'];

@@ -182,7 +182,23 @@
   #track-tape { position: absolute; left: 0; top: 0; height: 100%;
                 transition: transform .32s linear; will-change: transform; }
   #now-tick       { position: absolute; top: 0; bottom: 0; width: 2px; background: #ffd166;
-                    box-shadow: 0 0 0 1px rgba(13,27,42,.6); pointer-events: none; }
+                    box-shadow: 0 0 0 1px rgba(13,27,42,.6); pointer-events: none;
+                    /* v1.1: the hairline's LEFT edge used to sit exactly on the now-frame's
+                       centre (the pill read 1px off — Reid); centre it like every other
+                       centre-anchored tick. z1 = under the lane glyphs (z2) so it never
+                       covers temp/wind text, but over day-block backgrounds. */
+                    transform: translateX(-50%); z-index: 1; }
+  /* v1.1: lane glyphs paint ABOVE the now hairline (z1) — the hairline reads as a
+     background mark inside the 108px deck (Reid: "covering up the temperature and
+     wind speed icons and text"). Backgrounds/curve/ribbons stay below it. */
+  .day-head, .day-sub, .day-temp, .day-wind, .day-rain-label, .day-sun, .day-rain-drop { z-index: 2; }
+  /* v1.1: faint gray guide at the reticle — the scrubbing reading column. The tape
+     re-centres the active frame under this line on every write, so it never moves;
+     it shows the column the active frame settles on while scrubbing (Reid). Topmost
+     element of #timeline: a 1px 28% film — negligible over glyphs, visible over the deck. */
+  #center-guide   { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px;
+                    transform: translateX(-50%); background: rgba(148,163,184,.28);
+                    pointer-events: none; }
   /* Amber pill cursor IS the permanent time indicator, anchored to the centre of the
      viewing window. It floats ABOVE the timeline edge (Windy reference) so it never
      covers a day header; the stem dips into the bar. The element never moves. */
@@ -211,7 +227,7 @@
    /* v1.1 lane bands (108px deck, disjoint by construction — see tools/qa/lane_audit.py):
       [3,15] day-head · [17,29] temps · [32,41] rain % labels (own row, above the curve)
       · [41,59] rain curve (18px) · [61,81] wind ribbon + numbers · [83,94] clock hours
-      (the yellow scrub cursor floats over all rows by design) · [95,104] sun/moon glyphs.
+      (the yellow now-hairline floats UNDER the lane glyphs, over backgrounds) · [95,104] sun/moon glyphs.
       Never place a lane without re-allocating all bands. */
   .day-wind { position: absolute; top: 61px; transform: translateX(-50%);
               font: 700 12px/1 system-ui, -apple-system, sans-serif; color: #ffffff;
@@ -388,6 +404,7 @@
           <div id="now-tick" hidden></div>
         </div>
         <div id="track-label">—</div>
+        <div id="center-guide"></div>
       </div>
       <div id="time-pill">—</div>
       <button id="play" type="button" aria-pressed="false" aria-label="Play radar loop">
