@@ -192,12 +192,15 @@
      background mark inside the 108px deck (Reid: "covering up the temperature and
      wind speed icons and text"). Backgrounds/curve/ribbons stay below it. */
   .day-head, .day-sub, .day-temp, .day-wind, .day-rain-label, .day-sun, .day-rain-drop { z-index: 2; }
-  /* v1.1: faint gray guide at the reticle — the scrubbing reading column. The tape
-     re-centres the active frame under this line on every write, so it never moves;
-     it shows the column the active frame settles on while scrubbing (Reid). Topmost
-     element of #timeline: a 1px 28% film — negligible over glyphs, visible over the deck. */
-  #center-guide   { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px;
-                    transform: translateX(-50%); background: rgba(148,163,184,.28);
+  /* v1.1: faint gray guide at the reticle — the scrubbing reading column. Lives INSIDE
+     the tape so it slots between day-block backgrounds (auto) and the lane glyphs (z2),
+     same layer family as the now hairline (z1). render.js counter-translates it in the
+     single tape-write path and mirrors the tape's glide state, so it stays pinned to
+     the reticle column — the tape slides under it. left:-.5px centres the 1px line on
+     that column (it was a translateX(-50%) sibling before the move inside the tape). */
+  #center-guide   { position: absolute; top: 0; bottom: 0; left: -0.5px; width: 1px;
+                    background: rgba(148,163,184,.28); z-index: 1;
+                    transition: transform .32s linear; /* mirrored by the drag path */
                     pointer-events: none; }
   /* Amber pill cursor IS the permanent time indicator, anchored to the centre of the
      viewing window. It floats ABOVE the timeline edge (Windy reference) so it never
@@ -401,10 +404,10 @@
         <div id="track-tape">
           <div id="track-days"></div>
           <div id="track-ticks"></div>
+          <div id="center-guide"></div>
           <div id="now-tick" hidden></div>
         </div>
         <div id="track-label">—</div>
-        <div id="center-guide"></div>
       </div>
       <div id="time-pill">—</div>
       <button id="play" type="button" aria-pressed="false" aria-label="Play radar loop">
