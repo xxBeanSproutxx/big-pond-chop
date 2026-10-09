@@ -1523,10 +1523,12 @@ async function mount(deps) {
   // 'Copied' appears only when the copy genuinely succeeded.
   let copyResetTimer = null;
   function setCopyTag(state) {
-    const tag = copyBtn.querySelector('.copy-tag');
     copyBtn.classList.toggle('done', state === 'done');
     copyBtn.classList.toggle('fail', state === 'fail');
-    tag.textContent = state === 'done' ? 'Copied' : state === 'fail' ? 'Copy failed' : 'Copy';
+    // Visual feedback is the icon swap (clipboard -> green check); the hidden live region
+    // keeps screen readers in the loop.
+    copyBtn.querySelector('.sr-only').textContent =
+      state === 'done' ? 'Copied' : state === 'fail' ? 'Copy failed' : 'Copy coordinates';
     if (copyResetTimer) clearTimeout(copyResetTimer);
     if (state !== 'copy') copyResetTimer = setTimeout(() => setCopyTag('copy'), 1400);
   }

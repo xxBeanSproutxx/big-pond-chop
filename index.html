@@ -341,10 +341,15 @@
   #card-copy:active { background: #eef4fa; }
   #card-copy b { display: inline-block; min-width: 7.4em; }
   #card-tier { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 3px;
-               padding: 2px 6px; margin-top: 3px; white-space: nowrap; line-height: 1.25; }
-  #card-copy .copy-tag { flex: 0 0 auto; color: #2563eb; font-weight: 700; }
-  #card-copy.done .copy-tag { color: #15803d; }
-  #card-copy.fail .copy-tag { color: #b91c1c; }
+               padding: 2px 6px; vertical-align: middle; white-space: nowrap; line-height: 1.25; }
+  #card-copy .icon { width: 18px; height: 18px; display: block; }
+  #card-copy .icon-copy { fill: none; stroke: #2563eb; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  #card-copy .icon-check { display: none; fill: none; stroke: #15803d; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  #card-copy.done .icon-copy { display: none; }
+  #card-copy.done .icon-check { display: block; }
+  #card-copy.fail .icon-copy { stroke: #b91c1c; }
+  #card-copy .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+                        overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
   #card-close { position: absolute; right: 2px; top: 2px; width: 48px; height: 48px;
                 border: 0; background: transparent; color: #0d1b2a; font-size: 20px;
                 line-height: 1; cursor: pointer; touch-action: manipulation; }
@@ -402,14 +407,16 @@
       <button id="card-close" type="button" aria-label="Dismiss readout">×</button>
       <div class="card-line" data-field="when"><b>Time:</b> <span class="v">—</span></div>
       <div class="card-line" data-field="spot"><b>Spot:</b> <span class="v">—</span></div>
+      <div class="card-line" data-field="tier"><b>Conditions:</b> <span id="card-tier" class="tier-green">—</span></div>
       <div class="card-line card-sep" data-field="hs"><b>Average waves:</b> <span class="chip"></span><span class="v">—</span></div>
       <div class="card-line" data-field="hmax"><b>Peak:</b> <span class="chip"></span><span class="v">—</span></div>
-      <div class="card-line"><span id="card-tier" class="tier-green">—</span></div>
       <div class="card-line" data-field="depth"><b>Depth:</b> <span class="v">—</span></div>
       <div class="card-line" data-field="wind"><b>Wind:</b> <span class="v">—</span></div>
       <button id="card-copy" data-field="coords" type="button">
         <span><b>Coords:</b> <span class="v">—</span></span>
-        <span class="copy-tag" aria-live="polite">Copy</span>
+        <svg class="icon icon-copy" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+        <svg class="icon icon-check" viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        <span class="sr-only" aria-live="polite">Copy coordinates</span>
       </button>
     </div>
     <div id="wind-badge" role="img"
