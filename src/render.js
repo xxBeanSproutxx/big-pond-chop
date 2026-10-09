@@ -1298,9 +1298,15 @@ async function mount(deps) {
     if (el) el.textContent = value;
   }
 
-  function setCardChip(name, background) {
-    const el = card.querySelector(`[data-field="${name}"] .chip`);
-    if (el) el.style.background = background;
+  // v1.2 rev5: wave values ride in a pill wearing the wave's OWN map colour; the ink
+  // flips dark/white per pill for readability (see ui.inkForHs).
+  function setCardWavePill(name, hsFt, valueText) {
+    const el = card.querySelector(`[data-field="${name}"] .pill`);
+    if (!el) return;
+    el.textContent = valueText;
+    const calm = ui.CALM_RGBA;
+    el.style.background = hsFt > 0 ? ui.rgbForHs(hsFt) : `rgb(${calm[0]}, ${calm[1]}, ${calm[2]})`;
+    el.style.color = ui.inkForHs(hsFt);
   }
 
   function updatePinned() {
@@ -1322,16 +1328,16 @@ async function mount(deps) {
     setCardField('coords', coordsText);
     copyBtn.dataset.copy = coordsText; // copy sends EXACTLY the displayed string
     setCardField('depth', `${d.toFixed(1)} ft`);
-    setCardField('hs', `${hs.toFixed(1)} ft`);
-    setCardField('hmax', `${hm.toFixed(1)} ft`);
+    setCardWavePill('hs', hs, `${hs.toFixed(1)} ft`);
+    setCardWavePill('hmax', hm, `${hm.toFixed(1)} ft`);
+    const gust = Number(e.gustMph);
+    setCardField('gust', Number.isFinite(gust) ? `${Math.round(gust)} mph` : '—');
     setCardField('wind', ui.conditionsLine(e.speedMph, e.dirTrueDeg, e.tempF));
-    setCardChip('hs', ui.rgbForHs(hs));
-    setCardChip('hmax', ui.rgbForHs(hm));
     // v1.2 rev3: the spot's own condition tag ("Walleye Chop"...). Same classifier as the
-    // header chip, fed THIS spot's values — so it varies bay to bay. H/L survives only as
+    // header chip, fed THIS spot's values — so it varies bay by bay. H/L survives only as
     // an input to the tier, not as a raw row (the acronym block read as noise on the phone).
     const tier = ui.comfortTier({ maxHsFt: hs, rollerFt: hm, hlMax: hl, windMph: e.speedMph });
-    cardTierEl.className = `tier-${tier.key}`;
+    cardTierEl.className = `pill tier-${tier.key}`;
     cardTierEl.textContent = tier.label;
     card.dataset.spot = spot.name || spot.kind;
   }

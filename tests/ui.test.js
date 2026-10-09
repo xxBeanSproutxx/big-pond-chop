@@ -385,6 +385,14 @@ check('HL_RED is the one steepness boundary (comfortTier agrees)', () => {
   assert.strictEqual(ui.comfortTier({ maxHsFt: 0.2, rollerFt: 0.2, hlMax: ui.HL_RED }).key, 'red');
   assert.strictEqual(ui.comfortTier({ maxHsFt: 0.2, rollerFt: 0.2, hlMax: 0.0549 }).key, 'green');
 });
+check('inkForHs: dark ink on light pills, white on the dark end of the ramp', () => {
+  assert.strictEqual(ui.inkForHs(0), '#0d1b2a');
+  assert.strictEqual(ui.inkForHs(1), '#0d1b2a');
+  assert.strictEqual(ui.inkForHs(3.5), '#0d1b2a');
+  assert.strictEqual(ui.inkForHs(4.5), '#ffffff');
+  assert.strictEqual(ui.inkForHs(5.5), '#ffffff');
+  assert.strictEqual(ui.inkForHs(6), '#ffffff');
+});
 
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);

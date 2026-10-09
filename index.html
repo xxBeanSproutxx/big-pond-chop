@@ -329,19 +329,18 @@
           border-radius: 8px; padding: 8px 46px 8px 10px; font-size: 12px;
           box-shadow: 0 2px 8px rgba(0,0,0,.3); font-variant-numeric: tabular-nums; }
   #card .card-line { margin: 1px 0; }
-  #card .card-line b { display: inline-block; min-width: 7.4em; }
+  #card .card-line b { display: inline-block; min-width: 8.6em; }
   #card [data-field="when"] .v { font-weight: 700; }
-  #card .chip { display: inline-block; width: 10px; height: 10px; border-radius: 3px;
-                margin-right: 5px; vertical-align: -1px; background: #cbd5e1; }
+  #card .pill { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 3px;
+                padding: 2px 6px; vertical-align: middle; white-space: nowrap; line-height: 1.25; }
   #card .card-sep { border-top: 1px solid #e2e8f0; margin-top: 4px; padding-top: 3px; }
   #card-copy { display: flex; justify-content: space-between; align-items: center; gap: 8px;
                width: 100%; min-height: 44px; margin-top: 3px; padding: 0;
                border: 0; border-top: 1px solid #e2e8f0; background: none; font: inherit;
                color: inherit; text-align: left; cursor: pointer; touch-action: manipulation; }
   #card-copy:active { background: #eef4fa; }
-  #card-copy b { display: inline-block; min-width: 7.4em; }
-  #card-tier { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 3px;
-               padding: 2px 6px; vertical-align: middle; white-space: nowrap; line-height: 1.25; }
+  #card-copy b { display: inline-block; min-width: 8.6em; }
+
   #card-copy .icon { width: 18px; height: 18px; display: block; }
   #card-copy .icon-copy { fill: none; stroke: #2563eb; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   #card-copy .icon-check { display: none; fill: none; stroke: #15803d; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
@@ -407,11 +406,12 @@
       <button id="card-close" type="button" aria-label="Dismiss readout">×</button>
       <div class="card-line" data-field="when"><b>Time:</b> <span class="v">—</span></div>
       <div class="card-line" data-field="spot"><b>Spot:</b> <span class="v">—</span></div>
-      <div class="card-line" data-field="tier"><b>Conditions:</b> <span id="card-tier" class="tier-green">—</span></div>
-      <div class="card-line card-sep" data-field="hs"><b>Average waves:</b> <span class="chip"></span><span class="v">—</span></div>
-      <div class="card-line" data-field="hmax"><b>Peak:</b> <span class="chip"></span><span class="v">—</span></div>
+      <div class="card-line" data-field="tier"><b>Conditions:</b> <span id="card-tier" class="pill tier-green">—</span></div>
+      <div class="card-line card-sep" data-field="hs"><b>Avg. Wave Height:</b> <span class="pill">—</span></div>
+      <div class="card-line" data-field="hmax"><b>Peak:</b> <span class="pill">—</span></div>
       <div class="card-line" data-field="depth"><b>Depth:</b> <span class="v">—</span></div>
       <div class="card-line" data-field="wind"><b>Wind:</b> <span class="v">—</span></div>
+      <div class="card-line" data-field="gust"><b>Gusts:</b> <span class="v">—</span></div>
       <button id="card-copy" data-field="coords" type="button">
         <span><b>Coords:</b> <span class="v">—</span></span>
         <svg class="icon icon-copy" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
