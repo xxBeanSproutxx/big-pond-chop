@@ -454,7 +454,8 @@ check('two-badge row ids present; shore pill / arrow / help / popover deleted', 
   assert.ok(!html.includes('id="wind-info"'), '#wind-info must be deleted');
   assert.ok(!html.includes('id="frame-info"'), '#frame-info must be deleted');
   assert.ok(!/class="sep"/.test(html), 'the old #secondary .sep must be gone');
-  assert.ok(!/>Wind:</.test(html), 'the row must not carry a "Wind:" prefix');
+  assert.ok(!/>Wind:</.test(html.slice(0, html.indexOf('</header>'))),
+    'the header row must not carry a "Wind:" prefix');
   const row = html.slice(html.indexOf('id="three"'), html.indexOf('</header>'));
   const order = ['pill-lake', 'mph', 'dot', 'pill-gust', 'gust', 'gust-u']
     .map((id) => row.indexOf(id));

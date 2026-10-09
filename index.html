@@ -330,6 +330,19 @@
           box-shadow: 0 2px 8px rgba(0,0,0,.3); font-variant-numeric: tabular-nums; }
   #card .card-line { margin: 1px 0; }
   #card .card-line b { display: inline-block; min-width: 3.6em; }
+  #card [data-field="when"] .v { font-weight: 700; }
+  #card .chip { display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+                margin-right: 5px; vertical-align: -1px; background: #cbd5e1; }
+  #card .card-sep { border-top: 1px solid #e2e8f0; margin-top: 4px; padding-top: 3px; }
+  #card-copy { display: flex; justify-content: space-between; align-items: center; gap: 8px;
+               width: 100%; min-height: 44px; margin-top: 3px; padding: 0;
+               border: 0; border-top: 1px solid #e2e8f0; background: none; font: inherit;
+               color: inherit; text-align: left; cursor: pointer; touch-action: manipulation; }
+  #card-copy:active { background: #eef4fa; }
+  #card-copy b { display: inline-block; min-width: 3.6em; }
+  #card-copy .copy-tag { flex: 0 0 auto; color: #2563eb; font-weight: 700; }
+  #card-copy.done .copy-tag { color: #15803d; }
+  #card-copy.fail .copy-tag { color: #b91c1c; }
   #card-close { position: absolute; right: 2px; top: 2px; width: 48px; height: 48px;
                 border: 0; background: transparent; color: #0d1b2a; font-size: 20px;
                 line-height: 1; cursor: pointer; touch-action: manipulation; }
@@ -385,12 +398,17 @@
     </div>
     <div id="card" hidden>
       <button id="card-close" type="button" aria-label="Dismiss readout">×</button>
+      <div class="card-line" data-field="when"><b>Time:</b> <span class="v">—</span></div>
       <div class="card-line" data-field="spot"><b>Spot:</b> <span class="v">—</span></div>
-      <div class="card-line" data-field="coords"><b>Coords:</b> <span class="v">—</span></div>
+      <div class="card-line card-sep" data-field="hs"><b>Hs:</b> <span class="chip"></span><span class="v">—</span></div>
+      <div class="card-line" data-field="hmax"><b>Hmax:</b> <span class="chip"></span><span class="v">—</span></div>
+      <div class="card-line" data-field="hl"><b>H/L:</b> <span class="chip"></span><span class="v">—</span></div>
       <div class="card-line" data-field="depth"><b>Depth:</b> <span class="v">—</span></div>
-      <div class="card-line" data-field="hs"><b>Hs:</b> <span class="v">—</span></div>
-      <div class="card-line" data-field="hmax"><b>Hmax:</b> <span class="v">—</span></div>
-      <div class="card-line" data-field="hl"><b>H/L:</b> <span class="v">—</span></div>
+      <div class="card-line" data-field="wind"><b>Wind:</b> <span class="v">—</span></div>
+      <button id="card-copy" data-field="coords" type="button">
+        <span><b>Coords:</b> <span class="v">—</span></span>
+        <span class="copy-tag" aria-live="polite">Copy</span>
+      </button>
     </div>
     <div id="wind-badge" role="img"
          aria-label="Wind from NW at 315 degrees, blowing toward SE at 135 degrees">

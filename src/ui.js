@@ -164,6 +164,9 @@ function formatHeadline(frame) {
 const CALM_MPH = 3;
 const CALM_TIER_MPH = 4; // Stage 5J: "Calm · Flat" badge below this wind (green only)
 const CALM_HS_FT = 0.5;  // Stage 5J: ...or below this lake-max Hs (green only)
+// v1.2: the single steepness (H/L) red boundary — comfortTier's red tier and the spot
+// card's H/L chip both read it, so they can never disagree.
+const HL_RED = 0.055;
 const CHICAGO_TZ = 'America/Chicago';
 const TIERS = {
   red: 'Dangerous · Stay Home',
@@ -224,7 +227,7 @@ function comfortTier(stats) {
   const maxHs = Number(s.maxHsFt), roller = Number(s.rollerFt), hl = Number(s.hlMax);
   const at = (v, t) => Number.isFinite(v) && v >= t;
   let key = 'green';
-  if (at(maxHs, 5.0) || at(roller, 4.0) || at(hl, 0.055)) key = 'red';
+  if (at(maxHs, 5.0) || at(roller, 4.0) || at(hl, HL_RED)) key = 'red';
   else if (at(maxHs, 3.5) || at(roller, 2.5)) key = 'amber';
   else if (at(maxHs, 2.0) || at(roller, 1.5)) key = 'yellow';
   if (key === 'green') {
@@ -314,6 +317,26 @@ function dayLabel(isoLocal, long) {
   return `${(long ? DOW_LONG : DOW_SHORT)[dt.getUTCDay()]} ${d}`;
 }
 
+// ---- v1.2: spot-card lines ----
+// Card time stamp ('Fri 9 · 7:15 PM') from a local-ISO frame time; '' on bad input.
+function stampLine(isoLocal) {
+  const d = dayLabel(isoLocal), t = formatPillTime(isoLocal);
+  return d && t ? `${d} · ${t}` : d || t || '';
+}
+
+// Card conditions: '12 mph from SW · Air 54°F'. Calm or unknown direction drops the
+// 'from' half; non-finite pieces are omitted (never NaN/undefined in the card).
+function conditionsLine(speedMph, dirTrueDeg, tempF) {
+  const s = Number(speedMph), t = Number(tempF);
+  let wind = '';
+  if (Number.isFinite(s)) {
+    const c = compass(dirTrueDeg, s);
+    wind = c.fromDeg == null ? `${Math.round(s)} mph` : `${Math.round(s)} mph from ${c.sector}`;
+  }
+  const air = Number.isFinite(t) ? `Air ${Math.round(t)}°F` : '';
+  return [wind, air].filter(Boolean).join(' · ');
+}
+
 // ---- Stage 5O: wind heat ribbon ----
 // Ascending tier scale: [maxMph (exclusive), r, g, b]. 10 -> <10 cyan, 15 -> 10-14 green,
 // 20 -> 15-19 amber, 25 -> 20-24 orange, Infinity -> 25+ crimson.
@@ -359,7 +382,8 @@ module.exports = {
   SECTORS, haversineM, bearing8, centroidOfCorners, sectorFor,
   nameSpot, describePin, sectorPhrase, sectorName, shortPlace, formatHeadline,
   FEATURE_RADIUS_M, SHORE_RADIUS_M,
-  CALM_MPH, CALM_TIER_MPH, CALM_HS_FT, normalizeDeg, windPills, compass,
+  CALM_MPH, CALM_TIER_MPH, CALM_HS_FT, HL_RED, normalizeDeg, windPills, compass,
   comfortTier, formatClockLocal, formatPillTime, formatPillTimeAt, dayLabel,
+  stampLine, conditionsLine,
   WIND_HEAT, windHeatColor, windHeatGradient,
 };
