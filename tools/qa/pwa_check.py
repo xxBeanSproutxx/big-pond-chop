@@ -384,7 +384,10 @@ def check_deploy_markers(base):
     mcode, mheaders, mbody = http_get(urljoin(base, "manifest.webmanifest?cb=%d" % cb))
     scode, _, sbody = http_get(urljoin(base, "sw.js?cb=%d" % cb))
     man_marker = b"Big Pond Chop" in mbody
-    sw_marker = b"bpc-cache-v1" in sbody
+    # Version-agnostic: the cache name itself bumps every deploy (v1 .. v27+), so match
+    # the stable prefix — a literal version here silently rots the moment prod ships a
+    # bump (it read 'bpc-cache-v1' from stage-7.0 until the v1.1 release).
+    sw_marker = b"bpc-cache-v" in sbody
     record(12, "deploy markers",
            mcode == 200 and scode == 200 and man_marker and sw_marker,
            "manifest HTTP %d ctype=%s marker=%s; sw HTTP %d marker=%s" % (
