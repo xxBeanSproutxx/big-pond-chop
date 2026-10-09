@@ -373,13 +373,20 @@ check('stampLine: day · time from a local-ISO frame', () => {
   assert.strictEqual(ui.stampLine('2026-09-11T07:00'), 'Fri 11 · 7 AM');
   assert.strictEqual(ui.stampLine('nonsense'), '');
 });
-check('cardTopFor: the card hops anchors to keep the pin visible', () => {
-  const H = 242, mapH = 736; // 390x844 phone: anchors resolve to top 122 / bottom 354
-  assert.strictEqual(ui.cardTopFor(500, H, mapH), 122); // pin deep in the bottom band -> hop
-  assert.strictEqual(ui.cardTopFor(430, H, mapH), 122); // pin low-mid -> hop
-  assert.strictEqual(ui.cardTopFor(300, H, mapH), 354); // pin in the upper band -> stay low
-  assert.strictEqual(ui.cardTopFor(150, H, mapH), 354); // pin near the top strip -> stay low
-  assert.strictEqual(ui.cardTopFor(60, H, mapH), 354);  // pin above everything -> stay low
+check('cardTopFor: hug placement keeps the pin fully visible on every map point', () => {
+  const H = 242, mapH = 736;
+  assert.strictEqual(ui.cardTopFor(500, H, mapH), 236); // hug above: 500 - 22 - 242
+  assert.strictEqual(ui.cardTopFor(430, H, mapH), 166);
+  assert.strictEqual(ui.cardTopFor(360, H, mapH), 382); // no room above -> hug below
+  assert.strictEqual(ui.cardTopFor(150, H, mapH), 172);
+  assert.strictEqual(ui.cardTopFor(60, H, mapH), 122);  // clamped below the horizon strip
+  assert.strictEqual(ui.cardTopFor(730, H, mapH), 444); // clamped above the legend
+  // property sweep: the dot (±16px) is NEVER inside the card window, for any pin y
+  for (let y = 0; y <= mapH; y += 2) {
+    const t = ui.cardTopFor(y, H, mapH);
+    assert.ok(t >= 122 && t + H <= mapH - 49, `clamp broke at y=${y}`);
+    assert.ok(y + 16 <= t || y - 16 >= t + H, `pin covered at y=${y}`);
+  }
 });
 check('conditionsLine: wind + gusts; calm / bad direction drops the "from" half', () => {
   assert.strictEqual(ui.conditionsLine(12.4, 225, 24.2), '12 mph from SW · Gusts 24 mph');
