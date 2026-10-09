@@ -295,6 +295,12 @@
   #legend-card { position: absolute; left: 8px; bottom: 4px !important; margin: 0;
                  z-index: 500; pointer-events: none;
                  background: rgba(16,38,58,.85); border-radius: 8px; padding: 5px 6px; }
+  /* 6.2: names the ramp. The key's numbers alone read as ambiguous (mph? ft?) — and
+     the timeline's wind ribbon uses the same warm palette, so a bare number row invites
+     conflation (Reid). 8px keeps the card's width at 134px (the 122px bar governs it),
+     so the documented 360px collision budget vs the reticle (x=146) is unchanged. */
+  #legend-card-title { font-size: 8px; line-height: 1; letter-spacing: .04em;
+                       text-transform: uppercase; color: #9fc3dd; margin-bottom: 3px; }
   #legend-card-bar { width: 122px; height: 11px; border-radius: 3px; border: 1px solid #33506b; }
   #legend-card-ticks { width: 122px; margin-top: 2px; display: flex; justify-content: space-between;
                        font-size: 8px; line-height: 1; color: #9fc3dd; }
@@ -395,6 +401,7 @@
       <span id="wind-badge-text">From NW 315°</span>
     </div>
     <div id="legend-card" aria-hidden="true">
+      <div id="legend-card-title">Wave height (ft)</div>
       <div id="legend-card-bar"></div>
       <div id="legend-card-ticks"><span>0</span><span>1</span><span>2</span><span>3.5</span><span>4.5</span><span>6+</span></div>
     </div>
