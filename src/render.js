@@ -978,8 +978,12 @@ async function mount(deps) {
         // 28px zone (labels row + curve row). Tall storms rise BEHIND the label;
         // the label's backing pill keeps the text readable when it does.
         // 2.5px floor keeps small chances visible.
+        // 0% sits at y=27, NOT 28 (= the svg viewport's bottom edge): with a 1.5px
+        // stroke, a centre at 28 gets its bottom half clipped by the svg viewport
+        // and the 0% segments render half-thickness (Reid spotted it). 27 = the
+        // stroke's full 26.25-27.75 span inside the box, matching every other row.
         const p = Number.isFinite(e.precipProb) ? e.precipProb / 100 : 0;
-        const y = p === 0 ? 28 : Math.min(28 - 2.5, 28 - p * 26);
+        const y = p === 0 ? 27 : Math.min(28 - 2.5, 28 - p * 26);
         pts.push(`${x},${y.toFixed(1)}`);
       }
       if (pts.length > 1) {
