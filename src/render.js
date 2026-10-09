@@ -1034,18 +1034,21 @@ async function mount(deps) {
           const riseLocal = chicagoMinutes(sun.sunriseMs);
           const riseX = (riseLocal / 1440) * w;
           // Day/night strip: orange between sunrise and sunset, dark blue outside.
-          // Painted before the glyphs so sun/moon sit on their endpoints.
+          // Painted before the glyphs so sun/moon sit on their endpoints. Stops are
+          // px in the bar's own frame (bar is inset 3px; bordered blocks are 1px
+          // narrower) so each colour change lands exactly under its glyph.
+          const setX = sun.sunsetMs != null ? (chicagoMinutes(sun.sunsetMs) / 1440) * w : w;
           const bar = document.createElement('div');
           bar.className = 'day-night-bar';
-          const rp = Math.max(0, Math.min(100, (riseLocal / 1440) * 100));
-          const sp = Math.max(0, Math.min(100, (chicagoMinutes(sun.sunsetMs) / 1440) * 100));
-          bar.style.background = `linear-gradient(90deg, #1e3a5f 0 ${rp}%, #f6a623 ${rp}% ${sp}%, #1e3a5f ${sp}% 100%)`;
+          bar.style.background = `linear-gradient(90deg, #1e3a5f 0px, #1e3a5f ${riseX - 3}px, #f6a623 ${riseX - 3}px, #f6a623 ${setX - 3}px, #1e3a5f ${setX - 3}px, #1e3a5f 100%)`;
           block.appendChild(bar);
           const tick = document.createElement('span');
           tick.className = 'day-sun day-sun-rise';
           tick.style.left = `${riseX}px`;
-          // feather 'sun': disc + 8 rays (stroke, not fill — stays crisp at 9px)
-          tick.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.6M12 19.4V22M4.9 4.9l1.9 1.9M17.2 17.2l1.9 1.9M2 12h2.6M19.4 12H22M4.9 19.1l1.9-1.9M17.2 6.8l1.9-1.9"/></svg>';
+          // feather 'sun': filled disc + 8 rays. The disc is FILLED (not a ring) so the
+          // day/night bar can't read through the hole — the glyph stamps over the
+          // colour transition. Same outer silhouette: r4.2 + 2.6 stroke = 5.5 units.
+          tick.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><path d="M12 2v2.6M12 19.4V22M4.9 4.9l1.9 1.9M17.2 17.2l1.9 1.9M2 12h2.6M19.4 12H22M4.9 19.1l1.9-1.9M17.2 6.8l1.9-1.9"/></svg>';
           tick.title = `Sunrise ${formatChicagoClock(sun.sunriseMs)}`;
           block.appendChild(tick);
         }
