@@ -1329,6 +1329,9 @@ async function mount(deps) {
     cardTierEl.className = `pill tier-${tier.key}`;
     cardTierEl.textContent = tier.label;
     card.dataset.tier = tier.key; // v1.2 rev7: tints the card's left spine
+    // v1.2 rev8: hop the card to whichever anchor keeps the tapped pin visible.
+    const pinPt = map.latLngToContainerPoint(pinned.latlng);
+    card.style.top = `${ui.cardTopFor(pinPt.y, card.offsetHeight, map.getSize().y)}px`;
     card.dataset.spot = spot.name || spot.kind;
   }
 

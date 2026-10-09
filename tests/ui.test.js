@@ -373,6 +373,14 @@ check('stampLine: day · time from a local-ISO frame', () => {
   assert.strictEqual(ui.stampLine('2026-09-11T07:00'), 'Fri 11 · 7 AM');
   assert.strictEqual(ui.stampLine('nonsense'), '');
 });
+check('cardTopFor: the card hops anchors to keep the pin visible', () => {
+  const H = 242, mapH = 736; // 390x844 phone: anchors resolve to top 122 / bottom 354
+  assert.strictEqual(ui.cardTopFor(500, H, mapH), 122); // pin deep in the bottom band -> hop
+  assert.strictEqual(ui.cardTopFor(430, H, mapH), 122); // pin low-mid -> hop
+  assert.strictEqual(ui.cardTopFor(300, H, mapH), 354); // pin in the upper band -> stay low
+  assert.strictEqual(ui.cardTopFor(150, H, mapH), 354); // pin near the top strip -> stay low
+  assert.strictEqual(ui.cardTopFor(60, H, mapH), 354);  // pin above everything -> stay low
+});
 check('conditionsLine: wind + gusts; calm / bad direction drops the "from" half', () => {
   assert.strictEqual(ui.conditionsLine(12.4, 225, 24.2), '12 mph from SW · Gusts 24 mph');
   assert.strictEqual(ui.conditionsLine(1.5, 10, 24), '2 mph · Gusts 24 mph');
