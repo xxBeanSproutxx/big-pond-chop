@@ -337,6 +337,22 @@ function conditionsLine(speedMph, dirTrueDeg, gustMph) {
   return [wind, gust].filter(Boolean).join(' · ');
 }
 
+// ---- v1.2 rev8: card placement ----
+// The card hops between a bottom anchor (above the deck) and a top anchor (below the
+// horizon/badge strip) so it never sits on the pin you just tapped. pinY / cardH / mapH
+// are #map-container pixels. The pin dot's span (±16px around pinY) decides: whichever
+// anchor's band overlaps it LESS wins; ties keep the bottom anchor (the historical spot).
+// ponytail: judged at tap time — panning the map can slide the pin back under the card
+// until the next update.
+const CARD_ANCHOR_TOP = 122, CARD_ANCHOR_BOTTOM = 140, PIN_BODY_PX = 16;
+function cardTopFor(pinY, cardH, mapH) {
+  const bT = Math.max(CARD_ANCHOR_TOP, mapH - CARD_ANCHOR_BOTTOM - cardH);
+  const bB = mapH - CARD_ANCHOR_BOTTOM;
+  const tT = CARD_ANCHOR_TOP, tB = CARD_ANCHOR_TOP + cardH;
+  const ov = (a, b) => Math.max(0, Math.min(pinY + PIN_BODY_PX, b) - Math.max(pinY - PIN_BODY_PX, a));
+  return ov(bT, bB) > ov(tT, tB) ? tT : bT;
+}
+
 // ---- Stage 5O: wind heat ribbon ----
 // Ascending tier scale: [maxMph (exclusive), r, g, b]. 10 -> <10 cyan, 15 -> 10-14 green,
 // 20 -> 15-19 amber, 25 -> 20-24 orange, Infinity -> 25+ crimson.
@@ -384,6 +400,6 @@ module.exports = {
   FEATURE_RADIUS_M, SHORE_RADIUS_M,
   CALM_MPH, CALM_TIER_MPH, CALM_HS_FT, HL_RED, normalizeDeg, windPills, compass,
   comfortTier, formatClockLocal, formatPillTime, formatPillTimeAt, dayLabel,
-  stampLine, conditionsLine,
+  stampLine, conditionsLine, cardTopFor,
   WIND_HEAT, windHeatColor, windHeatGradient,
 };
