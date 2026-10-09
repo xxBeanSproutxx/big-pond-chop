@@ -437,6 +437,7 @@ async function mount(deps) {
   const playBtn = document.getElementById('play');
   const card = document.getElementById('card');
   const copyBtn = document.getElementById('card-copy');
+  const cardTierEl = document.getElementById('card-tier');
   const mapEl = document.getElementById('map');
   const readout = document.getElementById('readout');
   // Panel chrome must not double as a map tap: without this, clicking the card's X (or the
@@ -1323,11 +1324,15 @@ async function mount(deps) {
     setCardField('depth', `${d.toFixed(1)} ft`);
     setCardField('hs', `${hs.toFixed(1)} ft`);
     setCardField('hmax', `${hm.toFixed(1)} ft`);
-    setCardField('hl', hl.toFixed(3));
     setCardField('wind', ui.conditionsLine(e.speedMph, e.dirTrueDeg, e.tempF));
     setCardChip('hs', ui.rgbForHs(hs));
     setCardChip('hmax', ui.rgbForHs(hm));
-    setCardChip('hl', hl >= ui.HL_RED ? '#dc2626' : '#cbd5e1');
+    // v1.2 rev3: the spot's own condition tag ("Walleye Chop"...). Same classifier as the
+    // header chip, fed THIS spot's values — so it varies bay to bay. H/L survives only as
+    // an input to the tier, not as a raw row (the acronym block read as noise on the phone).
+    const tier = ui.comfortTier({ maxHsFt: hs, rollerFt: hm, hlMax: hl, windMph: e.speedMph });
+    cardTierEl.className = `tier-${tier.key}`;
+    cardTierEl.textContent = tier.label;
     card.dataset.spot = spot.name || spot.kind;
   }
 
