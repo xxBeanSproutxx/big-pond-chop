@@ -49,16 +49,6 @@ function rgbForHs(hsFt) {
   return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
 }
 
-// v1.2 rev5: readable ink for a pill wearing a wave-ramp colour. Relative luminance above
-// ~0.217 gets the dark ink, the dark end of the ramp gets white. Zero/negative reads as
-// the calm floor (#0891b2), matching what the map paints.
-function inkForHs(hsFt) {
-  const c = hsFt > 0 ? colorForHs(hsFt) : [8, 145, 178, 255];
-  const lin = (v) => { const s = v / 255; return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); };
-  const L = 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
-  return L > 0.217 ? '#0d1b2a' : '#ffffff';
-}
-
 // Single source of truth for the legend ramp gradient: the six Hs stop colours, evenly
 // spaced. src/render.js applies it to #legend-card-bar at mount.
 const RAMP_PCT = ['0%', '16.7%', '33.3%', '50%', '66.7%', '100%'];
@@ -334,17 +324,17 @@ function stampLine(isoLocal) {
   return d && t ? `${d} · ${t}` : d || t || '';
 }
 
-// Card conditions: '12 mph from SW · Air 54°F'. Calm or unknown direction drops the
+// Card wind line: '12 mph from SW · Gusts 24 mph'. Calm or unknown direction drops the
 // 'from' half; non-finite pieces are omitted (never NaN/undefined in the card).
-function conditionsLine(speedMph, dirTrueDeg, tempF) {
-  const s = Number(speedMph), t = Number(tempF);
+function conditionsLine(speedMph, dirTrueDeg, gustMph) {
+  const s = Number(speedMph), g = Number(gustMph);
   let wind = '';
   if (Number.isFinite(s)) {
     const c = compass(dirTrueDeg, s);
     wind = c.fromDeg == null ? `${Math.round(s)} mph` : `${Math.round(s)} mph from ${c.sector}`;
   }
-  const air = Number.isFinite(t) ? `Air ${Math.round(t)}°F` : '';
-  return [wind, air].filter(Boolean).join(' · ');
+  const gust = Number.isFinite(g) ? `Gusts ${Math.round(g)} mph` : '';
+  return [wind, gust].filter(Boolean).join(' · ');
 }
 
 // ---- Stage 5O: wind heat ribbon ----
@@ -388,7 +378,7 @@ function windHeatGradient(speeds) {
 
 module.exports = {
   HS_STOPS, HS_BREAKS, OVERLAY_OPACITY, CALM_RGBA,
-  colorForHs, rgbForHs, inkForHs, rampGradient, percentile, p10,
+  colorForHs, rgbForHs, rampGradient, percentile, p10,
   SECTORS, haversineM, bearing8, centroidOfCorners, sectorFor,
   nameSpot, describePin, sectorPhrase, sectorName, shortPlace, formatHeadline,
   FEATURE_RADIUS_M, SHORE_RADIUS_M,
