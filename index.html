@@ -324,22 +324,32 @@
           font-size: 13px; align-items: center; gap: 10px; }
   #note-retry { background: #ffd7d7; color: #5a1f1f; border: 0; border-radius: 5px;
                 padding: 6px 10px; font-size: 12px; font-weight: 700; touch-action: manipulation; }
+  /* v1.2 rev7: the card wears its condition on the edge — a tier-coloured spine matching
+     the Conditions tag (same palette as .tier-*). Quiet labels, roomier shape. */
   #card { position: absolute; left: 10px; bottom: 140px; z-index: 550; min-width: 230px;
           background: #ffffff; color: #0d1b2a; border: 1px solid #cbd5e1;
-          border-radius: 8px; padding: 8px 46px 8px 10px; font-size: 12px;
-          box-shadow: 0 2px 8px rgba(0,0,0,.3); font-variant-numeric: tabular-nums; }
-  #card .card-line { margin: 1px 0; }
-  #card .card-line b { display: inline-block; min-width: 8.6em; }
+          border-left: 4px solid #cbd5e1; border-radius: 12px; padding: 10px 46px 10px 12px;
+          font-size: 12px;
+          box-shadow: 0 8px 24px rgba(2,18,33,.30), 0 2px 6px rgba(2,18,33,.18);
+          font-variant-numeric: tabular-nums; }
+  #card[data-tier="green"] { border-left-color: #15803d; }
+  #card[data-tier="yellow"] { border-left-color: #facc15; }
+  #card[data-tier="amber"] { border-left-color: #ea580c; }
+  #card[data-tier="red"] { border-left-color: #dc2626; }
+  #card .card-line { margin: 2px 0; }
+  #card .card-line b { display: inline-block; min-width: 9em; }
+  #card .card-line b, #card-copy b { color: #64748b; font-size: 11px; font-weight: 600;
+                                     letter-spacing: .01em; }
   #card [data-field="when"] .v { font-weight: 700; }
   #card .pill { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 3px;
                 padding: 2px 6px; vertical-align: middle; white-space: nowrap; line-height: 1.25; }
-  #card .card-sep { border-top: 1px solid #e2e8f0; margin-top: 4px; padding-top: 3px; }
+  #card .card-sep { border-top: 1px solid #e2e8f0; margin-top: 6px; padding-top: 4px; }
   #card-copy { display: flex; justify-content: space-between; align-items: center; gap: 8px;
                width: 100%; min-height: 44px; margin-top: 3px; padding: 0;
                border: 0; border-top: 1px solid #e2e8f0; background: none; font: inherit;
                color: inherit; text-align: left; cursor: pointer; touch-action: manipulation; }
   #card-copy:active { background: #eef4fa; }
-  #card-copy b { display: inline-block; min-width: 8.6em; }
+  #card-copy b { display: inline-block; min-width: 9em; }
 
   #card-copy .icon { width: 18px; height: 18px; display: block; }
   #card-copy .icon-copy { fill: none; stroke: #2563eb; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
