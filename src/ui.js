@@ -337,20 +337,21 @@ function conditionsLine(speedMph, dirTrueDeg, gustMph) {
   return [wind, gust].filter(Boolean).join(' · ');
 }
 
-// ---- v1.2 rev8: card placement ----
-// The card hops between a bottom anchor (above the deck) and a top anchor (below the
-// horizon/badge strip) so it never sits on the pin you just tapped. pinY / cardH / mapH
-// are #map-container pixels. The pin dot's span (±16px around pinY) decides: whichever
-// anchor's band overlaps it LESS wins; ties keep the bottom anchor (the historical spot).
+// ---- v1.2 rev9: card placement ----
+// The card parks NEXT TO the tapped pin — hugging just above it (or just below when
+// there's no room above), clamped to [CARD_ANCHOR_TOP, mapH-50-cardH] so it never
+// touches the horizon strip above or the legend below. Those clamps + the 22px dot
+// margin are what keep the dot fully visible on EVERY map point, center-lake included.
+// pinY / cardH / mapH are #map-container pixels.
 // ponytail: judged at tap time — panning the map can slide the pin back under the card
 // until the next update.
-const CARD_ANCHOR_TOP = 122, CARD_ANCHOR_BOTTOM = 140, PIN_BODY_PX = 16;
+const CARD_ANCHOR_TOP = 122, PIN_BODY_PX = 16, PIN_GAP_PX = 6;
 function cardTopFor(pinY, cardH, mapH) {
-  const bT = Math.max(CARD_ANCHOR_TOP, mapH - CARD_ANCHOR_BOTTOM - cardH);
-  const bB = mapH - CARD_ANCHOR_BOTTOM;
-  const tT = CARD_ANCHOR_TOP, tB = CARD_ANCHOR_TOP + cardH;
-  const ov = (a, b) => Math.max(0, Math.min(pinY + PIN_BODY_PX, b) - Math.max(pinY - PIN_BODY_PX, a));
-  return ov(bT, bB) > ov(tT, tB) ? tT : bT;
+  const m = PIN_BODY_PX + PIN_GAP_PX;
+  const maxT = Math.max(CARD_ANCHOR_TOP, mapH - 50 - cardH); // legend + air
+  const aboveAt = CARD_ANCHOR_TOP + cardH + m;
+  const t = pinY >= aboveAt ? pinY - m - cardH : pinY + m;
+  return Math.max(CARD_ANCHOR_TOP, Math.min(t, maxT));
 }
 
 // ---- Stage 5O: wind heat ribbon ----
