@@ -436,6 +436,7 @@ async function mount(deps) {
   const badgeArrow = document.getElementById('wind-badge-arrow');
   const playBtn = document.getElementById('play');
   const card = document.getElementById('card');
+  const copyBtn = document.getElementById('card-copy');
   const mapEl = document.getElementById('map');
   const readout = document.getElementById('readout');
   // Panel chrome must not double as a map tap: without this, clicking the card's X (or the
@@ -1296,6 +1297,11 @@ async function mount(deps) {
     if (el) el.textContent = value;
   }
 
+  function setCardChip(name, background) {
+    const el = card.querySelector(`[data-field="${name}"] .chip`);
+    if (el) el.style.background = background;
+  }
+
   function updatePinned() {
     if (!pinned || !frames.length) return;
     const built = frameFor(cur);
@@ -1305,14 +1311,23 @@ async function mount(deps) {
     const hs = Math.min(hsKs, 0.6 * d);
     const hm = hmaxFt(hsKs, d);
     const L_m = waveMath.dispersionFast(ts, d * waveMath.FT).L_m;
+    const hl = hsKs * waveMath.FT / L_m;
+    const e = frames[cur];
     const spot = ui.nameSpot(pinned.latlng.lat, pinned.latlng.lng, features,
       sectorInfo(pinned.latlng.lat, pinned.latlng.lng));
+    setCardField('when', ui.stampLine(e.time));
     setCardField('spot', ui.describePin(spot));
-    setCardField('coords', `${pinned.latlng.lat.toFixed(4)}, ${pinned.latlng.lng.toFixed(4)}`);
+    const coordsText = `${pinned.latlng.lat.toFixed(4)}, ${pinned.latlng.lng.toFixed(4)}`;
+    setCardField('coords', coordsText);
+    copyBtn.dataset.copy = coordsText; // copy sends EXACTLY the displayed string
     setCardField('depth', `${d.toFixed(1)} ft`);
     setCardField('hs', `${hs.toFixed(1)} ft`);
     setCardField('hmax', `${hm.toFixed(1)} ft`);
-    setCardField('hl', (hsKs * waveMath.FT / L_m).toFixed(3));
+    setCardField('hl', hl.toFixed(3));
+    setCardField('wind', ui.conditionsLine(e.speedMph, e.dirTrueDeg, e.tempF));
+    setCardChip('hs', ui.rgbForHs(hs));
+    setCardChip('hmax', ui.rgbForHs(hm));
+    setCardChip('hl', hl >= ui.HL_RED ? '#dc2626' : '#cbd5e1');
     card.dataset.spot = spot.name || spot.kind;
   }
 
@@ -1498,6 +1513,42 @@ async function mount(deps) {
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
   playBtn.addEventListener('click', () => setPlaying(!playing));
   document.getElementById('card-close').addEventListener('click', dismissPin);
+  // v1.2: copy the pin's coordinates. HTTPS (production) takes the async clipboard API;
+  // the http LAN preview is not a secure context, so it falls back to execCommand.
+  // 'Copied' appears only when the copy genuinely succeeded.
+  let copyResetTimer = null;
+  function setCopyTag(state) {
+    const tag = copyBtn.querySelector('.copy-tag');
+    copyBtn.classList.toggle('done', state === 'done');
+    copyBtn.classList.toggle('fail', state === 'fail');
+    tag.textContent = state === 'done' ? 'Copied' : state === 'fail' ? 'Copy failed' : 'Copy';
+    if (copyResetTimer) clearTimeout(copyResetTimer);
+    if (state !== 'copy') copyResetTimer = setTimeout(() => setCopyTag('copy'), 1400);
+  }
+  copyBtn.addEventListener('click', async () => {
+    const text = copyBtn.dataset.copy || '';
+    if (!text) return;
+    let ok = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      }
+    } catch (err) { ok = false; }
+    if (!ok) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      document.body.appendChild(ta);
+      ta.select();
+      try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+      ta.remove();
+    }
+    if (ok && navigator.vibrate) navigator.vibrate(10);
+    setCopyTag(ok ? 'done' : 'fail');
+  });
   // 6.2: the ? explainer and its popover were removed with the shore pill — the two
   // badges are self-labelling, so there is no popover to open, close, focus or trap.
   // A width change moves the rail mapping: re-place the hairline/playhead + day label.

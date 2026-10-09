@@ -367,5 +367,24 @@ check('windHeatGradient: single sample is a flat gradient; empty never throws', 
   assert.ok(!/NaN/.test(none), none);
 });
 
+console.log('\n== [14] v1.2 card lines ==');
+check('stampLine: day · time from a local-ISO frame', () => {
+  assert.strictEqual(ui.stampLine('2026-10-09T19:15'), 'Fri 9 · 7:15 PM');
+  assert.strictEqual(ui.stampLine('2026-09-11T07:00'), 'Fri 11 · 7 AM');
+  assert.strictEqual(ui.stampLine('nonsense'), '');
+});
+check('conditionsLine: wind + air temp; calm / bad direction drops the "from" half', () => {
+  assert.strictEqual(ui.conditionsLine(12.4, 225, 54.2), '12 mph from SW · Air 54°F');
+  assert.strictEqual(ui.conditionsLine(1.5, 10, 54), '2 mph · Air 54°F');
+  assert.strictEqual(ui.conditionsLine(8, NaN, NaN), '8 mph');
+  assert.strictEqual(ui.conditionsLine(NaN, 10, 12), 'Air 12°F');
+  assert.strictEqual(ui.conditionsLine(NaN, NaN, NaN), '');
+});
+check('HL_RED is the one steepness boundary (comfortTier agrees)', () => {
+  assert.strictEqual(ui.HL_RED, 0.055);
+  assert.strictEqual(ui.comfortTier({ maxHsFt: 0.2, rollerFt: 0.2, hlMax: ui.HL_RED }).key, 'red');
+  assert.strictEqual(ui.comfortTier({ maxHsFt: 0.2, rollerFt: 0.2, hlMax: 0.0549 }).key, 'green');
+});
+
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);
