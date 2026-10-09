@@ -116,9 +116,12 @@ function nameSpot(lat, lon, features, sector) {
     if (m < bestM) { bestM = m; best = f; }
   }
   if (best && bestM <= FEATURE_RADIUS_M) {
+    // describePin reads "<pin> is X mi <dir> OF <feature>" — the direction is where the
+    // PIN lies relative to the feature (bearing feature -> pin). Reversed until v1.2:
+    // a pin 1.5 mi NORTH of a bay printed "S of".
     return {
       kind: 'feature', name: best.name, distanceMi: bestM / MI_M,
-      bearing: bearing8(lat, lon, best.lat, best.lon), sector,
+      bearing: bearing8(best.lat, best.lon, lat, lon), sector,
     };
   }
   return { kind: 'open', sector };

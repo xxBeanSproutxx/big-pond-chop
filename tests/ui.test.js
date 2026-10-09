@@ -86,6 +86,16 @@ check('a point near Spirit Island names the feature', () => {
   assert.ok(/^\d+\.\d mi [NSEW]{1,2} of Spirit Island$/.test(line), `got "${line}"`);
   console.log(`       ${line}`);
 });
+check('direction is TRUE geography: a pin north of the feature reads N of', () => {
+  const si = features.find((f) => f.name === 'Spirit Island');
+  const north = ui.nameSpot(si.lat + 0.01, si.lon, features, { name: 'S', shore: false });
+  assert.ok(ui.describePin(north).includes(' N of Spirit Island'),
+    `north pin should read N: "${ui.describePin(north)}"`);
+  const south = ui.nameSpot(si.lat - 0.01, si.lon, features, { name: 'S', shore: false });
+  assert.ok(ui.describePin(south).includes(' S of Spirit Island'),
+    `south pin should read S: "${ui.describePin(south)}"`);
+  console.log(`       ${ui.describePin(north)} / ${ui.describePin(south)}`);
+});
 check('a mid-basin point falls back to Open water - <sector> Basin', () => {
   const spot = ui.nameSpot(centroid.lat, centroid.lon, features, { name: 'SW', shore: false });
   assert.strictEqual(spot.kind, 'open');
