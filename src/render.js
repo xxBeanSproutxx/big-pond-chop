@@ -1040,7 +1040,11 @@ async function mount(deps) {
           const setX = sun.sunsetMs != null ? (chicagoMinutes(sun.sunsetMs) / 1440) * w : w;
           const bar = document.createElement('div');
           bar.className = 'day-night-bar';
-          bar.style.background = `linear-gradient(90deg, #1e3a5f 0px, #1e3a5f ${riseX - 3}px, #f6a623 ${riseX - 3}px, #f6a623 ${setX - 3}px, #1e3a5f ${setX - 3}px, #1e3a5f 100%)`;
+          // Sunset stop sits 2.25px early: the crescent's open bite faces up-right, so
+          // the colour change must hide under its thick lobe — at the glyph centre the
+          // bar's top edge peeked through the bite. 2.25px ≈ 6-10 min of tape.
+          const setStop = setX - 3 - 2.25;
+          bar.style.background = `linear-gradient(90deg, #1e3a5f 0px, #1e3a5f ${riseX - 3}px, #f6a623 ${riseX - 3}px, #f6a623 ${setStop}px, #1e3a5f ${setStop}px, #1e3a5f 100%)`;
           block.appendChild(bar);
           const tick = document.createElement('span');
           tick.className = 'day-sun day-sun-rise';
