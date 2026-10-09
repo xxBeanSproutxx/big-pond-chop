@@ -965,15 +965,25 @@ async function mount(deps) {
       svgWrap.className = 'day-rain-svg';
       const ns = 'http://www.w3.org/2000/svg';
       const svg = document.createElementNS(ns, 'svg');
-      svg.setAttribute('width', String(Math.round(w)));
+      // Draw INSIDE the wrapper's frame: .day-rain-svg is inset 3px (left+right), the
+      // same frame as the wind ribbon and the day/night bar. The svg previously sized
+      // itself w-wide from +3 — 6px wider than its own wrapper — so every day's rain
+      // curve overshot the ribbon/bar's right end by ~3px (start flush, end long;
+      // Reid). rw = the wrapper frame width, matching the deck's documented rule:
+      // padding box is w on the first block, w-1 when the 1px border-left applies
+      // (`.day-block + .day-block`), minus the 3px insets. x mapping spans it end to
+      // end (first/last points land exactly on the frame edges, so both ends are flush).
+      const rw = Math.max(1, Math.round(w - 6 - (k > 0 ? 1 : 0)));
+      svg.setAttribute('width', String(rw));
       svg.setAttribute('height', '28');
-      svg.setAttribute('viewBox', `0 0 ${Math.round(w)} 28`);
+      svg.setAttribute('viewBox', `0 0 ${rw} 28`);
       svg.setAttribute('aria-hidden', 'true');
+      const nFrames = end - start;
       const pts = [];
       for (let i = start; i < end; i++) {
         const e = frames[i];
         if (!e) continue;
-        const x = (i - start) * pxf;
+        const x = nFrames > 1 ? (i - start) * (rw / (nFrames - 1)) : 0;
         // Rain lane = CHANCE OF PRECIPITATION, true 0-100 scale across the full
         // 28px zone (labels row + curve row). Tall storms rise BEHIND the label;
         // the label's backing pill keeps the text readable when it does.
@@ -988,7 +998,7 @@ async function mount(deps) {
       }
       if (pts.length > 1) {
         const fill = document.createElementNS(ns, 'polygon');
-        fill.setAttribute('points', `0,28 ${pts.join(' ')} ${Math.round(w)},28`);
+        fill.setAttribute('points', `0,28 ${pts.join(' ')} ${rw},28`);
         fill.setAttribute('fill', 'rgba(100,180,220,.2)');
         svg.appendChild(fill);
         const line = document.createElementNS(ns, 'polyline');
