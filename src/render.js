@@ -1062,7 +1062,9 @@ async function mount(deps) {
           const tick = document.createElement('span');
           tick.className = 'day-sun day-sun-set';
           tick.style.left = `${setX}px`;
-          // crescent moon (feather-style path)
+          // crescent moon (feather-style path) — geometric centring only: the path's
+          // bbox centre (11.97) sits on the viewBox centre (12), and the declared
+          // circle implied by the outer arc is centred too. No optical offsets.
           tick.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
           tick.title = `Sunset ${formatChicagoClock(sun.sunsetMs)}`;
           block.appendChild(tick);
