@@ -1328,6 +1328,7 @@ async function mount(deps) {
     const tier = ui.comfortTier({ maxHsFt: hs, rollerFt: hm, hlMax: hl, windMph: e.speedMph });
     cardTierEl.className = `pill tier-${tier.key}`;
     cardTierEl.textContent = tier.label;
+    card.dataset.tier = tier.key; // v1.2 rev7: tints the card's left spine
     card.dataset.spot = spot.name || spot.kind;
   }
 
