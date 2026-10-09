@@ -274,12 +274,12 @@
      so no `bottom` value alone lands on the centre — position picks the closest slot
      (2.25px = safely inside the better one) and the sub-pixel transform below
      finishes the job (transforms are not snapped). -0.25px = min-max across
-     device pixel ratios 2 → 3; the extra -0.15px is Reid's hand-tuned "a hair up"
-     (flip the -0.40px back to -0.25px to revert the nudge).
+     device pixel ratios 2 → 3; extra -0.30px = hand-tuned "hairs up" (Reid, two
+     of them) — set this transform's number back to -0.25px to revert the nudges.
      Colours fully opaque so the bar never reads through.
      pointer-events ON for the tap tooltip. */
   .day-sun { position: absolute; bottom: 2.25px; width: 11px; height: 11px;
-             transform: translateX(-50%) translateY(-0.4px); }
+             transform: translateX(-50%) translateY(-0.55px); }
   .day-sun svg { display: block; width: 100%; height: 100%; }
   .day-sun-rise { color: #f6a623; }
   .day-sun-set { color: #e2d2aa; }
