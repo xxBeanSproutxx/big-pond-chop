@@ -233,7 +233,7 @@
    /* v1.1 lane bands (108px deck, disjoint by construction — see tools/qa/lane_audit.py):
       [3,15] day-head · [17,29] temps · [32,41] rain % labels (own row, above the curve)
       · [41,59] rain curve (18px) · [61,81] wind ribbon + numbers · [83,94] clock hours
-      (the yellow now-hairline floats UNDER the lane glyphs, over backgrounds) · [95,104] sun/moon glyphs.
+      (the yellow now-hairline floats UNDER the lane glyphs, over backgrounds) · [94.3,105.3] sun/moon glyphs (11px).
       Never place a lane without re-allocating all bands. */
   .day-wind { position: absolute; top: 61px; transform: translateX(-50%);
               font: 700 12px/1 system-ui, -apple-system, sans-serif; color: #ffffff;
@@ -268,13 +268,13 @@
      without new chrome. No effect on the 7 d horizon. */
   .day-block.outlook .day-head { color: #8a97a8; }
   .day-block.outlook .day-rain-label { opacity: .45; }
-  /* Sunrise/sunset markers: 9px feather-style glyphs (sun = filled disc + rays,
-     sunset = crescent). bottom 3.5px centres the 9px box on the 4px day/night bar
-     (bar spans bottom 6-10px => centre 8px from the deck edge = box centre); colours
-     are fully opaque so the bar never reads through the glyph — the icon stamps over
-     the colour transition. Color IS the am/pm cue: warm amber rises, soft parchment
-     sets. pointer-events ON for the tap tooltip. */
-  .day-sun { position: absolute; bottom: 3.5px; width: 9px; height: 9px;
+  /* Sunrise/sunset markers: 11px feather-style glyphs (sun = filled disc + rays,
+     sunset = crescent). The 11px box (bottom 2.75px) puts the glyph centre 8.25px
+     above the deck edge — midway between the two nudge states Reid judged (4px "too
+     high", 3.5px "too low") — and the disc clearly overhangs the 4px bar, so
+     "centred on the line" reads at a glance. Colours fully opaque so the bar never
+     reads through. pointer-events ON for the tap tooltip. */
+  .day-sun { position: absolute; bottom: 2.75px; width: 11px; height: 11px;
              transform: translateX(-50%); }
   .day-sun svg { display: block; width: 100%; height: 100%; }
   .day-sun-rise { color: #f6a623; }
