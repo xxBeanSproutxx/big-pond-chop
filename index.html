@@ -66,8 +66,10 @@ header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip:
 .bar:nth-child(7){height:19px}.bar:nth-child(8){height:22px}
 .bar.on { background: var(--tier-c); }
 
-/* Side column: comfort chip above wind pills + now button, right-aligned. */
-.side { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; margin-left: auto; }
+/* Side column: row 1 = chip + refresh circle, row 2 = wind pills; both right-aligned,
+   centered vertically in the band (Reid tidy pass: the 48px boxy button dominated). */
+.side { display: flex; flex-direction: column; align-items: flex-end; justify-content: center;
+        gap: 7px; margin-left: auto; }
 .row { display: flex; gap: 6px; align-items: center; }
 
 /* Tier classes on header: drive --tier-c for the gauge bars only. The number stays
@@ -106,13 +108,16 @@ header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip:
 #dot { flex: 0 0 auto; font-size: 11px; color: #94a3b8; line-height: 1; }
 
 /* 6B.3: marine-glass refresh button. */
+/* Refresh: quiet 30px circle matching the chip row's scale — was a 48px box that
+   dominated the wind row (Reid tidy pass). Icon sized in CSS; svg attrs are fallback. */
 #refresh { background: rgba(255,255,255,.05); color: #cbd5e1;
-            border: 1px solid rgba(255,255,255,.15); border-radius: 10px;
-            width: 48px; min-width: 48px; min-height: 48px; padding: 0; display: inline-flex;
-            align-items: center; justify-content: center;
+            border: 1px solid rgba(255,255,255,.15); border-radius: 999px;
+            width: 30px; min-width: 30px; height: 30px; min-height: 30px; padding: 0;
+            display: inline-flex; align-items: center; justify-content: center;
             touch-action: manipulation; transition: transform 120ms; }
   #refresh:active { transform: scale(.96); }
-  #refresh .icon { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round;
+  #refresh .icon { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.4;
+                   stroke-linecap: round;
                    stroke-linejoin: round; display: block; }
   #map { flex: 1 1 auto; min-height: 0; height: auto; overflow: hidden; background: #14283b; position: relative; }
   /* On-map wind badge, docked top-right (the horizon toggle now owns the top-left corner
@@ -384,19 +389,21 @@ header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip:
       <div class="sub" id="hero-sub">—</div>
     </div>
     <div class="side">
-      <div class="row"><span id="comfort-chip" class="tier-green">Fishable · Light Chop</span></div>
       <div class="row">
-        <div id="three" role="group" aria-label="Wind">
-          <span id="pill-lake" class="pill" aria-label="Lake wind"><span id="lake">17</span><span id="mph" class="unit">mph</span></span>
-          <span id="dot" aria-hidden="true">·</span>
-          <span id="pill-gust" class="pill" aria-label="Gust 24 mph"><span id="gust">24</span><span id="gust-u">Gust</span></span>
-        </div>
+        <span id="comfort-chip" class="tier-green">Fishable · Light Chop</span>
         <button id="refresh" type="button" aria-label="Back to now — recenters map, refreshes data" title="Back to now — recenters map, refreshes data">
           <svg class="icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
             <path d="M20 11a8 8 0 1 0-2.3 5.7"></path>
             <polyline points="20,5 20,11 14,11"></polyline>
           </svg>
         </button>
+      </div>
+      <div class="row">
+        <div id="three" role="group" aria-label="Wind">
+          <span id="pill-lake" class="pill" aria-label="Lake wind"><span id="lake">17</span><span id="mph" class="unit">mph</span></span>
+          <span id="dot" aria-hidden="true">·</span>
+          <span id="pill-gust" class="pill" aria-label="Gust 24 mph"><span id="gust">24</span><span id="gust-u">Gust</span></span>
+        </div>
       </div>
     </div>
   </header>
