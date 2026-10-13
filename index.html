@@ -92,9 +92,10 @@ header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip:
 
 /* 6.2: explicit wind line — words, not pills (Reid: "say wind… mph so it's obvious").
    The lake pill's tier tint is retired with the pills: color stays chip + bars only. */
-#three { flex: 0 0 auto; display: flex; align-items: baseline; font-size: 12px;
+#three { flex: 0 0 auto; font-size: 12px;
          font-weight: 600; color: #94a3b8; line-height: 1.2; white-space: nowrap;
          font-variant-numeric: tabular-nums; }
+/* plain inline flow — flex drops whitespace-only nodes and crushes "Wind 17" together */
 #lake, #gust { font-size: 13px; font-weight: 700; color: #e2e8f0;
                font-variant-numeric: tabular-nums; line-height: 1.2; }
 .wunit { color: #94a3b8; }
