@@ -1641,7 +1641,9 @@ async function mount(deps) {
       const data = await wind.ingest({ point, gamma, horizon });
       if (horizon !== '24h') wideCache[horizon] = data;
       applyWindData(data);
-      fitLake();
+      // fitLake is scoped inside setupMap(); scheduleRefit is its cross-scope bridge
+      // (same debounced, mid-pan-safe refit the resize/orientation handlers use).
+      scheduleRefit();
     } catch (err) {
       console.error(err);
       hideBoot();
