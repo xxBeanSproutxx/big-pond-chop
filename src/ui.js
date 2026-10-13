@@ -80,6 +80,14 @@ function mean(values) {
   return count > 0 ? sum / count : 0;
 }
 
+// Bars for the wave-scale gauge: ceil(avgFt / 6 * 8), clamped [0, 8].
+// 0 or NaN → 0 bars (no wave energy = no bars).
+function barsForAvg(avgFt) {
+  const v = Number(avgFt);
+  if (!Number.isFinite(v) || v <= 0) return 0;
+  return Math.min(8, Math.ceil(v / 6 * 8));
+}
+
 // ---- geography ----
 const SECTORS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const MI_M = 1609.344;
@@ -408,7 +416,7 @@ function windHeatGradient(speeds) {
 
 module.exports = {
   HS_STOPS, HS_BREAKS, OVERLAY_OPACITY, CALM_RGBA,
-  colorForHs, rgbForHs, rampGradient, percentile, p10, mean,
+  colorForHs, rgbForHs, rampGradient, percentile, p10, mean, barsForAvg,
   SECTORS, haversineM, bearing8, centroidOfCorners, sectorFor,
   nameSpot, describePin, sectorPhrase, sectorName, shortPlace, formatHeadline,
   FEATURE_RADIUS_M, SHORE_RADIUS_M,

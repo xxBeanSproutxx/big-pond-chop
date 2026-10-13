@@ -428,8 +428,10 @@ async function mount(deps) {
   const gustEl = document.getElementById('gust');
   const pillLakeEl = document.getElementById('pill-lake');
   const pillGustEl = document.getElementById('pill-gust');
-  const verdictRange = document.getElementById('verdict-range');
-  const verdictPeak = document.getElementById('verdict-peak');
+  const heroNum = document.getElementById('hero-num');
+  const heroSub = document.getElementById('hero-sub');
+  const gaugeBars = document.getElementById('gauge-bars');
+  const headerEl = document.querySelector('header');
   const comfortChip = document.getElementById('comfort-chip');
   const windBadge = document.getElementById('wind-badge');
   const badgeText = document.getElementById('wind-badge-text');
@@ -1410,13 +1412,23 @@ async function mount(deps) {
       windMph: e.speedMph });
     comfortChip.className = `tier-${tier.key}`;
     comfortChip.textContent = tier.label;
-    const headline = ui.formatHeadline({
-      p10Ft: s.p10Ft, maxHsFt: s.maxHs, rollerFt: s.rollerFt, avgHsFt: s.avgHsFt,
-      peakLat: s.peakLat, peakLon: s.peakLon,
-      features, sector: sectorInfo(s.peakLat, s.peakLon),
-    });
-    verdictRange.innerHTML = headline.range;
-    verdictPeak.innerHTML = headline.peak;
+    // Hero number + sub + gauge (v1.3 sketch 009)
+    headerEl.className = 't-' + tier.key;
+    const avg = Number.isFinite(s.avgHsFt) && s.avgHsFt > 0 ? s.avgHsFt : null;
+    if (avg != null) {
+      heroNum.innerHTML = avg.toFixed(1) + '<small>ft</small>';
+      heroNum.setAttribute('aria-label', `Average waves ${avg.toFixed(1)} feet`);
+    } else {
+      heroNum.innerHTML = '—<small>ft</small>';
+      heroNum.setAttribute('aria-label', 'Average waves — feet');
+    }
+    const sector = sectorInfo(s.peakLat, s.peakLon);
+    const spot = ui.nameSpot(s.peakLat, s.peakLon, features, sector);
+    const place = ui.shortPlace(spot, sector);
+    const peak = Number.isFinite(s.rollerFt) ? s.rollerFt.toFixed(1) : '—';
+    heroSub.innerHTML = `Peak <b>${peak} ft</b> · ${place}`;
+    const filled = ui.barsForAvg(s.avgHsFt);
+    gaugeBars.querySelectorAll('.bar').forEach((b, k) => b.classList.toggle('on', k < filled));
     if (pinned) updatePinned();
     if (playing && frames.length > 1) prefetch(nextPlayIdx(cur, playStep(horizon), frames.length));
   }
