@@ -90,22 +90,15 @@ header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip:
   #comfort-chip { font-size: 10px; padding: 2px 5px; }
 }
 
-/* 6.2: two-badge marine wind row — lake + gust. */
-#three { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; }
-#three .pill { display: inline-flex; align-items: baseline; gap: 3px; flex: 0 0 auto;
-               border-radius: 999px; padding: 2px 6px; line-height: 1.4; }
-#pill-gust { background: rgba(148,163,184,.18);
-             border: 1px solid rgba(148,163,184,.35); }
-#pill-lake { background: var(--tint, rgba(148,163,184,.18));
-             border: 1px solid var(--tint-bd, rgba(148,163,184,.35)); }
-#lake, #gust { font-size: 13px; font-weight: 700; color: #f8fafc;
+/* 6.2: explicit wind line — words, not pills (Reid: "say wind… mph so it's obvious").
+   The lake pill's tier tint is retired with the pills: color stays chip + bars only. */
+#three { flex: 0 0 auto; display: flex; align-items: baseline; font-size: 12px;
+         font-weight: 600; color: #94a3b8; line-height: 1.2; white-space: nowrap;
+         font-variant-numeric: tabular-nums; }
+#lake, #gust { font-size: 13px; font-weight: 700; color: #e2e8f0;
                font-variant-numeric: tabular-nums; line-height: 1.2; }
-#gust-u { font-size: 10px; font-weight: 500; color: #cbd5e1;
-          font-variant-numeric: tabular-nums; line-height: 1.2; }
-.unit { font-size: 10px; font-weight: 500; color: #cbd5e1;
-        font-variant-numeric: tabular-nums; line-height: 1.2; }
-#pill-lake .unit { color: #cbd5e1; }
-#dot { flex: 0 0 auto; font-size: 11px; color: #94a3b8; line-height: 1; }
+.wunit { color: #94a3b8; }
+.wdot { margin: 0 5px; color: #64748b; }
 
 /* 6B.3: marine-glass refresh button. */
 /* Refresh: quiet 30px circle matching the chip row's scale — was a 48px box that
@@ -400,9 +393,7 @@ header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip:
       </div>
       <div class="row">
         <div id="three" role="group" aria-label="Wind">
-          <span id="pill-lake" class="pill" aria-label="Lake wind"><span id="lake">17</span><span id="mph" class="unit">mph</span></span>
-          <span id="dot" aria-hidden="true">·</span>
-          <span id="pill-gust" class="pill" aria-label="Gust 24 mph"><span id="gust">24</span><span id="gust-u">Gust</span></span>
+          Wind <b id="lake">17</b><span class="wunit"> mph</span><span class="wdot" aria-hidden="true">·</span>Gust <b id="gust">24</b><span class="wunit" id="gust-u"> mph</span>
         </div>
       </div>
     </div>
