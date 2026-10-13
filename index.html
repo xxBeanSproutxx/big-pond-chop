@@ -18,7 +18,7 @@
 <link rel="apple-touch-icon" href="public/icon-192.png">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-  :root { color-scheme: dark; --header-h: calc(80px + env(safe-area-inset-top, 0px)); }
+  :root { color-scheme: dark; --header-h: calc(84px + env(safe-area-inset-top, 0px)); }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body { display: flex; flex-direction: column; background: #0d1b2a; color: #e8f0f7;
@@ -27,18 +27,18 @@
    Stage 6B: the header floats over the map (fixed, z-index 1001 > Leaflet's
    1000) as a frosted glass band. #map extends under it; fitLake() reserves the
    live header height + 12 px so the lake edge stays clear of the band.
-   6B.2: the band is 80 px of CONTENT (it grows into the notch inset
+   6B.2: the band is 84 px of CONTENT (it grows into the notch inset
    instead of clipping) and the top padding keeps row 1 off the bezel. */
 header { position: fixed; top: 0; left: 0; right: 0; z-index: 1001;
-         padding: max(6px, env(safe-area-inset-top, 0px)) 14px 11px;
+         padding: max(10px, env(safe-area-inset-top, 0px)) 14px 11px;
          display: flex; align-items: center; gap: 13px;
          height: var(--header-h); min-height: var(--header-h);
          max-height: var(--header-h);
-         overflow: hidden; background: rgba(15,23,42,.72);
-         -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3);
+         overflow: hidden; background: #0f172a;
          border-bottom: 1px solid rgba(255,255,255,.08); color: #f8fafc;
          font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; }
-@supports not (backdrop-filter: blur(1px)) { header { background: #0f172a; } }
+/* v1.3 rework: header matches the deck's solid #0f172a (Reid: cohesion) — the old
+   frosted rgba(15,23,42,.72)+blur read lighter than the footer over the pale map. */
 /* 6B.2: the map now starts at y=0 (the header is fixed), so Leaflet's own top
    controls would sit UNDER the band. Offset the whole top strip below the header + 10 px. */
 .leaflet-top { top: calc(var(--header-h) + 10px); }
