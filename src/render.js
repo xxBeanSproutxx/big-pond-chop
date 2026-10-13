@@ -426,8 +426,6 @@ async function mount(deps) {
   const h15Btn = document.getElementById('h-15d');
   const lakeEl = document.getElementById('lake');
   const gustEl = document.getElementById('gust');
-  const pillLakeEl = document.getElementById('pill-lake');
-  const pillGustEl = document.getElementById('pill-gust');
   const heroNum = document.getElementById('hero-num');
   const heroSub = document.getElementById('hero-sub');
   const gaugeBars = document.getElementById('gauge-bars');
@@ -1386,15 +1384,11 @@ async function mount(deps) {
     // only the map paints. Otherwise the snapped frame owns the pill + tape.
     if (scrubbing && scrubMinutes != null) updateScrubUiMinutes(scrubMinutes);
     else updateScrubUi(cur);
-    // 6.2: two-badge row — lake (tier-tinted) + gust, each carrying its own unit. The
-    // shore series is still ingested and kept on hand, it is simply not displayed.
+    // 6.2: explicit wind line — "Wind <n> mph · Gust <n> mph". Words not pills (Reid);
+    // the lake pill's tier tint retired with the pills: color stays chip + bars only.
     const pills = ui.windPills(e.speedMph, null, e.gustMph);
     lakeEl.textContent = pills.lake;
     gustEl.textContent = pills.gust;
-    pillGustEl.setAttribute('aria-label', 'Gust ' + pills.gust + ' mph');
-    pillLakeEl.setAttribute('aria-label', `Lake wind ${pills.lake} mph`);
-    pillLakeEl.style.setProperty('--tint', pills.lakeTint);
-    pillLakeEl.style.setProperty('--tint-bd', pills.lakeBorder);
     const c = ui.compass(e.dirTrueDeg, e.speedMph);
     if (c.arrowDeg == null) {
       badgeArrow.style.display = 'none';

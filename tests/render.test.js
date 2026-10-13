@@ -441,13 +441,13 @@ check('respects [start, end) so a block never sees a neighbouring day', () => {
 console.log('\n== [14] 6.2: two-badge marine header markup ==');
 check('two-badge row ids present; shore pill / arrow / help / popover deleted; hero block ids present', () => {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-  for (const id of ['three', 'pill-lake', 'lake', 'mph',
-    'pill-gust', 'gust', 'gust-u', 'dot', 'refresh',
+  for (const id of ['three', 'lake', 'gust', 'gust-u', 'refresh',
     'hero-num', 'hero-sub', 'gauge-bars']) {
     assert.ok(html.includes(`id="${id}"`), `missing #${id}`);
   }
-  for (const id of ['pill-shore', 'shore', 'shore-u', 'arrow', 'help', 'help-pop', 'lake-u']) {
-    assert.ok(!html.includes(`id="${id}"`), `#${id} must be deleted by the 6.2 de-clutter`);
+  for (const id of ['pill-shore', 'shore', 'shore-u', 'arrow', 'help', 'help-pop', 'lake-u',
+    'pill-lake', 'pill-gust', 'mph', 'dot']) {
+    assert.ok(!html.includes(`id="${id}"`), `#${id} must be deleted (words wind line)`);
   }
   assert.ok(!html.includes('aria-controls="help-pop"'), 'no popover plumbing may remain');
   assert.ok(!html.includes('• Shore:') && !html.includes('• Lake:'),
@@ -458,38 +458,26 @@ check('two-badge row ids present; shore pill / arrow / help / popover deleted; h
   assert.ok(!/>Wind:</.test(html.slice(0, html.indexOf('</header>'))),
     'the header row must not carry a "Wind:" prefix');
   const row = html.slice(html.indexOf('id="three"'), html.indexOf('</header>'));
-  const order = ['pill-lake', 'mph', 'dot', 'pill-gust', 'gust', 'gust-u']
-    .map((id) => row.indexOf(id));
-  assert.ok(order.every((k) => k >= 0), 'every row id must be inside #three');
-  assert.deepStrictEqual([...order].sort((a, b) => a - b), order,
-    'row order must be lake badge -> unit -> dot -> gust badge');
-  assert.ok(row.indexOf('id="mph"') > row.indexOf('id="lake"'),
-    '#mph must be the LAKE badge unit (it inherits the tier tint)');
-  // 6.3 item 4: the gust badge drops its .unit span -> "24 Gust", not "24 mph Gust".
-  // (Tidy pass moved #refresh above the wind row, so bound by </header>, not #refresh.)
-  const gustBadge = html.slice(html.indexOf('id="pill-gust"'), html.indexOf('</header>'));
-  assert.ok(!/class="unit"/.test(gustBadge),
-    '#pill-gust must not contain a class="unit" child (gust renders [24 Gust])');
-  assert.deepStrictEqual([...gustBadge.matchAll(/<span id="([^"]+)"/g)].map((m) => m[1]),
-    ['gust', 'gust-u'], '#pill-gust inner spans must be exactly gust, gust-u');
-  assert.ok(html.includes('id="gust-u"'), '#gust-u must still be present');
+  // Explicit wind line: "Wind <n> mph · Gust <n> mph" (clarity pass — words, not pills).
+  const order = ['lake', 'gust'].map((id) => row.indexOf(`id="${id}"`));
+  assert.ok(order.every((k) => k >= 0), '#lake and #gust must sit inside the wind line');
+  assert.ok(order[0] < order[1], 'lake wind must come before gust');
+  assert.ok(row.includes('Wind <'), 'the wind line must contain the word "Wind"');
+  assert.ok((row.match(/ mph/g) || []).length >= 2, 'both numbers must carry an mph unit');
+  assert.ok(!/class="pill"/.test(row), 'the wind pills must stay deleted');
+  assert.ok(row.includes('id="gust-u"'), '#gust-u must still be present');
 });
-check('6.2 typography, badge fills and the minute pill are pinned', () => {
+check('6.2 typography, wind line and the minute pill are pinned', () => {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-  assert.ok(/#lake, #gust \{ font-size: 13px; font-weight: 700; color: #f8fafc/.test(html),
-    'numerals must be 13px/700/#f8fafc');
-  assert.ok(/#gust-u \{ font-size: 10px; font-weight: 500; color: #cbd5e1/.test(html),
-    'the Gust label must be 10px/500/#cbd5e1');
-  assert.ok(/\.unit \{ font-size: 10px; font-weight: 500; color: #cbd5e1/.test(html),
-    'units must be 10px/500/#cbd5e1');
-  assert.ok(/#pill-lake \.unit \{ color: #cbd5e1; \}/.test(html),
-    'the lake unit matches the gust unit quiet label colour (#cbd5e1 — spec v1.3 card-language restyle)');
-  assert.ok(/#pill-gust \{ background: rgba\(148,163,184,\.18\)/.test(html),
-    'the gust badge keeps the neutral fill');
-  assert.ok(/#pill-lake \{ background: var\(--tint/.test(html),
-    'the lake badge must inherit the WIND_HEAT tier tint');
-  assert.ok(/#pill-lake, #pill-gust/.test(html) === false, 'the shore pill fill must be gone');
-  assert.ok(/padding: 2px 6px/.test(html), 'badges must use the 2px 6px fit padding');
+  assert.ok(/#lake, #gust \{ font-size: 13px; font-weight: 700; color: #e2e8f0/.test(html),
+    'numerals must be 13px/700/#e2e8f0');
+  assert.ok(/#three \{[^}]*font-size: 12px/.test(html),
+    'the wind line text must be 12px quiet gray');
+  assert.ok(/\.wunit \{ color: #94a3b8/.test(html), 'mph units must be quiet #94a3b8');
+  assert.ok(!/id="pill-lake"/.test(html) && !/id="pill-gust"/.test(html),
+    'the wind pills must be gone (words line)');
+  assert.ok(!/--tint/.test(html),
+    'the wind tier tint must be retired (color stays chip + gauge bars only)');
   const pill = html.slice(html.indexOf('#time-pill '), html.indexOf('#time-pill::after'));
   assert.ok(/tabular-nums/.test(pill), '#time-pill must pin font-variant-numeric: tabular-nums');
 });
