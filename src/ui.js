@@ -80,12 +80,14 @@ function mean(values) {
   return count > 0 ? sum / count : 0;
 }
 
-// Bars for the wave-scale gauge: ceil(avgFt / 6 * 8), clamped [0, 8].
+// Bars for the wave-scale gauge: ceil(avgFt / 4 * 8), clamped [0, 8].
+// Full scale = 4 ft lake-wide average (genuinely extreme on Mille Lacs) so the gauge
+// isn't pinned to the bottom half in real conditions (Reid, sensitivity pass).
 // 0 or NaN → 0 bars (no wave energy = no bars).
 function barsForAvg(avgFt) {
   const v = Number(avgFt);
   if (!Number.isFinite(v) || v <= 0) return 0;
-  return Math.min(8, Math.ceil(v / 6 * 8));
+  return Math.min(8, Math.ceil(v / 4 * 8));
 }
 
 // ---- geography ----
