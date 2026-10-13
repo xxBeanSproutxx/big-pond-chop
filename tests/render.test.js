@@ -466,7 +466,8 @@ check('two-badge row ids present; shore pill / arrow / help / popover deleted; h
   assert.ok(row.indexOf('id="mph"') > row.indexOf('id="lake"'),
     '#mph must be the LAKE badge unit (it inherits the tier tint)');
   // 6.3 item 4: the gust badge drops its .unit span -> "24 Gust", not "24 mph Gust".
-  const gustBadge = html.slice(html.indexOf('id="pill-gust"'), html.indexOf('id="refresh"'));
+  // (Tidy pass moved #refresh above the wind row, so bound by </header>, not #refresh.)
+  const gustBadge = html.slice(html.indexOf('id="pill-gust"'), html.indexOf('</header>'));
   assert.ok(!/class="unit"/.test(gustBadge),
     '#pill-gust must not contain a class="unit" child (gust renders [24 Gust])');
   assert.deepStrictEqual([...gustBadge.matchAll(/<span id="([^"]+)"/g)].map((m) => m[1]),
