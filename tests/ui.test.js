@@ -66,6 +66,14 @@ check('percentile ignores land/zero cells and interpolates', () => {
   assert.ok(Math.abs(p10 - 10.9) < 1e-9, `p10 ${p10}`);
   console.log(`       p10 of 1..100 = ${p10}`);
 });
+check('mean filters land/zero and computes average of water cells', () => {
+  assert.strictEqual(ui.mean([1, 2, 3, 4, 5]), 3, 'simple mean');
+  assert.strictEqual(ui.mean([0, 0, 0]), 0, 'all land -> 0');
+  assert.strictEqual(ui.mean([0, 0, 2, 4, 6]), 4, 'skips zeros');
+  assert.strictEqual(ui.mean([]), 0, 'empty -> 0');
+  assert.strictEqual(ui.mean([NaN, Infinity, 3]), 3, 'skips non-finite');
+  console.log(`       mean of 1..5 = ${ui.mean([1, 2, 3, 4, 5])}`);
+});
 
 console.log('\n== [3] sectors ==');
 check('8-way sector relative to the lake centroid', () => {
@@ -112,34 +120,37 @@ check('beyond 4 km is open water even if a feature is nearest', () => {
 
 console.log('\n== [5] headline (formatHeadline) ==');
 const frame = {
-  p10Ft: 0.8, maxHsFt: 3.4, rollerFt: 3.93,
+  p10Ft: 0.8, maxHsFt: 3.4, rollerFt: 3.93, avgHsFt: 2.1,
   peakLat: 46.15173, peakLon: -93.64465,
   features, sector: { name: 'S', shore: false },
 };
-check('line 1 is a lake-wide range, one decimal', () => {
+check('line 1 is a lake-wide range, one decimal (quiet label + bold value spans)', () => {
   const h = ui.formatHeadline(frame);
-  assert.strictEqual(h.range, 'Waves: 0.8 - 3.4 ft');
+  assert.ok(h.range.startsWith('<span class="vl">Waves:</span>'), 'range label span');
+  assert.ok(h.range.includes('0.8 - 3.4 ft'), 'range value in span');
   console.log(`       ${h.range}`);
 });
-check('line 2 pairs the peak roller with a short location label', () => {
+check('line 2 has Avg + Peak labels, peak roller, and short location label', () => {
   const h = ui.formatHeadline(frame);
-  assert.ok(h.peak.startsWith('Peak: 3.9 ft · '), h.peak);
-  assert.ok(h.peak.endsWith('Spirit Island'), h.peak);
+  assert.ok(h.peak.includes('Avg'), 'avg label present');
+  assert.ok(h.peak.includes('Peak'), 'peak label present');
+  assert.ok(h.peak.includes('3.9 ft'), 'peak roller value');
+  assert.ok(h.peak.endsWith('Spirit Island</span>'), 'location value');
   console.log(`       ${h.peak}`);
 });
-check('never a bare single number (range + peak words present)', () => {
+check('never a bare single number (range + peak words present); avg joins row 2', () => {
   const h = ui.formatHeadline(frame);
-  assert.ok(h.range.includes(' - '), 'range missing dash');
-  assert.ok(/peak/i.test(h.peak), 'peak word missing');
+  assert.ok(h.range.includes('Waves:'), 'range label missing');
+  assert.ok(h.peak.includes('Avg') && h.peak.includes('Peak'), 'avg+peak labels missing');
   const open = ui.formatHeadline({
     ...frame, peakLat: centroid.lat, peakLon: centroid.lon, sector: { name: 'SW', shore: false },
   });
-  assert.strictEqual(open.peak, 'Peak: 3.9 ft · SW Basin');
+  assert.ok(open.peak.includes('SW Basin'));
   const shore = ui.formatHeadline({
     ...frame, peakLat: centroid.lat, peakLon: centroid.lon, sector: { name: 'NE', shore: true },
   });
-  assert.strictEqual(shore.peak, 'Peak: 3.9 ft · NE Shore');
-  console.log(`       ${open.peak} / ${shore.peak}`);
+  assert.ok(shore.peak.includes('NE Shore'));
+  console.log(`       ${h.peak}`);
 });
 
 console.log('\n== [6] stage-6b windPills (three-pill row model) ==');

@@ -1255,10 +1255,11 @@ async function mount(deps) {
     const landFrac = landMaskRaster(warp, tables, W, H);
     const smooth = smoothRaster(raster, landFrac, W, H);
     const p10Ft = ui.p10(f.capped);
+    const avgHsFt = ui.mean(f.capped);
     const peak = gridToLonlat(warp, f.maxIdx % BATHY_COLS, Math.floor(f.maxIdx / BATHY_COLS));
     const stats = {
       maxHs: f.maxHs, maxIdx: f.maxIdx, rollerFt: f.rollerFt, hlMax: f.hlMax,
-      p10Ft, peakLat: peak.lat, peakLon: peak.lon, entry: frames[idx],
+      p10Ft, avgHsFt, peakLat: peak.lat, peakLon: peak.lon, entry: frames[idx],
     };
     const pinVals = pinned ? { hsKs: f.afterKs[pinned.i], ts: f.ts[pinned.i] } : null;
     const entry = { url: null, stats, pinVals };
@@ -1410,12 +1411,12 @@ async function mount(deps) {
     comfortChip.className = `tier-${tier.key}`;
     comfortChip.textContent = tier.label;
     const headline = ui.formatHeadline({
-      p10Ft: s.p10Ft, maxHsFt: s.maxHs, rollerFt: s.rollerFt,
+      p10Ft: s.p10Ft, maxHsFt: s.maxHs, rollerFt: s.rollerFt, avgHsFt: s.avgHsFt,
       peakLat: s.peakLat, peakLon: s.peakLon,
       features, sector: sectorInfo(s.peakLat, s.peakLon),
     });
-    verdictRange.textContent = headline.range;
-    verdictPeak.textContent = headline.peak;
+    verdictRange.innerHTML = headline.range;
+    verdictPeak.innerHTML = headline.peak;
     if (pinned) updatePinned();
     if (playing && frames.length > 1) prefetch(nextPlayIdx(cur, playStep(horizon), frames.length));
   }
@@ -1640,6 +1641,7 @@ async function mount(deps) {
       const data = await wind.ingest({ point, gamma, horizon });
       if (horizon !== '24h') wideCache[horizon] = data;
       applyWindData(data);
+      fitLake();
     } catch (err) {
       console.error(err);
       hideBoot();

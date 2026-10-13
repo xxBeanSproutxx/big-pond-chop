@@ -480,8 +480,8 @@ check('6.2 typography, badge fills and the minute pill are pinned', () => {
     'the Gust label must be 10px/500/#cbd5e1');
   assert.ok(/\.unit \{ font-size: 10px; font-weight: 500; color: #cbd5e1/.test(html),
     'units must be 10px/500/#cbd5e1');
-  assert.ok(/#pill-lake \.unit \{ color: #f8fafc; \}/.test(html),
-    'the lake unit must be white: #cbd5e1 over the tier tint measured 3.58:1 (amber), white >=5.08:1 on every tier');
+  assert.ok(/#pill-lake \.unit \{ color: #cbd5e1; \}/.test(html),
+    'the lake unit matches the gust unit quiet label colour (#cbd5e1 — spec v1.3 card-language restyle)');
   assert.ok(/#pill-gust \{ background: rgba\(148,163,184,\.18\)/.test(html),
     'the gust badge keeps the neutral fill');
   assert.ok(/#pill-lake \{ background: var\(--tint/.test(html),
