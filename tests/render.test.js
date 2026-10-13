@@ -439,10 +439,11 @@ check('respects [start, end) so a block never sees a neighbouring day', () => {
 });
 
 console.log('\n== [14] 6.2: two-badge marine header markup ==');
-check('two-badge row ids present; shore pill / arrow / help / popover deleted', () => {
+check('two-badge row ids present; shore pill / arrow / help / popover deleted; hero block ids present', () => {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-  for (const id of ['secondary', 'three', 'pill-lake', 'lake', 'mph',
-    'pill-gust', 'gust', 'gust-u', 'dot', 'refresh']) {
+  for (const id of ['three', 'pill-lake', 'lake', 'mph',
+    'pill-gust', 'gust', 'gust-u', 'dot', 'refresh',
+    'hero-num', 'hero-sub', 'gauge-bars']) {
     assert.ok(html.includes(`id="${id}"`), `missing #${id}`);
   }
   for (const id of ['pill-shore', 'shore', 'shore-u', 'arrow', 'help', 'help-pop', 'lake-u']) {

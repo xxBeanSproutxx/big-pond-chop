@@ -18,117 +18,101 @@
 <link rel="apple-touch-icon" href="public/icon-192.png">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-  :root { color-scheme: dark; --header-h: calc(72px + env(safe-area-inset-top, 0px)); }
+  :root { color-scheme: dark; --header-h: calc(80px + env(safe-area-inset-top, 0px)); }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body { display: flex; flex-direction: column; background: #0d1b2a; color: #e8f0f7;
          font: 14px/1.3 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-  /* Fixed header: the map below must never move when verdict text changes.
-     Three stacked text rows sit in a column beside the 48 px refresh button:
-     row 1 = range + tier chip, row 2 = peak line at the column's full width so the
-     location label never truncates on a 360 px phone, row 3 = wind + H/L. */
-  /* Stage 6B: the header floats over the map (fixed, z-index 1001 > Leaflet's
-     1000) as a frosted glass band. #map extends under it; fitLake() reserves the
-     live header height + 12 px so the lake edge stays clear of the band.
-     Stage 6B.2: the band is 72 px of CONTENT (it grows into the notch inset
-     instead of clipping) and the top padding keeps row 1 off the bezel. */
-  header { position: fixed; top: 0; left: 0; right: 0; z-index: 1001;
-           padding: max(6px, env(safe-area-inset-top, 0px)) 10px 4px;
-           display: flex; align-items: center;
-           gap: 8px; height: var(--header-h); min-height: var(--header-h);
-           max-height: var(--header-h);
-           overflow: hidden; background: rgba(15,23,42,.85);
-           -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3);
-           border-bottom: 1px solid rgba(255,255,255,.1); color: #f8fafc;
-           font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; }
-  @supports not (backdrop-filter: blur(1px)) { header { background: #0f172a; } }
-  /* 6B.2: the map now starts at y=0 (the header is fixed), so Leaflet's own top
-     controls would sit UNDER the band (measured y=10 vs the pre-6B y=82).
-     Offset the whole top strip below the header + 10 px. */
-  .leaflet-top { top: calc(var(--header-h) + 10px); }
-  /* 6.2: the zoom stack is docked BOTTOM-RIGHT: with the top-left corner freed, the
-     horizon toggle owns it and balances #wind-badge on the right. Leaflet's corner
-     containers are children of #map (position: relative) whose bottom edge IS the deck's
-     top, so these offsets are MAP-relative: the 9 px attribution sits at bottom 4 px
-     (~14 px tall) and the zoom stack starts 20 px up — flush above it, never on it.
-     (The old .leaflet-bottom rule's "deck-h + 6px" was the viewport-relative form of
-     this same mistake, fixed in 6.1; the control layer never needs to know the deck.) */
-  .leaflet-top.leaflet-left { top: auto; bottom: 20px; left: auto; right: 6px; }
-  .leaflet-top.leaflet-left .leaflet-control { margin: 0; }
-  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px;
-              position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .head-text { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap;
-               align-content: center; align-items: baseline; gap: 2px 8px; }
-  /* 6B.2: the 52 px reservation for the ? pill lives on the WIND ROW ONLY — on the
-     whole column it squeezed row 1 until the tier chip wrapped, which made
-     .head-text 76 px tall inside a 64 px content box and clipped row 1. */
-  #verdict { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 0 1 auto; }
-  #verdict-range { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .vl { color: #94a3b8; font-weight: 500; }
-  .vv { color: #f8fafc; font-weight: 700; }
-  .ms { color: #64748b; }
-  /* Peak and wind get a row each: sharing a row clipped the location at 360 px. */
-  #subrow { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: baseline;
-            column-gap: 8px; min-width: 0; }
-  #verdict-peak { flex: 1 1 100%; min-width: 0; font-size: 13px; color: inherit;
-                  font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden;
-                  text-overflow: ellipsis; }
-  #secondary { flex: 1 1 100%; display: flex; flex-direction: row; align-items: baseline;
-               gap: 8px; font-size: 11px; color: #9fc3dd; font-variant-numeric: tabular-nums;
-               white-space: nowrap; }
-  /* 6.2: two-badge marine wind row. No "Wind:" prefix; each badge carries its own unit
-     — "[17 mph] · [24 mph Gust]". Numerals 13/700 white tabular; units 10/500; the lake
-     badge is tinted by WIND_HEAT at .55 alpha (white ink on every tier, by measurement)
-     and the gust badge keeps the neutral fill. Badges are 2px 6px. */
-  #three { flex: 1 1 auto; min-width: 0; align-self: center; display: flex;
-           align-items: center; gap: 4px; white-space: nowrap; overflow: hidden;
-           /* 6.2: the ? micro-badge is gone, so the 32 px reservation it needed
-              (20 px badge + 8 px gap + 4 px ::after overhang) is gone with it — one
-              4 px rhythm between the two badges and the dot. The header's own 8 px
-              gap separates the row from #refresh. */
-           margin-right: 0; }
-  #three .pill { display: inline-flex; align-items: baseline; gap: 3px; flex: 0 0 auto;
-                 border-radius: 999px; padding: 2px 6px; line-height: 1.4; }
-  #pill-gust { background: rgba(148,163,184,.18);
-               border: 1px solid rgba(148,163,184,.35); }
-  #pill-lake { background: var(--tint, rgba(148,163,184,.18));
-               border: 1px solid var(--tint-bd, rgba(148,163,184,.35)); }
-  #lake, #gust { font-size: 13px; font-weight: 700; color: #f8fafc;
-                 font-variant-numeric: tabular-nums; line-height: 1.2; }
-  #gust-u { font-size: 10px; font-weight: 500; color: #cbd5e1;
-            font-variant-numeric: tabular-nums; line-height: 1.2; }
-  /* 6.2: the unit sits inside each badge. #mph is the LAKE badge's unit, i.e. on the
-     .55-alpha tier tint, where #cbd5e1 measured 3.58:1 (amber tier) — below the 4.5:1
-     gate — so it is white like its numeral (white clears every reachable tier: teal 7.24,
-     green 5.68, amber 5.08, orange 6.25, crimson 7.72). The gust badge's unit keeps
-     #cbd5e1: 8.64:1 on the neutral rgba(148,163,184,.18) fill. */
-  .unit { font-size: 10px; font-weight: 500; color: #cbd5e1;
-          font-variant-numeric: tabular-nums; line-height: 1.2; }
-  #pill-lake .unit { color: #cbd5e1; }
-  #dot { flex: 0 0 auto; margin: 0; font-size: 11px; color: #94a3b8; line-height: 1; }
-  /* 6.2: #help and #help-pop are gone (with their listeners) — the badges are
-     self-labelling, so the row needs no explainer control. */
+/* Fixed header: the map below must never move when verdict text changes.
+   Stage 6B: the header floats over the map (fixed, z-index 1001 > Leaflet's
+   1000) as a frosted glass band. #map extends under it; fitLake() reserves the
+   live header height + 12 px so the lake edge stays clear of the band.
+   6B.2: the band is 80 px of CONTENT (it grows into the notch inset
+   instead of clipping) and the top padding keeps row 1 off the bezel. */
+header { position: fixed; top: 0; left: 0; right: 0; z-index: 1001;
+         padding: max(6px, env(safe-area-inset-top, 0px)) 14px 11px;
+         display: flex; align-items: center; gap: 13px;
+         height: var(--header-h); min-height: var(--header-h);
+         max-height: var(--header-h);
+         overflow: hidden; background: rgba(15,23,42,.72);
+         -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3);
+         border-bottom: 1px solid rgba(255,255,255,.08); color: #f8fafc;
+         font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; }
+@supports not (backdrop-filter: blur(1px)) { header { background: #0f172a; } }
+/* 6B.2: the map now starts at y=0 (the header is fixed), so Leaflet's own top
+   controls would sit UNDER the band. Offset the whole top strip below the header + 10 px. */
+.leaflet-top { top: calc(var(--header-h) + 10px); }
+/* 6.2: zoom stack docked BOTTOM-RIGHT. */
+.leaflet-top.leaflet-left { top: auto; bottom: 20px; left: auto; right: 6px; }
+.leaflet-top.leaflet-left .leaflet-control { margin: 0; }
+header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* Hero block — ported from sketch 009 faithfully. */
+.hero { display: flex; flex-direction: column; line-height: 1; min-width: 0; }
+.hero .lab { font-size: 10px; font-weight: 600; letter-spacing: .14em; color: #94a3b8;
+  text-transform: uppercase; margin-bottom: 5px; }
+.numrow { display: flex; align-items: flex-end; gap: 7px; }
+.hero .num { font-size: 38px; font-weight: 800; font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em; transition: color .25s; min-width: 2ch; }
+.hero .num small { font-size: 14px; font-weight: 600; color: #cbd5e1; margin-left: 2px; }
+.hero .sub { font-size: 11.5px; color: #94a3b8; margin-top: 6px; font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hero .sub b { color: #e2e8f0; font-weight: 600; }
+.meter { padding-bottom: 7px; }
+.bars { display: flex; align-items: flex-end; gap: 2.5px; height: 22px; }
+.bar { width: 5px; border-radius: 2px 2px 0 0; background: rgba(148,163,184,.22); transition: background .25s; }
+.bar:nth-child(1){height:5px}.bar:nth-child(2){height:7px}.bar:nth-child(3){height:9px}
+.bar:nth-child(4){height:11px}.bar:nth-child(5){height:13px}.bar:nth-child(6){height:16px}
+.bar:nth-child(7){height:19px}.bar:nth-child(8){height:22px}
+.bar.on { background: var(--tier-c); box-shadow: 0 0 6px var(--tier-g); }
+
+/* Side column: comfort chip above wind pills + now button, right-aligned. */
+.side { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; margin-left: auto; }
+.row { display: flex; gap: 6px; align-items: center; }
+
+/* Accent glow bar at header bottom edge, tier-tinted. */
+.accent { position: absolute; left: 0; right: 0; bottom: -1px; height: 3px;
+  background: var(--tier-c); box-shadow: 0 0 14px 1px var(--tier-g); transition: all .25s; }
+
+/* Tier classes on header: drive --tier-c / --tier-g for hero number, gauge bars, accent. */
+.t-green { --tier-c:#22c55e; --tier-g:rgba(34,197,94,.45); } .t-green .num { color:#4ade80; }
+.t-yellow{ --tier-c:#facc15; --tier-g:rgba(250,204,21,.45);} .t-yellow .num{ color:#fde047; }
+.t-amber { --tier-c:#f97316; --tier-g:rgba(249,115,22,.5); } .t-amber .num { color:#fb923c; }
+.t-red   { --tier-c:#ef4444; --tier-g:rgba(239,68,68,.55); } .t-red .num   { color:#f87171; }
 
 #comfort-chip { flex: 0 0 auto; font-size: 11px; font-weight: 700; border-radius: 999px;
-                   padding: 2px 6px; white-space: nowrap; line-height: 1.25; }
-  .tier-green { background: #15803d; color: #fff; }
-  .tier-yellow { background: #facc15; color: #0d1b2a; }
-  .tier-amber { background: #ea580c; color: #fff; }
-  .tier-red { background: #dc2626; color: #fff; }
-  @media (max-width: 400px) {
-    #verdict-range { font-size: 14px; }
-    #comfort-chip { font-size: 10px; padding: 2px 5px; }
-    #secondary { font-size: 10px; gap: 6px; }
-    #verdict-peak { font-size: 12px; }
-  }
-  /* 6B.3: marine-glass refresh instead of the old #1d4e6f blue block — same fill and
-     hairline as the #help badge, so the two controls read as one family. Icon contrast
-     on the composite (#cbd5e1 over rgba(15,23,42,.85)) measures 8.1:1. */
+                   padding: 3px 9px; white-space: nowrap; line-height: 1.25; }
+.tier-green { background: #15803d; color: #fff; }
+.tier-yellow { background: #facc15; color: #0d1b2a; }
+.tier-amber { background: #ea580c; color: #fff; }
+.tier-red { background: #dc2626; color: #fff; }
+@media (max-width: 400px) {
+  #comfort-chip { font-size: 10px; padding: 2px 5px; }
+}
+
+/* 6.2: two-badge marine wind row — lake + gust. */
+#three { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; }
+#three .pill { display: inline-flex; align-items: baseline; gap: 3px; flex: 0 0 auto;
+               border-radius: 999px; padding: 2px 6px; line-height: 1.4; }
+#pill-gust { background: rgba(148,163,184,.18);
+             border: 1px solid rgba(148,163,184,.35); }
+#pill-lake { background: var(--tint, rgba(148,163,184,.18));
+             border: 1px solid var(--tint-bd, rgba(148,163,184,.35)); }
+#lake, #gust { font-size: 13px; font-weight: 700; color: #f8fafc;
+               font-variant-numeric: tabular-nums; line-height: 1.2; }
+#gust-u { font-size: 10px; font-weight: 500; color: #cbd5e1;
+          font-variant-numeric: tabular-nums; line-height: 1.2; }
+.unit { font-size: 10px; font-weight: 500; color: #cbd5e1;
+        font-variant-numeric: tabular-nums; line-height: 1.2; }
+#pill-lake .unit { color: #cbd5e1; }
+#dot { flex: 0 0 auto; font-size: 11px; color: #94a3b8; line-height: 1; }
+
+/* 6B.3: marine-glass refresh button. */
 #refresh { background: rgba(255,255,255,.05); color: #cbd5e1;
-              border: 1px solid rgba(255,255,255,.15); border-radius: 10px;
-              width: 48px; min-width: 48px; min-height: 48px; padding: 0; display: inline-flex;
-              align-items: center; justify-content: center; margin-left: auto;
-              touch-action: manipulation; transition: transform 120ms; }
+            border: 1px solid rgba(255,255,255,.15); border-radius: 10px;
+            width: 48px; min-width: 48px; min-height: 48px; padding: 0; display: inline-flex;
+            align-items: center; justify-content: center;
+            touch-action: manipulation; transition: transform 120ms; }
   #refresh:active { transform: scale(.96); }
   #refresh .icon { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round;
                    stroke-linejoin: round; display: block; }
@@ -388,28 +372,36 @@
 <body data-hour="" data-hs-ft="" data-hmax-ft="" data-wind-mph="" data-bearing-grid="" data-teff-h="">
   <header>
     <h1>Mille Lacs wind waves</h1>
-    <div class="head-text">
-      <div id="verdict">
-        <div id="verdict-range">—</div>
-      </div>
-      <span id="comfort-chip" class="tier-green">Fishable · Light Chop</span>
-      <div id="subrow">
-        <div id="verdict-peak"></div>
-        <div id="secondary">
-          <div id="three" role="group" aria-label="Wind">
-            <span id="pill-lake" class="pill" aria-label="Lake wind"><span id="lake">17</span><span id="mph" class="unit">mph</span></span>
-            <span id="dot" aria-hidden="true">·</span>
-            <span id="pill-gust" class="pill" aria-label="Gust 24 mph"><span id="gust">24</span><span id="gust-u">Gust</span></span>
+    <div class="hero">
+      <div class="lab">Avg waves</div>
+      <div class="numrow">
+        <div class="num" id="hero-num" aria-label="Average waves — feet">—<small>ft</small></div>
+        <div class="meter" aria-hidden="true">
+          <div class="bars" id="gauge-bars">
+            <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+            <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
           </div>
         </div>
       </div>
+      <div class="sub" id="hero-sub">—</div>
     </div>
-    <button id="refresh" type="button" aria-label="Back to now — recenters map, refreshes data" title="Back to now — recenters map, refreshes data">
-      <svg class="icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-        <path d="M20 11a8 8 0 1 0-2.3 5.7"></path>
-        <polyline points="20,5 20,11 14,11"></polyline>
-      </svg>
-    </button>
+    <div class="side">
+      <div class="row"><span id="comfort-chip" class="tier-green">Fishable · Light Chop</span></div>
+      <div class="row">
+        <div id="three" role="group" aria-label="Wind">
+          <span id="pill-lake" class="pill" aria-label="Lake wind"><span id="lake">17</span><span id="mph" class="unit">mph</span></span>
+          <span id="dot" aria-hidden="true">·</span>
+          <span id="pill-gust" class="pill" aria-label="Gust 24 mph"><span id="gust">24</span><span id="gust-u">Gust</span></span>
+        </div>
+        <button id="refresh" type="button" aria-label="Back to now — recenters map, refreshes data" title="Back to now — recenters map, refreshes data">
+          <svg class="icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <path d="M20 11a8 8 0 1 0-2.3 5.7"></path>
+            <polyline points="20,5 20,11 14,11"></polyline>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div class="accent"></div>
   </header>
   <div id="map">
     <div id="horizon" role="group" aria-label="Forecast horizon">
