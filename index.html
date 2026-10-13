@@ -64,21 +64,19 @@ header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip:
 .bar:nth-child(1){height:5px}.bar:nth-child(2){height:7px}.bar:nth-child(3){height:9px}
 .bar:nth-child(4){height:11px}.bar:nth-child(5){height:13px}.bar:nth-child(6){height:16px}
 .bar:nth-child(7){height:19px}.bar:nth-child(8){height:22px}
-.bar.on { background: var(--tier-c); box-shadow: 0 0 6px var(--tier-g); }
+.bar.on { background: var(--tier-c); }
 
 /* Side column: comfort chip above wind pills + now button, right-aligned. */
 .side { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; margin-left: auto; }
 .row { display: flex; gap: 6px; align-items: center; }
 
-/* Accent glow bar at header bottom edge, tier-tinted. */
-.accent { position: absolute; left: 0; right: 0; bottom: -1px; height: 3px;
-  background: var(--tier-c); box-shadow: 0 0 14px 1px var(--tier-g); transition: all .25s; }
-
-/* Tier classes on header: drive --tier-c / --tier-g for hero number, gauge bars, accent. */
-.t-green { --tier-c:#22c55e; --tier-g:rgba(34,197,94,.45); } .t-green .num { color:#4ade80; }
-.t-yellow{ --tier-c:#facc15; --tier-g:rgba(250,204,21,.45);} .t-yellow .num{ color:#fde047; }
-.t-amber { --tier-c:#f97316; --tier-g:rgba(249,115,22,.5); } .t-amber .num { color:#fb923c; }
-.t-red   { --tier-c:#ef4444; --tier-g:rgba(239,68,68,.55); } .t-red .num   { color:#f87171; }
+/* Tier classes on header: drive --tier-c for the gauge bars only. The number stays
+   production white — the app keeps tier color to one functional signal per element
+   (chip + bars), no glow (Reid, post-port rework). */
+.t-green { --tier-c:#22c55e; }
+.t-yellow{ --tier-c:#facc15; }
+.t-amber { --tier-c:#f97316; }
+.t-red   { --tier-c:#ef4444; }
 
 #comfort-chip { flex: 0 0 auto; font-size: 11px; font-weight: 700; border-radius: 999px;
                    padding: 3px 9px; white-space: nowrap; line-height: 1.25; }
@@ -401,7 +399,6 @@ header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip:
         </button>
       </div>
     </div>
-    <div class="accent"></div>
   </header>
   <div id="map">
     <div id="horizon" role="group" aria-label="Forecast horizon">
