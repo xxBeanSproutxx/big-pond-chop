@@ -414,10 +414,10 @@ check('HL_RED is the one steepness boundary (comfortTier agrees)', () => {
 
 console.log('\n== [15] barsForAvg (v1.3 hero gauge) ==');
 check('0 ft -> 0 bars', () => { assert.strictEqual(ui.barsForAvg(0), 0); });
-check('0.7 ft -> 1 bar', () => { assert.strictEqual(ui.barsForAvg(0.7), 1); });
-check('1.4 ft -> 2 bars', () => { assert.strictEqual(ui.barsForAvg(1.4), 2); });
-check('2.6 ft -> 4 bars', () => { assert.strictEqual(ui.barsForAvg(2.6), 4); });
-check('4.2 ft -> 6 bars', () => { assert.strictEqual(ui.barsForAvg(4.2), 6); });
+check('0.7 ft -> 2 bars', () => { assert.strictEqual(ui.barsForAvg(0.7), 2); });
+check('1.4 ft -> 3 bars', () => { assert.strictEqual(ui.barsForAvg(1.4), 3); });
+check('2.6 ft -> 6 bars', () => { assert.strictEqual(ui.barsForAvg(2.6), 6); });
+check('4.2 ft -> 8 bars (full scale = 4 ft avg)', () => { assert.strictEqual(ui.barsForAvg(4.2), 8); });
 check('6 ft -> 8 bars', () => { assert.strictEqual(ui.barsForAvg(6), 8); });
 check('NaN -> 0 bars', () => { assert.strictEqual(ui.barsForAvg(NaN), 0); });
 check('clamped: 8 ft -> 8 bars (never exceeds max)', () => { assert.strictEqual(ui.barsForAvg(8), 8); });
