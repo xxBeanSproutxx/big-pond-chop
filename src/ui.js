@@ -71,6 +71,15 @@ function percentile(values, p) {
 }
 function p10(values) { return percentile(values, 0.1); }
 
+// Mean of positive water cells (same filter as percentile). Returns 0 when empty.
+function mean(values) {
+  let sum = 0, count = 0;
+  for (let i = 0; i < values.length; i++) {
+    if (values[i] > 0 && Number.isFinite(values[i])) { sum += values[i]; count++; }
+  }
+  return count > 0 ? sum / count : 0;
+}
+
 // ---- geography ----
 const SECTORS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const MI_M = 1609.344;
@@ -151,12 +160,16 @@ function shortPlace(spot, sector) {
   return spot && spot.kind === 'feature' ? spot.name : sectorName(sector);
 }
 
-// Two-line honest verdict. Never a bare single Hs number.
+// Two-line honest verdict with quiet-label spans. Never a bare single Hs number.
 function formatHeadline(frame) {
   const spot = nameSpot(frame.peakLat, frame.peakLon, frame.features, frame.sector);
+  const avg = Number.isFinite(frame.avgHsFt) && frame.avgHsFt > 0 ? frame.avgHsFt.toFixed(1) : '—';
+  const peak = Number.isFinite(frame.rollerFt) ? frame.rollerFt.toFixed(1) : '—';
+  const p10 = Number.isFinite(frame.p10Ft) ? frame.p10Ft.toFixed(1) : '—';
+  const max = Number.isFinite(frame.maxHsFt) ? frame.maxHsFt.toFixed(1) : '—';
   return {
-    range: `Waves: ${frame.p10Ft.toFixed(1)} - ${frame.maxHsFt.toFixed(1)} ft`,
-    peak: `Peak: ${frame.rollerFt.toFixed(1)} ft · ${shortPlace(spot, frame.sector)}`,
+    range: `<span class="vl">Waves:</span> <span class="vv">${p10} - ${max} ft</span>`,
+    peak: `<span class="vl">Avg</span> <span class="vv">${avg} ft</span> · <span class="vl">Peak</span> <span class="vv">${peak} ft</span> · <span class="ms">${shortPlace(spot, frame.sector)}</span>`,
   };
 }
 
@@ -395,7 +408,7 @@ function windHeatGradient(speeds) {
 
 module.exports = {
   HS_STOPS, HS_BREAKS, OVERLAY_OPACITY, CALM_RGBA,
-  colorForHs, rgbForHs, rampGradient, percentile, p10,
+  colorForHs, rgbForHs, rampGradient, percentile, p10, mean,
   SECTORS, haversineM, bearing8, centroidOfCorners, sectorFor,
   nameSpot, describePin, sectorPhrase, sectorName, shortPlace, formatHeadline,
   FEATURE_RADIUS_M, SHORE_RADIUS_M,
