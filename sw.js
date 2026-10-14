@@ -6,13 +6,14 @@
 // (belt + suspenders — a mismatched HTML/JS pair from the HTTP heuristic cache
 // made the centre guide render off-screen on-device). reset.html clears a
 // wedged device: unregister SW + delete caches + reload.
-const CACHE_NAME = 'bpc-cache-v29';
+const CACHE_NAME = 'bpc-cache-v30';
 
 const SHELL = [
   './', './index.html',
   './src/tables.js', './src/wave-math.js', './src/wind.js', './src/ui.js', './src/render.js', './src/sun-times.mjs',
   './public/meta.v1.json', './public/mask.v1.json', './public/spots.v1.json',
   './public/warp.v1.json', './public/tables.v1.bin',
+  './public/depth.v1.png',
   './public/favicon.svg', './public/icon-192.png', './public/icon-512.png',
   './manifest.webmanifest',
   // 2026-10-14: Leaflet vendored (performance pass) — no third-party boot
