@@ -638,24 +638,15 @@ async function mount(deps) {
     maxZoom: TILE_MAX_ZOOM, attribution: TILE_ATTRIBUTION, detectRetina: true,
   }).addTo(map);
   const llBounds = [[bounds.south, bounds.west], [bounds.north, bounds.east]];
-  // 2026-10-14: depth contours (DNR Mille Lacs bathymetry → public/depth.v1.png,
-  // regen: tools/export_depth_raster.py) as a static raster in the SAME lat/lng
-  // frame as the wave overlay. imageOverlay re-anchors to bounds on every move/
-  // zoom, so a raster can't drift vs the basemap (stage-6.4 §D3.3 lesson: a custom
-  // canvas re-deriving this math DID drift). Added BEFORE the wave overlay so
-  // waves paint on top; line alpha is baked into the PNG (tune there, not here).
-  const depthFull = L.imageOverlay('public/depth.v1.png', llBounds, { interactive: false }).addTo(map);
-  // Major-only contours (10 ft steps): fit zoom ≈ 10.5, max 12 — below this show
-  // index contours only.
-  const depthMajor = L.imageOverlay('public/depth-major.v1.png', llBounds, { interactive: false }).addTo(map);
-  const DEPTH_MINOR_MIN_ZOOM = 11.5;
-  const applyDepthZoom = () => {
-    const majorOnly = map.getZoom() < DEPTH_MINOR_MIN_ZOOM;
-    depthFull.setOpacity(majorOnly ? 0 : 1);
-    depthMajor.setOpacity(majorOnly ? 1 : 0);
-  };
-  map.on('zoomend', applyDepthZoom);
-  applyDepthZoom();
+  // Depth contours (DNR Mille Lacs bathymetry → public/depth.v1.png, regen:
+  // tools/export_depth_raster.py) as a static raster in the SAME lat/lng frame
+  // as the wave overlay. Index contours at 10-ft steps, single raster at all
+  // zooms (zoom staging retired). imageOverlay re-anchors to bounds on every
+  // move/zoom, so a raster can't drift vs the basemap (stage-6.4 §D3.3 lesson:
+  // a custom canvas re-deriving this math DID drift). Added BEFORE the wave
+  // overlay so waves paint on top; line alpha is baked into the PNG (tune
+  // there, not here).
+  const depthLayer = L.imageOverlay('public/depth.v1.png', llBounds, { interactive: false }).addTo(map);
 
   overlay = L.imageOverlay('data:image/gif;base64,R0lGODlhAQABAAAAACw=',
     llBounds, { opacity: OVERLAY_OPACITY }).addTo(map);
