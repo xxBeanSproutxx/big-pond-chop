@@ -1,0 +1,102 @@
+<!doctype html>
+<!-- Sketch 005: wave-scale gauge moves INTO the hero block, right of the number.
+     8 bars over the 0-6 ft ramp, single "Wave scale" micro-label, CALM/BIG text gone.
+     Tap the chip to cycle conditions. -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>005 · Wave Scale Gauge</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         -webkit-font-smoothing: antialiased; background: #0b1622; color: #f8fafc; }
+  .map { position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse 60% 45% at 50% 62%, rgba(56,132,168,.50), transparent 70%),
+      radial-gradient(ellipse 25% 18% at 38% 55%, rgba(22,101,132,.55), transparent 75%),
+      radial-gradient(ellipse 20% 14% at 63% 70%, rgba(13,74,98,.6), transparent 75%),
+      linear-gradient(160deg, #12202e 0%, #0d1a26 55%, #0b1622 100%); }
+  header { position: relative; z-index: 10; display: flex; align-items: center; gap: 13px;
+    height: 80px; padding: 8px 14px 11px;
+    background: rgba(15,23,42,.72); backdrop-filter: blur(16px) saturate(1.3);
+    border-bottom: 1px solid rgba(255,255,255,.08); }
+  .hero { display: flex; flex-direction: column; line-height: 1; min-width: 108px; }
+  .hero .lab { font-size: 10px; font-weight: 600; letter-spacing: .14em; color: #94a3b8;
+    text-transform: uppercase; margin-bottom: 5px; }
+  .hero .num { font-size: 38px; font-weight: 800; font-variant-numeric: tabular-nums;
+    letter-spacing: -.02em; transition: color .25s; }
+  .hero .num small { font-size: 14px; font-weight: 600; color: #cbd5e1; margin-left: 2px; }
+  .hero .sub { font-size: 11.5px; color: #94a3b8; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .hero .sub b { color: #e2e8f0; font-weight: 600; }
+  /* ---- wave-scale gauge: lives beside the number, same label family ---- */
+  .gauge { display: flex; flex-direction: column; gap: 5px; }
+  .gauge .lab { font-size: 10px; font-weight: 600; letter-spacing: .14em; color: #94a3b8;
+    text-transform: uppercase; }
+  .bars { display: flex; align-items: flex-end; gap: 2.5px; height: 30px; }
+  .bar { width: 4.5px; border-radius: 2px 2px 0 0; background: rgba(148,163,184,.22); transition: background .25s; }
+  .bar:nth-child(1){height:6px}.bar:nth-child(2){height:9px}.bar:nth-child(3){height:12px}
+  .bar:nth-child(4){height:15px}.bar:nth-child(5){height:18px}.bar:nth-child(6){height:21px}
+  .bar:nth-child(7){height:25px}.bar:nth-child(8){height:30px}
+  .bar.on { background: var(--tier-c); box-shadow: 0 0 6px var(--tier-g); }
+  .side { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; margin-left: auto; }
+  .row { display: flex; gap: 6px; align-items: center; }
+  .pill { border-radius: 999px; padding: 3px 9px; font-size: 11.5px; font-weight: 700;
+    font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .pill small { font-weight: 500; opacity: .85; font-size: 9.5px; }
+  .wind { background: rgba(56,132,168,.30); border: 1px solid rgba(125,211,252,.25); color: #e0f2fe; }
+  .gust { background: rgba(148,163,184,.16); border: 1px solid rgba(203,213,225,.18); color: #e2e8f0; }
+  .chip { border: 0; border-radius: 999px; padding: 4px 11px; font-size: 10.5px; font-weight: 700;
+    cursor: pointer; letter-spacing: .02em; transition: background .25s, color .25s; }
+  .now { width: 42px; height: 42px; border-radius: 50%; border: 1px solid rgba(255,255,255,.16);
+    background: rgba(255,255,255,.06); color: #cbd5e1; display: grid; place-items: center;
+    cursor: pointer; transition: transform .12s; }
+  .now:active { transform: scale(.94); }
+  .accent { position: absolute; left: 0; right: 0; bottom: -1px; height: 3px;
+    background: var(--tier-c); box-shadow: 0 0 14px 1px var(--tier-g); transition: all .25s; }
+  .t-green { --tier-c:#22c55e; --tier-g:rgba(34,197,94,.45); } .t-green .chip { background:#15803d; color:#fff; } .t-green .num { color:#4ade80; }
+  .t-yellow{ --tier-c:#facc15; --tier-g:rgba(250,204,21,.45);} .t-yellow .chip{ background:#facc15; color:#0d1b2a; } .t-yellow .num{ color:#fde047; }
+  .t-amber { --tier-c:#f97316; --tier-g:rgba(249,115,22,.5); } .t-amber .chip { background:#ea580c; color:#fff; } .t-amber .num { color:#fb923c; }
+  .t-red   { --tier-c:#ef4444; --tier-g:rgba(239,68,68,.55); } .t-red .chip   { background:#b91c1c; color:#fff; } .t-red .num   { color:#f87171; }
+</style></head><body class="t-green">
+<div class="map"></div>
+<header>
+  <div class="hero">
+    <div class="lab">Avg waves</div>
+    <div class="num" id="avg">0.7<small>ft</small></div>
+    <div class="sub">Peak <b>1.8 ft</b> · Sunset Bay</div>
+  </div>
+  <div class="gauge" title="Wave scale — 8 steps over the 0-6 ft ramp">
+    <span class="lab">Wave scale</span>
+    <div class="bars" id="bars">
+      <div class="bar on"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+    </div>
+  </div>
+  <div class="side">
+    <div class="row"><button class="chip" id="chip" onclick="cycle()">Fishable · Light Chop</button></div>
+    <div class="row">
+      <span class="pill wind">11 <small>mph</small></span>
+      <span class="pill gust">24 <small>Gust</small></span>
+      <button class="now" title="Back to now" aria-label="Back to now">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="accent"></div>
+</header>
+<script>
+  // avg ft -> bars: 8 steps over the app's 0-6 ft wave ramp
+  const tiers = [
+    ['t-green','Fishable · Light Chop',0.7],['t-yellow','Walleye Chop',1.4],
+    ['t-amber','Heavy Rollers · Expert',2.6],['t-red','Dangerous · Stay Off',4.2]];
+  let i = 0;
+  function cycle(){
+    i = (i+1) % tiers.length;
+    const [cls,label,ft] = tiers[i];
+    document.body.className = cls;
+    document.getElementById('chip').textContent = label;
+    document.getElementById('avg').innerHTML = ft.toFixed(1) + '<small>ft</small>';
+    const filled = Math.ceil(ft/6*8);
+    document.querySelectorAll('.bar').forEach((b,k)=>b.classList.toggle('on', k < filled));
+  }
+</script>
+</body></html>

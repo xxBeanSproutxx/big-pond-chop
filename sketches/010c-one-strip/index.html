@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>010c — One Strip</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+         -webkit-font-smoothing: antialiased; color: #f8fafc; background: #0b1622; line-height: 1.5; }
+  .phone { max-width: 390px; margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column; }
+  /* === THE STANCE: no right column at all. One flat strip: instrument left,
+         verdict + action right, same baseline; stats line beneath. Map gets the air. === */
+  header { padding: 10px 14px 0; background: #0f172a; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .strip { display: flex; align-items: center; gap: 10px; }
+  .hero { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+  .hero .label { font-size: 9px; font-weight: 600; letter-spacing: .14em; color: #94a3b8;
+                 text-transform: uppercase; display: block; margin-bottom: 1px; }
+  .hero .numblock { display: flex; align-items: baseline; gap: 5px; }
+  .hero .num { font-size: 26px; font-weight: 700; color: #fff; line-height: 1;
+               font-variant-numeric: tabular-nums; }
+  .hero .unit { font-size: 12px; font-weight: 600; color: #94a3b8; }
+  .meter { display: inline-flex; align-items: flex-end; gap: 2px; height: 16px; }
+  .bar { width: 4px; border-radius: 1.5px 1.5px 0 0; background: rgba(148,163,184,.22);
+         transition: background .25s; }
+  .bar:nth-child(1){height:4px}.bar:nth-child(2){height:5.5px}.bar:nth-child(3){height:7px}
+  .bar:nth-child(4){height:8.5px}.bar:nth-child(5){height:10px}.bar:nth-child(6){height:12px}
+  .bar:nth-child(7){height:14px}.bar:nth-child(8){height:16px}
+  .bar.on { background: var(--tier-c); }
+  .side { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: 0 0 auto; }
+  #comfort-chip { flex: 0 0 auto; font-size: 11px; font-weight: 700; border-radius: 999px;
+                  padding: 3px 9px; white-space: nowrap; line-height: 1.25; cursor: pointer; }
+  .tier-green { background: #15803d; color: #fff; }
+  .tier-yellow { background: #facc15; color: #0d1b2a; }
+  .tier-amber { background: #ea580c; color: #fff; }
+  .tier-red { background: #dc2626; color: #fff; }
+  .t-green { --tier-c:#22c55e; } .t-yellow{ --tier-c:#facc15; }
+  .t-amber { --tier-c:#f97316; } .t-red { --tier-c:#ef4444; }
+  #refresh { background: rgba(255,255,255,.05); color: #cbd5e1;
+             border: 1px solid rgba(255,255,255,.15); border-radius: 999px;
+             width: 30px; min-width: 30px; height: 30px; padding: 0;
+             display: inline-flex; align-items: center; justify-content: center;
+             touch-action: manipulation; }
+  #refresh .icon { width: 14px; height: 14px; fill: none; stroke: currentColor;
+                   stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; display: block; }
+  .statline { display: flex; gap: 5px; align-items: baseline; font-size: 11px; color: #94a3b8;
+              padding: 5px 0 9px; white-space: nowrap; overflow: hidden; }
+  .statline b { color: #e2e8f0; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .map { flex: 1 1 auto; min-height: 560px; background: #14283b; position: relative; }
+  .map .heat { position: absolute; inset: 0;
+    background: radial-gradient(220px 160px at 45% 55%, var(--tier-c-soft, rgba(249,115,22,.25)), transparent 70%),
+                radial-gradient(140px 100px at 65% 40%, rgba(250,204,21,.12), transparent 70%);
+    transition: background .3s; }
+  .hint { padding: 10px 14px 16px; font-size: 11px; color: #64748b; text-align: center; }
+  .hint b { color: #94a3b8; }
+</style>
+</head>
+<body>
+<div class="phone t-amber">
+  <header>
+    <div class="strip">
+      <div class="hero">
+        <div>
+          <span class="label">Avg Waves</span>
+          <div class="numblock">
+            <span class="num" id="num">1.9</span><span class="unit">ft</span>
+          </div>
+        </div>
+        <span class="meter" id="meter" aria-hidden="true"></span>
+      </div>
+      <div class="side">
+        <span id="comfort-chip" class="tier-amber">Heavy Rollers</span>
+        <button id="refresh" type="button" aria-label="Back to now">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 11a8 8 0 1 0-2.3 5.7"></path>
+            <polyline points="20,5 20,11 14,11"></polyline>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div class="statline">Peak <b id="peak">4.6 ft</b> · <span id="windtxt">NW 15 · G17</span> · Upper and Lower Twin Island</div>
+  </header>
+  <div class="map"><div class="heat" id="heat"></div></div>
+  <div class="hint"><b>010c — one strip:</b> no column, everything on one line + a stats line. Tap the chip.</div>
+</div>
+<script>
+  const meter = document.getElementById('meter');
+  for (let i = 0; i < 8; i++) { const b = document.createElement('span'); b.className = 'bar'; meter.appendChild(b); }
+  const TIERS = [
+    { cls:'t-green',  chip:'tier-green',  text:'Fishable · Light Chop',  avg:'0.7', peak:'1.8 ft', bars:2, wind:'NW 7 · G9',  soft:'rgba(34,197,94,.22)' },
+    { cls:'t-yellow', chip:'tier-yellow', text:'Walleye Chop',           avg:'1.2', peak:'2.9 ft', bars:3, wind:'NW 12 · G15', soft:'rgba(250,204,21,.20)' },
+    { cls:'t-amber',  chip:'tier-amber',  text:'Heavy Rollers',          avg:'1.9', peak:'4.6 ft', bars:4, wind:'NW 15 · G17', soft:'rgba(249,115,22,.25)' },
+    { cls:'t-red',    chip:'tier-red',    text:'Dangerous · Stay Home',  avg:'4.2', peak:'7.1 ft', bars:7, wind:'N 24 · G31',  soft:'rgba(239,68,68,.28)' },
+  ];
+  let idx = 2;
+  const phone = document.querySelector('.phone');
+  const chip = document.getElementById('comfort-chip');
+  function apply() {
+    const t = TIERS[idx];
+    phone.className = 'phone ' + t.cls;
+    chip.className = t.chip; chip.textContent = t.text;
+    document.getElementById('num').textContent = t.avg;
+    document.getElementById('peak').textContent = t.peak;
+    document.getElementById('windtxt').textContent = t.wind;
+    document.getElementById('heat').style.setProperty('--tier-c-soft', t.soft);
+    [...meter.children].forEach((b, i) => b.classList.toggle('on', i < t.bars));
+  }
+  chip.addEventListener('click', () => { idx = (idx + 1) % TIERS.length; apply(); });
+  apply();
+</script>
+</body>
+</html>

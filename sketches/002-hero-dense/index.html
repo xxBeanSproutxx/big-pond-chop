@@ -1,0 +1,68 @@
+<!doctype html>
+<!-- Sketch 002: HERO-DENSE — A's function (hero avg, tier glow bar, loud condition color)
+     in B's body (thin one-row strip, flat stat anatomy, map-first).
+     Tap the condition chip to cycle green→yellow→amber→red. -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>002 · Hero Dense</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         -webkit-font-smoothing: antialiased; background: #0b1622; color: #f8fafc; }
+  .map { position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse 60% 45% at 50% 58%, rgba(56,132,168,.50), transparent 70%),
+      radial-gradient(ellipse 25% 18% at 38% 52%, rgba(22,101,132,.55), transparent 75%),
+      radial-gradient(ellipse 20% 14% at 63% 66%, rgba(13,74,98,.6), transparent 75%),
+      linear-gradient(160deg, #12202e 0%, #0d1a26 55%, #0b1622 100%); }
+  header { position: relative; z-index: 10; display: flex; align-items: center; gap: 10px;
+    height: 62px; padding: 0 12px;
+    background: rgba(15,23,42,.66); backdrop-filter: blur(14px) saturate(1.25);
+    border-bottom: 1px solid rgba(255,255,255,.07); }
+  .stat { display: flex; flex-direction: column; justify-content: center; line-height: 1.05; min-width: 0; }
+  .stat .k { font-size: 9px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: #7c8ba1; margin-bottom: 2px; }
+  .stat .v { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stat .v small { font-size: 10px; font-weight: 500; color: #cbd5e1; }
+  /* the hero: A's big number, still inside the strip */
+  .hero .v { font-size: 24px; font-weight: 800; letter-spacing: -.01em; transition: color .25s; }
+  .hero .v small { font-size: 12px; }
+  .sep { width: 1px; height: 30px; background: rgba(255,255,255,.14); flex: 0 0 auto; }
+  .chip { border: 0; border-radius: 999px; padding: 5px 11px; font-size: 10.5px; font-weight: 700;
+    cursor: pointer; white-space: nowrap; transition: background .25s, color .25s; flex: 0 0 auto; }
+  .now { margin-left: 2px; flex: 0 0 auto; width: 38px; height: 38px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.06); color: #cbd5e1;
+    display: grid; place-items: center; cursor: pointer; transition: transform .12s; }
+  .now:active { transform: scale(.92); }
+  .accent { position: absolute; left: 0; right: 0; bottom: -1px; height: 3px;
+    background: var(--tier-c); box-shadow: 0 0 12px 1px var(--tier-g); transition: all .25s; }
+  .t-green { --tier-c:#22c55e; --tier-g:rgba(34,197,94,.45); } .t-green .chip { background:#15803d; color:#fff; } .t-green .hero .v { color:#4ade80; }
+  .t-yellow{ --tier-c:#facc15; --tier-g:rgba(250,204,21,.45);} .t-yellow .chip{ background:#facc15; color:#0d1b2a; } .t-yellow .hero .v{ color:#fde047; }
+  .t-amber { --tier-c:#f97316; --tier-g:rgba(249,115,22,.5); } .t-amber .chip { background:#ea580c; color:#fff; } .t-amber .hero .v { color:#fb923c; }
+  .t-red   { --tier-c:#ef4444; --tier-g:rgba(239,68,68,.55); } .t-red .chip   { background:#b91c1c; color:#fff; } .t-red .hero .v   { color:#f87171; }
+</style></head><body class="t-green">
+<div class="map"></div>
+<header>
+  <div class="stat hero"><span class="k">Avg waves</span><span class="v" id="avg">0.7<small> ft</small></span></div>
+  <div class="sep"></div>
+  <div class="stat"><span class="k">Peak · Sunset Bay</span><span class="v">1.8<small> ft</small></span></div>
+  <div class="sep"></div>
+  <div class="stat"><span class="k">Wind · G24</span><span class="v">11<small> mph</small></span></div>
+  <button class="chip" id="chip" onclick="cycle()" style="margin-left:auto">Fishable · Light Chop</button>
+  <button class="now" title="Back to now" aria-label="Back to now">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/></svg>
+  </button>
+  <div class="accent"></div>
+</header>
+<script>
+  const tiers = [
+    ['t-green','Fishable · Light Chop','0.7'],['t-yellow','Walleye Chop','1.4'],
+    ['t-amber','Heavy Rollers · Expert','2.6'],['t-red','Dangerous · Stay Off','4.2']];
+  let i = 0;
+  function cycle(){
+    i = (i+1) % tiers.length;
+    document.body.className = tiers[i][0];
+    document.getElementById('chip').textContent = tiers[i][1];
+    document.getElementById('avg').innerHTML = tiers[i][2] + '<small> ft</small>';
+  }
+</script>
+</body></html>
