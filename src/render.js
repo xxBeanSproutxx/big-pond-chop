@@ -665,40 +665,25 @@ async function mount(deps) {
   // 6.3 trap: getBoundsZoom reads getMinZoom as its clamp, so a shrink (rotation, chrome
   // appearing) with a floor already installed returns a zoom that crops the lake.
   // The setMinZoom(0)-before-measure / setMinZoom(fitZoom)-after order is load-bearing.
-  // Spring-home target: the fitted view for the CURRENT viewport (captured at the
-  // end of fitLake; refits refresh it).
-  let home = null;
   const fitLake = () => {
     map.setMinZoom(0);                        // measure the fit free of our own floor
     map.fitBounds(llBounds, fitOpts);
     const fitZoom = map.getZoom();            // snapped, post-maxZoom(12)
     const fitCenter = map.getCenter();        // carries the header offset
-    const halfLat = (lakeBounds.getNorth() - lakeBounds.getSouth()) * (1 + 2 * 0.20) / 2;
-    const halfLng = (lakeBounds.getEast() - lakeBounds.getWest()) * (1 + 2 * 0.20) / 2;
-    map.setMaxBounds(L.latLngBounds(         // pan box re-centred on the FITTED centre
-      [fitCenter.lat - halfLat, fitCenter.lng - halfLng],
-      [fitCenter.lat + halfLat, fitCenter.lng + halfLng]));
+    // Pan fence = ONE mechanism (Reid): the rubber band itself is the recentering
+    // force. When the whole lake fits the viewport (the floor view), the fence IS
+    // the fitted frame + 2%, so the native maxBounds resistance engages immediately
+    // and the existing elastic snap-back lands on the fitted centre — no separate
+    // moveend spring (tried; felt like two effects fighting). If the viewport is
+    // too small to hold the lake (fit clamped by maxZoom), the fence falls back to
+    // the lake frame so panning stays free inside the lake.
+    const fitted = map.getBounds();
+    map.setMaxBounds(lakeBounds.contains(fitted)
+      ? fitted.pad(0.02)
+      : lakeBounds.pad(0.05));
     map.setMinZoom(fitZoom);                  // zoom floor = this viewport's fit
     if (map.getZoom() < fitZoom) map.setZoom(fitZoom);
-    home = { lat: fitCenter.lat, lng: fitCenter.lng, zoom: fitZoom };
   };
-  // Zoom-out recenter (Reid): the pan box is ~20% larger than the viewport, so at
-  // the floor zoom a drag can park the lake off-centre and only a refresh fixed it.
-  // On release AT the floor, glide back to the fitted frame; above the floor,
-  // panning is untouched. panTo (NOT flyTo — its zoom parabola pulses the canvas
-  // and its ease-in reads as lag), short duration = snappy spring. Guard skips an
-  // ACTIVE drag so an interrupted glide can't start a new one mid-gesture (the
-  // fly-vs-drag fight was the reported flash). The 12 px dead-zone lets a deliberate
-  // micro-nudge stay put; the glide lands dead-on home so it can't re-trigger.
-  const RECENTER_PX = 12;   // dead-zone; raise if the grab feels too eager
-  map.on('moveend', () => {
-    if (!home || map.dragging.moving()) return;
-    if (map.getZoom() > map.getMinZoom() + 1e-9) return;
-    const z = map.getZoom();
-    const off = map.project(map.getCenter(), z)
-      .distanceTo(map.project([home.lat, home.lng], z));
-    if (off > RECENTER_PX) map.panTo([home.lat, home.lng], { duration: 0.35, easeLinearity: 0.25 });
-  });
   // 6.3 Trap 2: a resize/rotation moves the fit and would leave the floor stale.
   // 6.4 D1.4: if the debounce lands mid-pan, re-arm (bounded) so the refit still lands
   // after the gesture instead of being silently dropped.
