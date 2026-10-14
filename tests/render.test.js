@@ -464,7 +464,10 @@ check('two-badge row ids present; shore pill / arrow / help / popover deleted; h
   assert.ok(order[0] < order[1], 'lake wind must come before gust');
   assert.ok(row.includes('Wind <'), 'the wind line must contain the word "Wind"');
   assert.ok((row.match(/ mph/g) || []).length >= 2, 'both numbers must carry an mph unit');
-  assert.ok(!/class="pill"/.test(row), 'the wind pills must stay deleted');
+  assert.ok(!/class="pill"/.test(row),
+    'the two separate wind pills must stay gone (wind line is ONE grouped pill)');
+  assert.ok(/#three \{[^}]*border-radius: 999px/.test(html),
+    '#three must be pill-shaped (one grouped pill, separator inside)');
   assert.ok(row.includes('id="gust-u"'), '#gust-u must still be present');
 });
 check('6.2 typography, wind line and the minute pill are pinned', () => {
