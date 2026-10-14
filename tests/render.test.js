@@ -462,7 +462,7 @@ check('two-badge row ids present; shore pill / arrow / help / popover deleted; h
   const order = ['lake', 'gust'].map((id) => row.indexOf(`id="${id}"`));
   assert.ok(order.every((k) => k >= 0), '#lake and #gust must sit inside the wind line');
   assert.ok(order[0] < order[1], 'lake wind must come before gust');
-  assert.ok(row.includes('Wind <'), 'the wind line must contain the word "Wind"');
+  assert.ok(!/Wind </.test(row), 'the word "Wind" must stay removed (pill reads "16 mph · Gust 17 mph")');
   assert.ok((row.match(/ mph/g) || []).length >= 2, 'both numbers must carry an mph unit');
   assert.ok(!/class="pill"/.test(row),
     'the two separate wind pills must stay gone (wind line is ONE grouped pill)');
