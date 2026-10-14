@@ -20,10 +20,11 @@ from PIL import Image, ImageDraw
 WARP = "public/warp.v1.json"
 OUT = "public/depth.v1.png"
 
-BASE_W = 2560          # px on the long axis at 1x (≈11 m/px for this frame)
+BASE_W = 1280          # px on the long axis at 1x (≈22 m/px — coarse enough that
+                       # hairlines survive phone-fit downscale; sharper would vanish)
 SS = 2                 # supersample factor -> 1px AA hairlines after downscale
 LINE_RGB = (58, 96, 122)   # desaturated slate blue — reads as "depth" on gray water
-LINE_ALPHA = 72            # ~28%: quiet under the wave layer. Tune HERE, not in JS.
+LINE_ALPHA = 104           # ~40%: quiet under the wave layer. Tune HERE, not in JS.
 DP_EPS_PX = 1.5            # Douglas-Peucker tolerance (1x px): kills source jitter
 MIN_LOOP_PX = 6            # drop closed segments smaller than this (1x px) — noise
 
@@ -107,7 +108,7 @@ def main(kml_path: str) -> None:
     total_lines = 0
     for depth in sorted(depths):
         for pts in depths[depth]:
-            d.line(pts, fill=LINE_RGB + (LINE_ALPHA,), width=SS, joint="curve")
+            d.line(pts, fill=LINE_RGB + (LINE_ALPHA,), width=2 * SS, joint="curve")
             total_lines += 1
     img = img.resize((W // SS, H // SS), Image.Resampling.LANCZOS)
     img = img.quantize(colors=64, method=Image.Quantize.FASTOCTREE)  # indexed PNG: tiny
