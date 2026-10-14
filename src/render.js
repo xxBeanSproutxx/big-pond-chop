@@ -665,6 +665,9 @@ async function mount(deps) {
   // 6.3 trap: getBoundsZoom reads getMinZoom as its clamp, so a shrink (rotation, chrome
   // appearing) with a floor already installed returns a zoom that crops the lake.
   // The setMinZoom(0)-before-measure / setMinZoom(fitZoom)-after order is load-bearing.
+  // Spring-home target: the fitted view for the CURRENT viewport (captured at the
+  // end of fitLake; refits refresh it).
+  let home = null;
   const fitLake = () => {
     map.setMinZoom(0);                        // measure the fit free of our own floor
     map.fitBounds(llBounds, fitOpts);
@@ -677,7 +680,23 @@ async function mount(deps) {
       [fitCenter.lat + halfLat, fitCenter.lng + halfLng]));
     map.setMinZoom(fitZoom);                  // zoom floor = this viewport's fit
     if (map.getZoom() < fitZoom) map.setZoom(fitZoom);
+    home = { lat: fitCenter.lat, lng: fitCenter.lng, zoom: fitZoom };
   };
+  // Zoom-out recenter (Reid): the pan box is ~20% larger than the viewport, so at
+  // the floor zoom a drag can park the lake off-centre and only a refresh fixed it.
+  // On release AT the floor, glide back to the fitted frame; above the floor,
+  // panning is untouched (rubber band + free pan stay exactly as before). The
+  // 12 px dead-zone lets a deliberate micro-nudge stay put and keeps the spring's
+  // own moveend (lands dead-on home) from re-triggering — a stale spring racing a
+  // resize refit also self-heals, since the loser's moveend springs to the new home.
+  const RECENTER_PX = 12;   // dead-zone; raise if the grab feels too eager
+  map.on('moveend', () => {
+    if (!home || map.getZoom() > map.getMinZoom() + 1e-9) return;
+    const z = map.getZoom();
+    const off = map.project(map.getCenter(), z)
+      .distanceTo(map.project([home.lat, home.lng], z));
+    if (off > RECENTER_PX) map.flyTo([home.lat, home.lng], home.zoom, { duration: 0.5 });
+  });
   // 6.3 Trap 2: a resize/rotation moves the fit and would leave the floor stale.
   // 6.4 D1.4: if the debounce lands mid-pan, re-arm (bounded) so the refit still lands
   // after the gesture instead of being silently dropped.

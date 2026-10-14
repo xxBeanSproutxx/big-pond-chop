@@ -6,7 +6,7 @@
 // (belt + suspenders — a mismatched HTML/JS pair from the HTTP heuristic cache
 // made the centre guide render off-screen on-device). reset.html clears a
 // wedged device: unregister SW + delete caches + reload.
-const CACHE_NAME = 'bpc-cache-v33';
+const CACHE_NAME = 'bpc-cache-v34';
 
 const SHELL = [
   './', './index.html',
