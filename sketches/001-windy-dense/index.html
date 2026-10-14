@@ -1,0 +1,61 @@
+<!doctype html>
+<!-- Variant B: WINDY-DENSE — one razor-thin stat strip, map gets every other pixel.
+     Tap the condition chip to cycle conditions. -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B · Windy Dense</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         -webkit-font-smoothing: antialiased; background: #0b1622; color: #f8fafc; }
+  .map { position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse 60% 45% at 50% 58%, rgba(56,132,168,.50), transparent 70%),
+      radial-gradient(ellipse 25% 18% at 38% 52%, rgba(22,101,132,.55), transparent 75%),
+      radial-gradient(ellipse 20% 14% at 63% 66%, rgba(13,74,98,.6), transparent 75%),
+      linear-gradient(160deg, #12202e 0%, #0d1a26 55%, #0b1622 100%); }
+  header { position: relative; z-index: 10; display: flex; align-items: center; gap: 7px;
+    height: 52px; padding: 0 10px;
+    background: rgba(15,23,42,.66); backdrop-filter: blur(14px) saturate(1.25);
+    border-bottom: 1px solid rgba(255,255,255,.07); }
+  .stat { display: flex; flex-direction: column; line-height: 1.1; min-width: 0; }
+  .stat .v { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stat .v small { font-size: 10px; font-weight: 500; color: #cbd5e1; }
+  .stat .k { font-size: 9px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: #7c8ba1; }
+  .dot { width: 1px; height: 22px; background: rgba(255,255,255,.14); flex: 0 0 auto; }
+  .chip { border: 0; border-radius: 999px; padding: 4px 9px; font-size: 10px; font-weight: 700;
+    cursor: pointer; white-space: nowrap; transition: background .25s; margin-left: 2px; }
+  .now { margin-left: auto; flex: 0 0 auto; width: 36px; height: 36px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.06); color: #cbd5e1;
+    display: grid; place-items: center; cursor: pointer; transition: transform .12s; }
+  .now:active { transform: scale(.92); }
+  .t-green .chip { background:#15803d; color:#fff; } .t-green .wv { color:#4ade80; }
+  .t-yellow .chip{ background:#facc15; color:#0d1b2a; } .t-yellow .wv{ color:#fde047; }
+  .t-amber .chip { background:#ea580c; color:#fff; } .t-amber .wv { color:#fb923c; }
+  .t-red .chip   { background:#b91c1c; color:#fff; } .t-red .wv   { color:#f87171; }
+</style></head><body class="t-green">
+<div class="map"></div>
+<header>
+  <div class="stat"><span class="v wv" id="avg">0.7<small> ft</small></span><span class="k">Avg</span></div>
+  <div class="dot"></div>
+  <div class="stat"><span class="v">1.8<small> ft</small></span><span class="k">Peak · Sunset Bay</span></div>
+  <div class="dot"></div>
+  <div class="stat"><span class="v">11<small> mph</small></span><span class="k">Wind · G24</span></div>
+  <button class="chip" id="chip" onclick="cycle()">Fishable · Light Chop</button>
+  <button class="now" title="Back to now" aria-label="Back to now">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/></svg>
+  </button>
+</header>
+<script>
+  const tiers = [
+    ['t-green','Fishable · Light Chop','0.7'],['t-yellow','Walleye Chop','1.4'],
+    ['t-amber','Heavy Rollers','2.6'],['t-red','Dangerous','4.2']];
+  let i = 0;
+  function cycle(){
+    i = (i+1) % tiers.length;
+    document.body.className = tiers[i][0];
+    document.getElementById('chip').textContent = tiers[i][1];
+    document.getElementById('avg').innerHTML = tiers[i][2] + '<small> ft</small>';
+  }
+</script>
+</body></html>

@@ -6,7 +6,7 @@
 // (belt + suspenders — a mismatched HTML/JS pair from the HTTP heuristic cache
 // made the centre guide render off-screen on-device). reset.html clears a
 // wedged device: unregister SW + delete caches + reload.
-const CACHE_NAME = 'bpc-cache-v28';
+const CACHE_NAME = 'bpc-cache-v29';
 
 const SHELL = [
   './', './index.html',
@@ -14,7 +14,13 @@ const SHELL = [
   './public/meta.v1.json', './public/mask.v1.json', './public/spots.v1.json',
   './public/warp.v1.json', './public/tables.v1.bin',
   './public/favicon.svg', './public/icon-192.png', './public/icon-512.png',
-  './manifest.webmanifest'
+  './manifest.webmanifest',
+  // 2026-10-14: Leaflet vendored (performance pass) — no third-party boot
+  // dependency; unpkg outages can no longer blank the map.
+  './vendor/leaflet/leaflet.css', './vendor/leaflet/leaflet.js',
+  './vendor/leaflet/images/layers.png', './vendor/leaflet/images/layers-2x.png',
+  './vendor/leaflet/images/marker-icon.png', './vendor/leaflet/images/marker-icon-2x.png',
+  './vendor/leaflet/images/marker-shadow.png'
 ];
 
 self.addEventListener('install', (e) => {
@@ -35,7 +41,7 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.origin !== self.location.origin) return; // open-meteo, unpkg, tiles: never cached
+  if (url.origin !== self.location.origin) return; // open-meteo, tiles: never cached
 
   if (req.mode === 'navigate' || req.destination === 'document') {
     e.respondWith(
