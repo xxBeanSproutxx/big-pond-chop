@@ -9,6 +9,7 @@ ImageOverlay._reset's transform math and that path drifted before).
 
 Usage: python3 tools/export_depth_raster.py <lakefinder.kml>
 Writes: public/depth.v1.png (subtle slate lines, alpha baked in, JS opacity 1).
+Single raster: index contours at 10-ft steps at all zooms (zoom staging retired).
 """
 import json
 import re
@@ -19,9 +20,8 @@ from PIL import Image, ImageDraw
 
 WARP = "public/warp.v1.json"
 OUT = "public/depth.v1.png"
-OUT_MAJOR = "public/depth-major.v1.png"
 
-MAJOR_EVERY = 10        # index contours only in the major raster (10/20/30/40 ft)
+MAJOR_EVERY = 10        # index contours only: 10-ft steps (10/20/30/40 ft)
 
 BASE_W = 1280          # px on the long axis at 1x (≈22 m/px — coarse enough that
                        # hairlines survive phone-fit downscale; sharper would vanish)
@@ -105,31 +105,25 @@ def main(kml_path: str) -> None:
     if not depths:
         sys.exit("no '<N> ft' placemarks found — wrong KML?")
 
-    # --- draw supersampled, downscale for AA hairlines; full ladder + major-only ---
+    # --- draw supersampled, downscale for AA hairlines ---
     import os
-    for out, levels in ((OUT, sorted(depths)),
-                         (OUT_MAJOR, [d for d in sorted(depths) if d % MAJOR_EVERY == 0])):
-        img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        d = ImageDraw.Draw(img)
-        total_lines = 0
-        for depth in levels:
-            for pts in depths[depth]:
-                d.line(pts, fill=LINE_RGB + (LINE_ALPHA,), width=2 * SS, joint="curve")
-                total_lines += 1
-        img = img.resize((W // SS, H // SS), Image.Resampling.LANCZOS)
-        img = img.quantize(colors=64, method=Image.Quantize.FASTOCTREE)  # indexed PNG: tiny
-        img.save(out, optimize=True)
-        print(f"out: {out}  levels: {levels}  lines: {total_lines}  "
-              f"{os.path.getsize(out)/1024:.0f} KB  {img.size[0]}x{img.size[1]}")
+    levels = [d for d in sorted(depths) if d % MAJOR_EVERY == 0]
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    total_lines = 0
+    for depth in levels:
+        for pts in depths[depth]:
+            d.line(pts, fill=LINE_RGB + (LINE_ALPHA,), width=2 * SS, joint="curve")
+            total_lines += 1
+    img = img.resize((W // SS, H // SS), Image.Resampling.LANCZOS)
+    img = img.quantize(colors=64, method=Image.Quantize.FASTOCTREE)  # indexed PNG: tiny
+    img.save(OUT, optimize=True)
+    print(f"out: {OUT}  levels: {levels}  lines: {total_lines}  "
+          f"{os.path.getsize(OUT)/1024:.0f} KB  {img.size[0]}x{img.size[1]}")
 
     # --- receipt ---
-    xs = [p[0] for lst in depths.values() for pts in lst for p in pts]
-    ys = [p[1] for lst in depths.values() for pts in lst for p in pts]
-    print(f"levels: {sorted(depths)}")
-    print(f"lines: {sum(len(l) for l in depths.values())}  "
-          f"points: {sum(len(p) for l in depths.values() for p in l)}")
-    print(f"contour extent in frame-px: x [{min(xs):.0f}..{max(xs):.0f}] of {W//SS}, "
-          f"y [{min(ys):.0f}..{max(ys):.0f}] of {H//SS}")
+    print(f"parsed from KML: levels {sorted(depths)} ({sum(len(l) for l in depths.values())} lines, "
+          f"{sum(len(p) for l in depths.values() for p in l)} pts) — drew index contours only")
 
 
 if __name__ == "__main__":
